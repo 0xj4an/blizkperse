@@ -1,16 +1,16 @@
 # Blizkperse (Monad)
 
-**Making distributing stablecoin rewards painless.**
+**Making distributing crypto payments painless.**
 
-Blizkperse is a payout distribution system built on **Monad**. It solves the "onboarding gap" for event rewards and community grants by allowing organizers to send funds before recipients even have a wallet.
+Blizkperse is a general-purpose payout platform on **Monad**. It solves the "onboarding gap" by allowing organizers to send funds to users who haven't set up a wallet yet.
 
 ## How it works
 
-1.  **Organizers** upload a payout list (e.g., emails/GitHub handles + amounts in USDm).
-2.  **Organizers** deposit the total amount into an onchain **Escrow Contract** on Monad.
-3.  **Recipients** receive a link, login via **Social Login** (Google/Twitter/etc. powered by Privy).
-4.  An **Embedded Wallet** is created instantly for them.
-5.  Recipients click **Claim** to receive their USDm, with zero friction.
+1.  **Recipients** login via **Social Login** (Privy) -> Instantly get an Embedded Wallet.
+2.  **Recipients** "Subscribe" to a Payer (Organizer/DAO).
+3.  **Payers** select subscribers from a list, input amounts of **Any Token** (USDC, MON, Memes), and execute a **Bulk Payout**.
+4.  **Privacy (ZK)**: Payments are processed via Zero-Knowledge proofs.
+5.  **Agents**: API-ready for AI Agents (OpenClaw) to trigger payouts autonomously.
 
 ## Tech Stack
 
@@ -18,7 +18,8 @@ Blizkperse is a payout distribution system built on **Monad**. It solves the "on
 -   **Contracts**: Foundry (Solidity)
 -   **Frontend**: Next.js + TailwindCSS
 -   **Auth**: Privy (Social Login + Embedded Wallets)
--   **Payments**: USDC (Monad Testnet: `0x534b2f3A21130d7a60830c2Df862319e593943A3`)
+-   **Infrastructure**: Railway (PostgreSQL + Next.js Hosting)
+-   **Payments**: Any ERC20 (Defaults to USDC: `0x534b...`)
 
 ## Getting Started
 
