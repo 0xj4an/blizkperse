@@ -1,12 +1,12 @@
 pragma solidity ^0.8.17;
 
 import "forge-std/Script.sol";
-import "../circuits/target/contract.sol";
+import "../circuits/target/Verifier.sol";
 import "../contract/Starter.sol";
 
 contract VerifyScript is Script {
     Starter public starter;
-    UltraVerifier public verifier;
+    HonkVerifier public verifier;
 
     function setUp() public {}
 
@@ -14,7 +14,7 @@ contract VerifyScript is Script {
         uint256 deployerPrivateKey = vm.envUint("LOCALHOST_PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
 
-        verifier = new UltraVerifier();
+        verifier = new HonkVerifier();
         starter = new Starter(verifier);
 
         string memory proof = vm.readLine("./circuits/proofs/with_foundry.proof");

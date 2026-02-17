@@ -1,3 +1,14 @@
-return = 3
-x = 3
-y = 3
+# PUBLIC
+new_commitment = "0x01cbc914ff78336b07b708ea8fa89f873f9390fe88cab65165229956bd2ff04a"
+nullifier_in = "0x2"
+merkle_proof_length = 1
+expected_merkle_root = "0x22cf2644fdf1bad73688c37f0857be91e09fa36cbd75e7d588c672491001f39b" # da igual mientras esté comentado el assert
+
+# PRIVATE
+value = "0x5"
+pk_b = "0x13"
+random = "0x9"
+from = "0x7"
+
+merkle_proof_indices = [0,0,0,0,0,0,0,0,0,0]
+merkle_proof_siblings = ["0x0","0x0","0x0","0x0","0x0","0x0","0x0","0x0","0x0","0x0"]

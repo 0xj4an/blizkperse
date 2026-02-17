@@ -1,11 +1,11 @@
 pragma solidity ^0.8.17;
 
-import "../circuits/target/contract.sol";
+import "../circuits/target/Verifier.sol";
 
 contract Starter {
-    UltraVerifier public verifier;
+    BaseZKHonkVerifier public verifier;
 
-    constructor(UltraVerifier _verifier) {
+    constructor(BaseZKHonkVerifier _verifier) {
         verifier = _verifier;
     }
 
