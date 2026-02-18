@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blizkperse - Confidential Payouts</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/theme/black.min.css">
+    <style>
+        :root {
+            --bg: #0a0a12;
+            --bg-subtle: #12121e;
+            --fg: #e8e6f0;
+            --fg-muted: #8b89a0;
+            --purple: #a855f7;
+            --purple-dim: rgba(168, 85, 247, 0.15);
+            --indigo: #6366f1;
+            --cyan: #06b6d4;
+            --red: #f43f5e;
+            --red-dim: rgba(244, 63, 94, 0.12);
+            --glass-bg: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.07);
+        }
+
+        html, body { margin: 0; padding: 0; overflow: hidden; background: var(--bg); }
+
+        /* Background effects on body, not on .reveal */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 80% 60% at 20% 80%, rgba(99, 102, 241, 0.08), transparent),
+                radial-gradient(ellipse 60% 80% at 80% 20%, rgba(168, 85, 247, 0.06), transparent),
+                radial-gradient(ellipse 50% 50% at 50% 50%, rgba(6, 182, 212, 0.04), transparent);
+            animation: meshShift 20s ease-in-out infinite alternate;
+            pointer-events: none;
+            z-index: 0;
+        }
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image: radial-gradient(rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 32px 32px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        @keyframes meshShift {
+            0%   { opacity: 0.6; filter: hue-rotate(0deg); }
+            50%  { opacity: 1;   filter: hue-rotate(15deg); }
+            100% { opacity: 0.7; filter: hue-rotate(-10deg); }
+        }
+
+        /* Reveal overrides */
+        .reveal {
+            font-family: 'Inter', system-ui, sans-serif;
+            color: var(--fg);
+        }
+        .reveal .slide-background { background: transparent !important; }
+        .reveal .slides { z-index: 2; }
+        .reveal h1, .reveal h2, .reveal h3, .reveal h4 {
+            font-family: 'Inter', system-ui, sans-serif;
+            text-transform: none;
+            color: var(--fg);
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.4em;
+        }
+        .reveal h1 { font-weight: 700; }
+        .reveal h1 { margin-top: 0; margin-bottom: 0.3em; }
+        .reveal h2 { font-size: 1.6em; margin-top: 0; }
+        .reveal blockquote { margin: 0; padding: 0; background: none; border: none; box-shadow: none; font-size: 0.75em !important; width: auto !important; }
+        .reveal p, .reveal li, .reveal small, .reveal blockquote {
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+        .reveal ul { list-style: none; padding: 0; margin: 0; }
+        .reveal section { padding: 10px 20px; box-sizing: border-box; }
+
+        /* Fragment animation */
+        .reveal .fragment { transition: all 0.4s cubic-bezier(0.4,0,0.2,1); }
+        .reveal .fragment.fade-up { transform: translateY(16px); }
+        .reveal .fragment.fade-up.visible { transform: translateY(0); }
+
+        /* Utilities */
+        .gradient-text {
+            background: linear-gradient(135deg, var(--cyan), var(--purple), var(--indigo));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .text-purple { color: var(--purple) !important; }
+        .text-cyan   { color: var(--cyan) !important; }
+        .text-red    { color: var(--red) !important; }
+        .text-muted  { color: var(--fg-muted) !important; }
+        .text-mono   { font-family: 'JetBrains Mono', monospace; font-size: 0.9em; }
+        .subtitle    { font-weight: 300; font-size: 0.9em; opacity: 0.9; margin-top: -6px; margin-bottom: 0; }
+        .label       { font-size: 0.6em; text-transform: uppercase; letter-spacing: 3px; color: var(--fg-muted); margin-bottom: 16px; }
+
+        /* Glass */
+        .glass {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .glass--purple { border-color: rgba(168,85,247,0.2); box-shadow: 0 0 30px rgba(168,85,247,0.05); }
+        .glass--red    { border-color: rgba(244,63,94,0.2);  box-shadow: 0 0 30px rgba(244,63,94,0.05); }
+
+        /* Card */
+        .card {
+            background: var(--bg-subtle);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 18px 16px;
+            transition: all 0.3s ease;
+        }
+        .card:hover { transform: translateY(-4px); border-color: var(--purple); box-shadow: 0 8px 30px rgba(168,85,247,0.1); }
+
+        /* Layout */
+        .row { display: flex; gap: 14px; align-items: stretch; }
+        .row > * { flex: 1; min-width: 0; }
+        .col { display: flex; flex-direction: column; gap: 8px; }
+
+        /* Data rows */
+        .data-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; font-size: 0.68em; text-align: left; }
+        .data-row--neutral { background: rgba(255,255,255,0.04); }
+        .data-row--danger  { background: var(--red-dim); border: 1px solid rgba(244,63,94,0.2); }
+        .data-row .icon { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .data-row .icon svg { width: 14px; height: 14px; }
+        .icon--send { background: var(--purple-dim); }
+        .icon--eye  { background: var(--red-dim); }
+
+        /* Pipeline */
+        .pipeline { display: flex; align-items: center; justify-content: center; }
+        .pipeline__node { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 16px; }
+        .pipeline__icon { width: 44px; height: 44px; border-radius: 11px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--glass-border); background: var(--glass-bg); }
+        .pipeline__icon svg { width: 22px; height: 22px; }
+        .pipeline__icon--shield { background: var(--purple-dim); border-color: rgba(168,85,247,0.3); box-shadow: 0 0 24px rgba(168,85,247,0.15); animation: pulseGlow 3s ease-in-out infinite; }
+        .pipeline__arrow { width: 40px; height: 2px; background: linear-gradient(90deg, var(--glass-border), var(--purple), var(--glass-border)); position: relative; }
+        .pipeline__arrow::after { content: ''; position: absolute; right: -3px; top: -3px; width: 8px; height: 8px; border-right: 2px solid var(--purple); border-top: 2px solid var(--purple); transform: rotate(45deg); }
+
+        /* Feature item */
+        .feature-item { display: flex; align-items: flex-start; gap: 10px; text-align: left; font-size: 0.72em; margin-bottom: 8px; }
+        .feature-item__icon { width: 28px; height: 28px; border-radius: 7px; background: var(--purple-dim); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+        .feature-item__icon svg { width: 16px; height: 16px; }
+
+        /* Logo */
+        .logo-container {
+            width: 64px; height: 64px; margin: 0 auto 10px;
+            background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 22px;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 50px rgba(168,85,247,0.2), 0 0 100px rgba(99,102,241,0.08);
+            animation: logoFloat 6s ease-in-out infinite;
+        }
+
+        /* Quote */
+        .reveal .slides .quote { border: none; font-size: 0.85em; font-style: italic; color: var(--fg); line-height: 1.4; padding: 0; margin: 0; text-align: center !important; }
+        .quote em { color: var(--purple); font-style: normal; font-weight: 500; }
+
+        /* Tag */
+        .tag { display: inline-block; font-size: 0.6em; padding: 5px 14px; border-radius: 100px; background: var(--purple-dim); color: var(--purple); font-weight: 500; }
+
+        /* Footer */
+        .slide-footer { margin-top: 14px; font-size: 0.55em; color: var(--fg-muted); }
+
+        @keyframes logoFloat {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-6px); }
+        }
+        @keyframes pulseGlow {
+            0%, 100% { box-shadow: 0 0 16px rgba(168,85,247,0.1); }
+            50% { box-shadow: 0 0 32px rgba(168,85,247,0.25); }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="reveal">
+        <div class="slides">
+
+            <!-- Slide 1: Title -->
+            <section>
+                <div class="logo-container">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 80" width="40" height="40" fill="none">
+                        <defs>
+                            <linearGradient id="ig" x1="5" y1="5" x2="65" y2="75" gradientUnits="userSpaceOnUse">
+                                <stop offset="0%" stop-color="#a855f7"/><stop offset="50%" stop-color="#6366f1"/><stop offset="100%" stop-color="#06b6d4"/>
+                            </linearGradient>
+                        </defs>
+                        <g transform="translate(4,4)" stroke="url(#ig)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none">
+                            <ellipse cx="32" cy="36" rx="28" ry="34" transform="rotate(-15,32,36)"/>
+                            <polygon points="32,12 52,23.5 52,46.5 32,58 12,46.5 12,23.5"/>
+                            <polyline points="38,8 26,36 38,34 24,64" stroke-width="3"/>
+                        </g>
+                    </svg>
+                </div>
+                <h1 class="gradient-text" style="font-size:2.2em;line-height:1.05">Blizkperse</h1>
+                <p class="subtitle">Confidential Payouts on <strong class="text-purple">Monad</strong></p>
+                <div class="glass" style="margin-top:18px;max-width:500px;margin-left:auto;margin-right:auto;padding:14px 18px">
+                    <blockquote class="quote">"On-chain payments have a <em>fatal flaw</em>: They leak your entire business strategy."</blockquote>
+                </div>
+            </section>
+
+            <!-- Slide 2: Problem -->
+            <section>
+                <h2 class="text-purple">The Problem</h2>
+                <p class="label">Reverse Engineering</p>
+
+                <div class="row">
+                    <div class="glass glass--purple">
+                        <h4 style="font-size:0.7em;margin-bottom:10px;color:var(--purple)">Your On-Chain Activity</h4>
+                        <div class="col">
+                            <div class="data-row data-row--neutral fragment fade-up">
+                                <div class="icon icon--send"><svg viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><polygon points="22 2 15 22 11 13 2 9"/></svg></div>
+                                <span>Payout to <strong class="text-mono">0x123...abc</strong></span>
+                            </div>
+                            <div class="data-row data-row--neutral fragment fade-up">
+                                <div class="icon icon--send"><svg viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><polygon points="22 2 15 22 11 13 2 9"/></svg></div>
+                                <span>Grant to <strong class="text-mono">0x456...def</strong></span>
+                            </div>
+                            <div class="data-row data-row--neutral fragment fade-up">
+                                <div class="icon icon--send"><svg viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><polygon points="22 2 15 22 11 13 2 9"/></svg></div>
+                                <span>Vendor <strong class="text-mono">0x789...101</strong></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display:flex;align-items:center;justify-content:center;flex:0 0 32px">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                    </div>
+
+                    <div class="glass glass--red">
+                        <h4 style="font-size:0.7em;margin-bottom:10px;color:var(--red)">Competitor Intel</h4>
+                        <div class="col">
+                            <div class="data-row data-row--danger fragment fade-up">
+                                <div class="icon icon--eye"><svg viewBox="0 0 24 24" fill="none" stroke="#f43f5e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
+                                <span>Found: <strong>Lead Dev Salary</strong></span>
+                            </div>
+                            <div class="data-row data-row--danger fragment fade-up">
+                                <div class="icon icon--eye"><svg viewBox="0 0 24 24" fill="none" stroke="#f43f5e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
+                                <span>Found: <strong>New Grant Strategy</strong></span>
+                            </div>
+                            <div class="data-row data-row--danger fragment fade-up">
+                                <div class="icon icon--eye"><svg viewBox="0 0 24 24" fill="none" stroke="#f43f5e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
+                                <span>Found: <strong>Server Costs</strong></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="slide-footer" style="letter-spacing:2px"><span class="text-red">PUBLIC PAYMENTS</span> = CORPORATE ESPIONAGE</p>
+            </section>
+
+            <!-- Slide 3: Solution -->
+            <section>
+                <h2 class="gradient-text">The Solution</h2>
+                <p class="subtitle" style="margin-bottom:18px">Anti-Reverse Engineering Shield</p>
+
+                <div class="glass" style="max-width:460px;margin:0 auto;padding:12px">
+                    <div class="pipeline">
+                        <div class="pipeline__node fragment fade-up">
+                            <div class="pipeline__icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--fg)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg></div>
+                            <small class="text-muted">Public Deposit</small>
+                        </div>
+                        <div class="pipeline__arrow fragment fade-up"></div>
+                        <div class="pipeline__node fragment fade-up">
+                            <div class="pipeline__icon pipeline__icon--shield"><svg viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+                            <small class="text-purple" style="font-weight:500">ZK Shield</small>
+                        </div>
+                        <div class="pipeline__arrow fragment fade-up"></div>
+                        <div class="pipeline__node fragment fade-up">
+                            <div class="pipeline__icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--fg)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+                            <small class="text-muted">Private Claim</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="max-width:460px;margin:18px auto 0">
+                    <div class="feature-item fragment fade-up">
+                        <div class="feature-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></div>
+                        <div><strong>Link Broken</strong> &mdash; <span class="text-muted">ZK Proofs shield the receiver via <strong class="text-purple">Noir Circuits</strong>.</span></div>
+                    </div>
+                    <div class="feature-item fragment fade-up">
+                        <div class="feature-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg></div>
+                        <div><strong>Why Monad?</strong> &mdash; <span class="text-muted">ZK is slow. Monad makes it <strong class="text-cyan">instant + cheap</strong>.</span></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 4: Demo -->
+            <section>
+                <h2 class="text-purple">Venmo for Privacy</h2>
+                <p class="label">3 Steps. No Wallet. No Friction.</p>
+
+                <div class="row">
+                    <div class="card fragment fade-up">
+                        <div style="margin-bottom:10px"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+                        <h4 class="gradient-text" style="font-size:0.9em">1. Login</h4>
+                        <small class="text-muted">Social Login<br>No Friction</small>
+                    </div>
+                    <div class="card fragment fade-up">
+                        <div style="margin-bottom:10px"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg></div>
+                        <h4 class="gradient-text" style="font-size:0.9em">2. Subscribe</h4>
+                        <small class="text-muted">Click "Join"<br>No Address Needed</small>
+                    </div>
+                    <div class="card fragment fade-up">
+                        <div style="margin-bottom:10px"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+                        <h4 class="gradient-text" style="font-size:0.9em">3. Claim</h4>
+                        <small class="text-muted">Instant Payout<br>Monad Speed</small>
+                    </div>
+                </div>
+
+                <p class="slide-footer"><span class="tag">Monad Mainnet &middot; Chain 143</span></p>
+            </section>
+
+            <!-- Slide 5: Roadmap -->
+            <section>
+                <h2 class="text-purple">Roadmap</h2>
+                <h4 class="gradient-text" style="margin-bottom:22px;font-size:0.95em">What's Next</h4>
+
+                <div class="glass glass--purple" style="position:relative;overflow:hidden;max-width:520px;margin:0 auto">
+                    <div style="position:absolute;top:-50%;left:-30%;width:160%;height:200%;background:radial-gradient(circle,rgba(168,85,247,0.07) 0%,transparent 55%);pointer-events:none"></div>
+                    <div style="position:relative;z-index:1">
+                        <div class="feature-item fragment fade-up">
+                            <div class="feature-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+                            <div><strong>Now</strong> &mdash; <span class="text-muted">Shielded payouts live on Monad mainnet.</span></div>
+                        </div>
+                        <div class="feature-item fragment fade-up">
+                            <div class="feature-item__icon" style="background:rgba(6,182,212,0.12)"><svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/><path d="M9 1v3"/><path d="M15 1v3"/><path d="M9 20v3"/><path d="M15 20v3"/><path d="M20 9h3"/><path d="M20 14h3"/><path d="M1 9h3"/><path d="M1 14h3"/></svg></div>
+                            <div><strong>Next</strong> &mdash; <span class="text-muted">AI Agent integration &mdash; agents paying humans autonomously & privately.</span></div>
+                        </div>
+                        <div class="feature-item fragment fade-up">
+                            <div class="feature-item__icon" style="background:rgba(99,102,241,0.12)"><svg viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg></div>
+                            <div><strong>Vision</strong> &mdash; <span class="text-muted">First confidential payout rail built for the agentic economy.</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top:28px" class="fragment fade-up">
+                    <p style="font-size:1.05em;font-weight:500">Join the Revolution.</p>
+                    <span class="tag">blizkperse.xyz</span>
+                </div>
+            </section>
+
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.js"></script>
+    <script>
+        Reveal.initialize({
+            controls: true,
+            progress: true,
+            center: true,
+            hash: true,
+            transition: 'fade',
+            transitionSpeed: 'default',
+            backgroundTransition: 'fade',
+            width: 960,
+            height: 700,
+            margin: 0.12,
+            minScale: 0.1,
+            maxScale: 2.0,
+            disableLayout: false,
+        });
+    </script>
+</body>
+
+</html>

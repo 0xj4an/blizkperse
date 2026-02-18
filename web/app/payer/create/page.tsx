@@ -13,6 +13,13 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { TxStatus, type TxState } from "@/components/tx-status";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   ArrowLeft,
   ArrowRight,
   Users,
@@ -25,6 +32,7 @@ import {
   createPayout,
 } from "@/lib/store";
 import { useParaWalletClient } from "@/lib/wallet";
+import { SUPPORTED_TOKENS, DEFAULT_TOKEN, type TokenConfig } from "@/lib/constants";
 
 type Step = "select" | "amounts" | "review";
 
@@ -46,6 +54,7 @@ export default function CreatePayoutPage() {
   const [txState, setTxState] = useState<TxState>("idle");
   const [txHash, setTxHash] = useState<string>();
   const [progressMsg, setProgressMsg] = useState<string>();
+  const [selectedToken, setSelectedToken] = useState<TokenConfig>(DEFAULT_TOKEN);
   const { walletClient, isReady } = useParaWalletClient();
 
   const filtered = availableSubscribers.filter(
@@ -95,6 +104,7 @@ export default function CreatePayoutPage() {
           subscriberId: id,
           amount: amounts[id] || 0,
         })),
+        token: selectedToken.symbol,
         walletClient: walletClient ?? undefined,
         onProgress: (step, current, total) => {
           setProgressMsg(`${step} (${current}/${total})`);
@@ -233,9 +243,27 @@ export default function CreatePayoutPage() {
             className="space-y-4"
           >
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Set amount per subscriber
-              </p>
+              <div className="flex items-center gap-3">
+                <label className="text-sm text-muted-foreground">Token</label>
+                <Select
+                  value={selectedToken.symbol}
+                  onValueChange={(val) => {
+                    const t = SUPPORTED_TOKENS.find((t) => t.symbol === val);
+                    if (t) setSelectedToken(t);
+                  }}
+                >
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUPPORTED_TOKENS.map((t) => (
+                      <SelectItem key={t.symbol} value={t.symbol}>
+                        {t.symbol}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <Button variant="outline" size="sm" onClick={handleEqualSplit}>
                 Equal Split
               </Button>
@@ -255,7 +283,6 @@ export default function CreatePayoutPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">$</span>
                         <Input
                           type="number"
                           min={0}
@@ -269,7 +296,9 @@ export default function CreatePayoutPage() {
                           }
                           className="w-28 text-right"
                         />
-                        <span className="text-xs text-muted-foreground">tokens</span>
+                        <span className="text-xs font-medium text-muted-foreground w-10">
+                          {selectedToken.symbol}
+                        </span>
                       </div>
                     </div>
                   );
@@ -280,7 +309,7 @@ export default function CreatePayoutPage() {
             <div className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
               <span className="text-sm font-medium">Total</span>
               <span className="text-xl font-bold">
-                ${totalAmount.toLocaleString()} tokens
+                {totalAmount.toLocaleString()} {selectedToken.symbol}
               </span>
             </div>
 
@@ -323,7 +352,7 @@ export default function CreatePayoutPage() {
                           <div key={id} className="flex items-center justify-between text-sm">
                             <span>{s.name}</span>
                             <span className="font-medium">
-                              ${(amounts[id] || 0).toLocaleString()} tokens
+                              {(amounts[id] || 0).toLocaleString()} {selectedToken.symbol}
                             </span>
                           </div>
                         );
@@ -336,7 +365,7 @@ export default function CreatePayoutPage() {
                         {selected.size} recipients
                       </div>
                       <span className="text-2xl font-bold gradient-text">
-                        ${totalAmount.toLocaleString()} tokens
+                        {totalAmount.toLocaleString()} {selectedToken.symbol}
                       </span>
                     </div>
                   </CardContent>
@@ -355,7 +384,7 @@ export default function CreatePayoutPage() {
                   >
                     <CircleDollarSign className="h-5 w-5" />
                     {isReady
-                      ? `Deposit $${totalAmount.toLocaleString()} tokens`
+                      ? `Deposit ${totalAmount.toLocaleString()} ${selectedToken.symbol}`
                       : "Connect wallet to deposit"}
                   </Button>
                 </div>

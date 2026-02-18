@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import sql from "@/lib/db";
 
 export async function POST(req: NextRequest) {
-  const { organizer_id, total_amount, tx_hash, recipients } = await req.json();
+  const { organizer_id, total_amount, token, tx_hash, recipients } = await req.json();
 
   // insert payout
   const [payout] = await sql`
-    INSERT INTO payouts (organizer_id, total_amount, status, tx_hash)
-    VALUES (${organizer_id}, ${total_amount}, 'deposited', ${tx_hash})
+    INSERT INTO payouts (organizer_id, total_amount, token, status, tx_hash)
+    VALUES (${organizer_id}, ${total_amount}, ${token ?? 'MON'}, 'deposited', ${tx_hash})
     RETURNING *
   `;
 

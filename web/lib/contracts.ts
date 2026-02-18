@@ -10,7 +10,7 @@ import {
   type Hex,
   type Chain,
 } from "viem";
-import { MONAD_RPC_URL, POOL_ADDRESS, USDM_ADDRESS } from "./constants";
+import { MONAD_RPC_URL, POOL_ADDRESS, USDM_ADDRESS, SUPPORTED_TOKENS, type TokenConfig } from "./constants";
 
 // ── Monad chain definition ──────────────────────────────
 export const monadMainnet = {
@@ -157,6 +157,40 @@ export async function getUSDmAllowance(
     functionName: "allowance",
     args: [owner, spender],
   }) as Promise<bigint>;
+}
+
+// ── Token balance helpers ────────────────────────────────
+
+export async function getTokenBalance(
+  account: Hex,
+  token: TokenConfig
+): Promise<bigint> {
+  const client = getPublicClient();
+  if (token.isNative) {
+    return client.getBalance({ address: account });
+  }
+  return client.readContract({
+    address: token.address! as Hex,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: [account],
+  }) as Promise<bigint>;
+}
+
+export async function getAllBalances(
+  account: Hex
+): Promise<Record<string, bigint>> {
+  const results = await Promise.all(
+    SUPPORTED_TOKENS.map(async (t) => {
+      try {
+        const bal = await getTokenBalance(account, t);
+        return [t.symbol, bal] as const;
+      } catch {
+        return [t.symbol, 0n] as const;
+      }
+    })
+  );
+  return Object.fromEntries(results);
 }
 
 // ── Event indexing ──────────────────────────────────────

@@ -46,6 +46,7 @@ export interface Payout {
   id: string;
   organizerId: string;
   totalAmount: number;
+  token: string;
   status: "pending" | "deposited" | "distributed" | "claimed";
   createdAt: string;
   txHash?: string;
@@ -126,6 +127,62 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T | null> {
   }
 }
 
+// ── Local seed data (when DB unavailable) ───────────────
+
+const SEED_ORG_ID = "seed-org-monad-test";
+
+const SEED_SUBSCRIBERS: { id: string; address: string; name: string; email: string }[] = [
+  { id: "seed-sub-01", address: "0x7a3f9c1d8e2b4a6f0c5d7e9b1a3f5c8d2e4a6b", name: "cryptovault.nad", email: "" },
+  { id: "seed-sub-02", address: "0x2e8d4b6a1c9f3e7d5b0a8c2f6e4d1b9a3c7f5e", name: "degenwhale.nad", email: "" },
+  { id: "seed-sub-03", address: "0xf1c3a5e7d9b2f4a6c8e0d2b4a6f8c1e3d5a7b9", name: "moonboi_42", email: "" },
+  { id: "seed-sub-04", address: "0x4d6b8a0c2e4f1d3a5c7e9b1d3f5a7c9e2b4d6a", name: "ser_builder", email: "" },
+  { id: "seed-sub-05", address: "0x9a2c4e6b8d0f1a3c5e7d9b2a4c6e8f0d1a3b5c", name: "0xpurplehaze", email: "" },
+  { id: "seed-sub-06", address: "0x3f5d7b9a1c3e5d7f9b2a4c6e8d0f2a4c6b8d1e", name: "nadsurfr.nad", email: "" },
+  { id: "seed-sub-07", address: "0xb8e0d2f4a6c8e1b3d5a7c9f2e4b6d8a0c2e4f6", name: "wagmi_maria", email: "" },
+  { id: "seed-sub-08", address: "0x5c7e9a1b3d5f7a9c2e4b6d8f0a2c4e6b8d1f3a", name: "ethmaxi_leo", email: "" },
+  { id: "seed-sub-09", address: "0xd1a3c5e7b9d2f4a6c8e0b2d4f6a8c1e3b5d7a9", name: "alphagrinder", email: "" },
+  { id: "seed-sub-10", address: "0x6b8d0f2a4c6e8a1b3d5f7c9e2a4b6d8f0c2e4a", name: "monad_queen", email: "" },
+  { id: "seed-sub-11", address: "0xa9c1e3b5d7f9a2c4e6b8d0f2a4c6e8b1d3f5a7", name: "ngmi_never.nad", email: "" },
+  { id: "seed-sub-12", address: "0x0f2a4c6e8b1d3f5a7c9e2b4d6f8a0c2e4b6d8f", name: "zkproof_pablo", email: "" },
+  { id: "seed-sub-13", address: "0xc4e6b8d0f2a4c6e9b1d3f5a7c9e2b4d6f8a1c3", name: "purplepilled", email: "" },
+  { id: "seed-sub-14", address: "0x8d1f3a5c7e9b2d4f6a8c0e2b4d6f8a1c3e5b7d", name: "onchain_rosa", email: "" },
+  { id: "seed-sub-15", address: "0xe7b9d2f4a6c8e0b3d5a7c9f1e3b5d7a9c2e4f6", name: "gm_fren.nad", email: "" },
+  { id: "seed-sub-16", address: "0x1d3f5a7c9e2b4d6f8a0c2e4b6d8f1a3c5e7b9d", name: "wen_airdrop", email: "" },
+  { id: "seed-sub-17", address: "0xa6c8e0b2d4f6a8c1e3b5d7f9a2c4e6b8d0f2a4", name: "solidity_sam", email: "" },
+  { id: "seed-sub-18", address: "0x3e5b7d9f1a3c5e7b9d2f4a6c8e0b2d4f6a8c1e", name: "yield_farmer", email: "" },
+  { id: "seed-sub-19", address: "0xc9e2b4d6f8a1c3e5b7d9f2a4c6e8b0d2f4a6c8", name: "based_dev.nad", email: "" },
+  { id: "seed-sub-20", address: "0x7f9a2c4e6b8d1f3a5c7e9b2d4f6a8c0e2b4d6f", name: "diamond_hands", email: "" },
+];
+
+function seedLocalData() {
+  state.organizers = [{
+    id: SEED_ORG_ID,
+    name: "Monad Test",
+    address: "0xe9f75e7eac8288473dc6e40e4c67707c07fa6a4e",
+    totalDistributed: 0,
+    subscriberCount: SEED_SUBSCRIBERS.length,
+  }];
+
+  state.subscribers = SEED_SUBSCRIBERS.map((s) => ({
+    id: s.id,
+    address: s.address,
+    name: s.name,
+    email: s.email,
+    joinedAt: new Date().toISOString(),
+  }));
+
+  state.subscriptions = SEED_SUBSCRIBERS.map((s, i) => ({
+    id: `seed-subscription-${i + 1}`,
+    organizerId: SEED_ORG_ID,
+    subscriberId: s.id,
+    status: "active" as const,
+    joinedAt: new Date().toISOString(),
+  }));
+
+  state.payouts = [];
+  state.payments = [];
+}
+
 // ── Hydrate ──────────────────────────────────────────────
 
 let hydratePromise: Promise<void> | null = null;
@@ -142,7 +199,8 @@ export function hydrateStore() {
     }>("/api/data");
 
     if (!data) {
-      // API unavailable — local-only mode
+      // API unavailable — seed local demo data
+      seedLocalData();
       state.loaded = true;
       emitChange();
       return;
@@ -176,6 +234,7 @@ export function hydrateStore() {
       id: r.id as string,
       organizerId: r.organizer_id as string,
       totalAmount: Number(r.total_amount),
+      token: (r.token as string) ?? "MON",
       status: r.status as Payout["status"],
       createdAt: r.created_at as string,
       txHash: (r.tx_hash as string) ?? undefined,
@@ -346,9 +405,11 @@ export async function joinOrganizer(
 export async function createPayout(params: {
   organizerId: string;
   recipients: { subscriberId: string; amount: number }[];
+  token?: string;
   walletClient?: WalletClient;
   onProgress?: (step: string, current: number, total: number) => void;
 }): Promise<Payout> {
+  const token = params.token ?? "MON";
   const totalAmount = params.recipients.reduce((s, r) => s + r.amount, 0);
 
   // Calculate total notes needed (1 note = 1 USDm)
@@ -427,6 +488,7 @@ export async function createPayout(params: {
     body: JSON.stringify({
       organizer_id: params.organizerId,
       total_amount: totalAmount,
+      token,
       tx_hash: txHash,
       recipients: params.recipients.map((r) => ({
         subscriber_id: r.subscriberId,
@@ -440,6 +502,7 @@ export async function createPayout(params: {
       id: data.payout.id as string,
       organizerId: data.payout.organizer_id as string,
       totalAmount: Number(data.payout.total_amount),
+      token: (data.payout.token as string) ?? token,
       status: "deposited",
       createdAt: data.payout.created_at as string,
       txHash,
@@ -459,6 +522,7 @@ export async function createPayout(params: {
       id: payoutId,
       organizerId: params.organizerId,
       totalAmount,
+      token,
       status: "deposited",
       createdAt: new Date().toISOString(),
       txHash,
