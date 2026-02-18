@@ -4,7 +4,6 @@ const nextConfig: NextConfig = {
   output: "standalone",
   transpilePackages: ["@getpara/react-sdk"],
   typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
 
   // WASM support for Noir/Barretenberg proof generation
   webpack: (config, { isServer }) => {
