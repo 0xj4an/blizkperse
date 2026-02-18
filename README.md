@@ -22,7 +22,8 @@ graph TB
         Store[Reactive Store]
     end
 
-    subgraph Backend["Backend (Supabase)"]
+    subgraph Backend["Backend (Railway)"]
+        API[API Routes]
         DB[(PostgreSQL)]
     end
 
@@ -39,7 +40,8 @@ graph TB
 
     UI --> Auth
     UI --> Store
-    Store <--> DB
+    Store <--> API
+    API <--> DB
     UI --> Pool
     Pool --> Verifier
     Pool <--> USDC
@@ -89,7 +91,7 @@ flowchart LR
 sequenceDiagram
     participant O as Organizer
     participant App as Frontend
-    participant S as Supabase
+    participant S as PostgreSQL
     participant P as ShieldedPool
     participant V as HonkVerifier
     participant R as Recipient
@@ -198,17 +200,30 @@ RPC: `https://rpc3.monad.xyz`
 | [Brand Kit](docs/brand_kit.md) | Color palette, typography, design rules |
 | [Circuits README](blizkperse/README.md) | Noir + Foundry setup, verifier generation, testing |
 
-## Getting Started
+## Deploy to Railway
+
+1.  **Create project** — [railway.app](https://railway.app) → New Project → Deploy from GitHub
+2.  **Add PostgreSQL** — Click "New" → "Database" → "PostgreSQL"
+3.  **Link the DB** — Railway auto-injects `DATABASE_URL` into your app service
+4.  **Run schema** — Connect to the DB (Railway → Data tab → Query) and paste [supabase/schema.sql](supabase/schema.sql)
+5.  **Set env vars** — Add `NEXT_PUBLIC_PARA_API_KEY` in the app service variables
+6.  **Deploy** — Push to GitHub; Railway builds and deploys automatically
+
+## Getting Started (Local)
 
 ### Prerequisites
 -   Node.js 18+
 -   Foundry (`forge`)
 -   npm
+-   PostgreSQL (local or Railway dev DB)
 
 ### Installation
 
 1.  Clone repo
 2.  `cd web && npm install`
 3.  `cd blizkperse && forge install`
+4.  Copy `web/.env.example` → `web/.env.local` and fill in `DATABASE_URL`
+5.  Run `psql $DATABASE_URL < supabase/schema.sql` to set up tables
+6.  `cd web && npm run dev`
 
 *Built with high-throughput love on Monad.*

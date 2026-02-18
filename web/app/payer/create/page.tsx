@@ -24,6 +24,7 @@ import {
   getSubscriberById,
   createPayout,
 } from "@/lib/store";
+import { useParaWalletClient } from "@/lib/wallet";
 
 type Step = "select" | "amounts" | "review";
 
@@ -44,6 +45,8 @@ export default function CreatePayoutPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [txState, setTxState] = useState<TxState>("idle");
   const [txHash, setTxHash] = useState<string>();
+  const [progressMsg, setProgressMsg] = useState<string>();
+  const { walletClient, isReady } = useParaWalletClient();
 
   const filtered = availableSubscribers.filter(
     (s) =>
@@ -84,6 +87,7 @@ export default function CreatePayoutPage() {
 
   const handleDeposit = async () => {
     setTxState("pending");
+    setProgressMsg("Preparing deposit...");
     try {
       const result = await createPayout({
         organizerId: orgId,
@@ -91,13 +95,18 @@ export default function CreatePayoutPage() {
           subscriberId: id,
           amount: amounts[id] || 0,
         })),
+        walletClient: walletClient ?? undefined,
+        onProgress: (step, current, total) => {
+          setProgressMsg(`${step} (${current}/${total})`);
+        },
       });
       setTxHash(result.txHash);
       setTxState("success");
       toast.success("Payout created successfully!");
-    } catch {
+    } catch (err) {
       setTxState("error");
-      toast.error("Transaction failed. Please try again.");
+      const msg = err instanceof Error ? err.message : "Transaction failed";
+      toast.error(msg.includes("User rejected") ? "Transaction cancelled" : msg);
     }
   };
 
@@ -338,9 +347,16 @@ export default function CreatePayoutPage() {
                     <ArrowLeft className="h-4 w-4" />
                     Back
                   </Button>
-                  <Button size="lg" onClick={handleDeposit} className="gap-2">
+                  <Button
+                    size="lg"
+                    onClick={handleDeposit}
+                    disabled={!isReady}
+                    className="gap-2"
+                  >
                     <CircleDollarSign className="h-5 w-5" />
-                    Deposit ${totalAmount.toLocaleString()} tokens
+                    {isReady
+                      ? `Deposit $${totalAmount.toLocaleString()} tokens`
+                      : "Connect wallet to deposit"}
                   </Button>
                 </div>
               </>
@@ -350,6 +366,7 @@ export default function CreatePayoutPage() {
                   state={txState}
                   txHash={txHash}
                   successMessage="Payout created and funds deposited!"
+                  progressMessage={progressMsg}
                 />
                 {txState === "success" && (
                   <motion.div

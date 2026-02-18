@@ -1,5 +1,5 @@
 -- Blizkperse Database Schema
--- Run this in Supabase SQL Editor to create all tables
+-- Run against any PostgreSQL database (Railway, local, etc.)
 
 -- Organizers (entities that distribute payouts)
 create table if not exists organizers (
@@ -53,6 +53,19 @@ create table if not exists payments (
   created_at timestamptz default now()
 );
 
+-- Notes (private ZK note data for proof generation)
+create table if not exists notes (
+  id uuid primary key default gen_random_uuid(),
+  payment_id uuid references payments(id) on delete cascade,
+  commitment text not null,
+  value text not null,
+  holder_pk text not null,
+  randomness text not null,
+  nullifier text not null,
+  leaf_index integer,
+  created_at timestamptz default now()
+);
+
 -- Indexes for common queries
 create index if not exists idx_organizers_owner on organizers(owner_address);
 create index if not exists idx_subscribers_address on subscribers(address);
@@ -61,33 +74,6 @@ create index if not exists idx_subscriptions_sub on subscriptions(subscriber_id)
 create index if not exists idx_payouts_org on payouts(organizer_id);
 create index if not exists idx_payments_sub on payments(subscriber_id);
 create index if not exists idx_payments_payout on payments(payout_id);
-
--- Row Level Security (disabled for demo, enable in production)
-alter table organizers enable row level security;
-alter table subscribers enable row level security;
-alter table subscriptions enable row level security;
-alter table payouts enable row level security;
-alter table payments enable row level security;
-
--- Public access policies (for demo - anyone can read/write)
-create policy "public_read_organizers" on organizers for select using (true);
-create policy "public_insert_organizers" on organizers for insert with check (true);
-create policy "public_update_organizers" on organizers for update using (true);
-
-create policy "public_read_subscribers" on subscribers for select using (true);
-create policy "public_insert_subscribers" on subscribers for insert with check (true);
-create policy "public_update_subscribers" on subscribers for update using (true);
-
-create policy "public_read_subscriptions" on subscriptions for select using (true);
-create policy "public_insert_subscriptions" on subscriptions for insert with check (true);
-
-create policy "public_read_payouts" on payouts for select using (true);
-create policy "public_insert_payouts" on payouts for insert with check (true);
-create policy "public_update_payouts" on payouts for update using (true);
-
-create policy "public_read_payments" on payments for select using (true);
-create policy "public_insert_payments" on payments for insert with check (true);
-create policy "public_update_payments" on payments for update using (true);
 
 -- Seed: Monad Foundation organizer
 insert into organizers (name, owner_address)

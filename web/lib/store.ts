@@ -1,7 +1,20 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { supabase, isSupabaseConfigured } from "./supabase";
+import type { WalletClient, Hex } from "viem";
+import {
+  approveUSDm,
+  depositToPool,
+  withdrawFromPool,
+  getPublicClient,
+} from "./contracts";
+import {
+  createNote,
+  addressToFieldPk,
+  generateRandomField,
+  bigintToBytes32,
+  type ProofResult,
+} from "./zk";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -49,7 +62,7 @@ export interface Payment {
   txHash?: string;
 }
 
-// ── Store (local cache, optionally synced with Supabase) ─
+// ── Store (local cache, synced via API routes) ──────────
 
 interface StoreState {
   organizers: Organizer[];
@@ -98,6 +111,21 @@ function mockTxHash() {
   return `0x${hex}`;
 }
 
+// ── API helper ───────────────────────────────────────────
+
+async function api<T>(path: string, opts?: RequestInit): Promise<T | null> {
+  try {
+    const res = await fetch(path, {
+      headers: { "Content-Type": "application/json" },
+      ...opts,
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
 // ── Hydrate ──────────────────────────────────────────────
 
 let hydratePromise: Promise<void> | null = null;
@@ -105,62 +133,63 @@ let hydratePromise: Promise<void> | null = null;
 export function hydrateStore() {
   if (hydratePromise) return hydratePromise;
   hydratePromise = (async () => {
-    if (!isSupabaseConfigured) {
+    const data = await api<{
+      organizers: Array<Record<string, unknown>>;
+      subscribers: Array<Record<string, unknown>>;
+      subscriptions: Array<Record<string, unknown>>;
+      payouts: Array<Record<string, unknown>>;
+      payments: Array<Record<string, unknown>>;
+    }>("/api/data");
+
+    if (!data) {
+      // API unavailable — local-only mode
       state.loaded = true;
       emitChange();
       return;
     }
 
-    const [orgs, subs, subscriptions, payouts, payments] = await Promise.all([
-      supabase.from("organizers").select("*"),
-      supabase.from("subscribers").select("*"),
-      supabase.from("subscriptions").select("*"),
-      supabase.from("payouts").select("*").order("created_at", { ascending: false }),
-      supabase.from("payments").select("*"),
-    ]);
-
-    state.organizers = (orgs.data ?? []).map((r) => ({
-      id: r.id,
-      name: r.name,
-      address: r.owner_address,
+    state.organizers = data.organizers.map((r) => ({
+      id: r.id as string,
+      name: r.name as string,
+      address: r.owner_address as string,
       totalDistributed: Number(r.total_distributed),
-      subscriberCount: r.subscriber_count,
+      subscriberCount: Number(r.subscriber_count),
     }));
 
-    state.subscribers = (subs.data ?? []).map((r) => ({
-      id: r.id,
-      address: r.address,
-      name: r.name,
-      email: r.email ?? undefined,
-      joinedAt: r.created_at,
+    state.subscribers = data.subscribers.map((r) => ({
+      id: r.id as string,
+      address: r.address as string,
+      name: r.name as string,
+      email: (r.email as string) ?? undefined,
+      joinedAt: r.created_at as string,
     }));
 
-    state.subscriptions = (subscriptions.data ?? []).map((r) => ({
-      id: r.id,
-      organizerId: r.organizer_id,
-      subscriberId: r.subscriber_id,
+    state.subscriptions = data.subscriptions.map((r) => ({
+      id: r.id as string,
+      organizerId: r.organizer_id as string,
+      subscriberId: r.subscriber_id as string,
       status: r.status as "active" | "pending",
-      joinedAt: r.created_at,
+      joinedAt: r.created_at as string,
     }));
 
-    state.payouts = (payouts.data ?? []).map((r) => ({
-      id: r.id,
-      organizerId: r.organizer_id,
+    state.payouts = data.payouts.map((r) => ({
+      id: r.id as string,
+      organizerId: r.organizer_id as string,
       totalAmount: Number(r.total_amount),
       status: r.status as Payout["status"],
-      createdAt: r.created_at,
-      txHash: r.tx_hash ?? undefined,
+      createdAt: r.created_at as string,
+      txHash: (r.tx_hash as string) ?? undefined,
     }));
 
-    state.payments = (payments.data ?? []).map((r) => ({
-      id: r.id,
-      payoutId: r.payout_id,
-      organizerId: r.organizer_id,
-      subscriberId: r.subscriber_id,
+    state.payments = data.payments.map((r) => ({
+      id: r.id as string,
+      payoutId: r.payout_id as string,
+      organizerId: r.organizer_id as string,
+      subscriberId: r.subscriber_id as string,
       amount: Number(r.amount),
       status: r.status as Payment["status"],
-      claimedAt: r.claimed_at ?? undefined,
-      txHash: r.tx_hash ?? undefined,
+      claimedAt: (r.claimed_at as string) ?? undefined,
+      txHash: (r.tx_hash as string) ?? undefined,
     }));
 
     state.loaded = true;
@@ -205,25 +234,22 @@ export async function ensureSubscriber(
 
   const displayName = name ?? `${address.slice(0, 6)}...${address.slice(-4)}`;
 
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
-      .from("subscribers")
-      .upsert({ address: address.toLowerCase(), name: displayName, email }, { onConflict: "address" })
-      .select()
-      .single();
+  const data = await api<Record<string, unknown>>("/api/subscribers", {
+    method: "POST",
+    body: JSON.stringify({ address, name: displayName, email }),
+  });
 
-    if (!error && data) {
-      const sub: Subscriber = {
-        id: data.id,
-        address: data.address,
-        name: data.name,
-        email: data.email ?? undefined,
-        joinedAt: data.created_at,
-      };
-      state.subscribers = [...state.subscribers.filter((s) => s.id !== sub.id), sub];
-      emitChange();
-      return sub;
-    }
+  if (data) {
+    const sub: Subscriber = {
+      id: data.id as string,
+      address: data.address as string,
+      name: data.name as string,
+      email: (data.email as string) ?? undefined,
+      joinedAt: data.created_at as string,
+    };
+    state.subscribers = [...state.subscribers.filter((s) => s.id !== sub.id), sub];
+    emitChange();
+    return sub;
   }
 
   // local-only fallback
@@ -243,25 +269,22 @@ export async function createOrganizer(params: {
   name: string;
   address: string;
 }): Promise<Organizer> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
-      .from("organizers")
-      .insert({ name: params.name, owner_address: params.address })
-      .select()
-      .single();
+  const data = await api<Record<string, unknown>>("/api/organizers", {
+    method: "POST",
+    body: JSON.stringify({ name: params.name, owner_address: params.address }),
+  });
 
-    if (!error && data) {
-      const org: Organizer = {
-        id: data.id,
-        name: data.name,
-        address: data.owner_address,
-        totalDistributed: 0,
-        subscriberCount: 0,
-      };
-      state.organizers = [...state.organizers, org];
-      emitChange();
-      return org;
-    }
+  if (data) {
+    const org: Organizer = {
+      id: data.id as string,
+      name: data.name as string,
+      address: data.owner_address as string,
+      totalDistributed: 0,
+      subscriberCount: 0,
+    };
+    state.organizers = [...state.organizers, org];
+    emitChange();
+    return org;
   }
 
   // local-only fallback
@@ -283,30 +306,19 @@ export async function joinOrganizer(
 ): Promise<Subscription> {
   let subData: Subscription | null = null;
 
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
-      .from("subscriptions")
-      .insert({ organizer_id: organizerId, subscriber_id: subscriberId, status: "active" })
-      .select()
-      .single();
+  const data = await api<Record<string, unknown>>("/api/subscriptions", {
+    method: "POST",
+    body: JSON.stringify({ organizer_id: organizerId, subscriber_id: subscriberId }),
+  });
 
-    if (!error && data) {
-      subData = {
-        id: data.id,
-        organizerId: data.organizer_id,
-        subscriberId: data.subscriber_id,
-        status: data.status as "active",
-        joinedAt: data.created_at,
-      };
-
-      // increment subscriber_count
-      await supabase.rpc("increment_subscriber_count", { org_id: organizerId }).catch(() => {
-        const org = state.organizers.find((o) => o.id === organizerId);
-        if (org) {
-          supabase.from("organizers").update({ subscriber_count: org.subscriberCount + 1 }).eq("id", organizerId);
-        }
-      });
-    }
+  if (data) {
+    subData = {
+      id: data.id as string,
+      organizerId: data.organizer_id as string,
+      subscriberId: data.subscriber_id as string,
+      status: data.status as "active",
+      joinedAt: data.created_at as string,
+    };
   }
 
   if (!subData) {
@@ -334,70 +346,114 @@ export async function joinOrganizer(
 export async function createPayout(params: {
   organizerId: string;
   recipients: { subscriberId: string; amount: number }[];
+  walletClient?: WalletClient;
+  onProgress?: (step: string, current: number, total: number) => void;
 }): Promise<Payout> {
   const totalAmount = params.recipients.reduce((s, r) => s + r.amount, 0);
-  const txHash = mockTxHash();
 
+  // Calculate total notes needed (1 note = 1 USDm)
+  const totalNotes = params.recipients.reduce(
+    (s, r) => s + Math.floor(r.amount),
+    0
+  );
+
+  let txHash: string;
+
+  // ── On-chain deposit flow ──────────────────────────────
+  if (params.walletClient) {
+    const publicClient = getPublicClient();
+
+    // Step 1: Batch approve total amount
+    params.onProgress?.("Approving USDm", 0, totalNotes);
+    const approveTx = await approveUSDm(
+      params.walletClient,
+      BigInt(totalNotes) * 1_000_000n
+    );
+    await publicClient.waitForTransactionReceipt({ hash: approveTx });
+
+    // Step 2: Deposit notes one by one
+    let noteIndex = 0;
+    let lastTxHash = approveTx;
+
+    for (const recipient of params.recipients) {
+      const sub = getSubscriberById(recipient.subscriberId);
+      if (!sub) continue;
+
+      const pk_b = addressToFieldPk(sub.address);
+      const noteCount = Math.floor(recipient.amount);
+
+      for (let n = 0; n < noteCount; n++) {
+        noteIndex++;
+        params.onProgress?.("Depositing note", noteIndex, totalNotes);
+
+        const randomness = generateRandomField();
+        const note = await createNote(1n, pk_b, randomness);
+        const commitment = bigintToBytes32(note.commitment) as Hex;
+
+        const depositTx = await depositToPool(params.walletClient, commitment);
+        await publicClient.waitForTransactionReceipt({ hash: depositTx });
+        lastTxHash = depositTx;
+
+        // Store note data for recipient to later claim
+        await api("/api/notes", {
+          method: "POST",
+          body: JSON.stringify({
+            subscriber_id: recipient.subscriberId,
+            commitment: bigintToBytes32(note.commitment),
+            value: bigintToBytes32(note.value),
+            holder_pk: bigintToBytes32(note.holder),
+            randomness: bigintToBytes32(note.random),
+            nullifier: bigintToBytes32(note.nullifier),
+          }),
+        });
+      }
+    }
+
+    txHash = lastTxHash;
+  } else {
+    // Fallback: mock tx hash when no wallet connected
+    txHash = mockTxHash();
+  }
+
+  // ── Persist payout record ──────────────────────────────
   let payout: Payout;
   let newPayments: Payment[] = [];
 
-  if (isSupabaseConfigured) {
-    const { data: payoutData, error: payoutError } = await supabase
-      .from("payouts")
-      .insert({
-        organizer_id: params.organizerId,
-        total_amount: totalAmount,
-        status: "deposited",
-        tx_hash: txHash,
-      })
-      .select()
-      .single();
-
-    if (!payoutError && payoutData) {
-      payout = {
-        id: payoutData.id,
-        organizerId: payoutData.organizer_id,
-        totalAmount: Number(payoutData.total_amount),
-        status: "deposited",
-        createdAt: payoutData.created_at,
-        txHash,
-      };
-
-      const paymentInserts = params.recipients.map((r) => ({
-        payout_id: payoutData.id,
-        organizer_id: params.organizerId,
+  const data = await api<{
+    payout: Record<string, unknown>;
+    payments: Array<Record<string, unknown>>;
+  }>("/api/payouts", {
+    method: "POST",
+    body: JSON.stringify({
+      organizer_id: params.organizerId,
+      total_amount: totalAmount,
+      tx_hash: txHash,
+      recipients: params.recipients.map((r) => ({
         subscriber_id: r.subscriberId,
         amount: r.amount,
-        status: "claimable",
-      }));
+      })),
+    }),
+  });
 
-      const { data: paymentsData } = await supabase
-        .from("payments")
-        .insert(paymentInserts)
-        .select();
+  if (data) {
+    payout = {
+      id: data.payout.id as string,
+      organizerId: data.payout.organizer_id as string,
+      totalAmount: Number(data.payout.total_amount),
+      status: "deposited",
+      createdAt: data.payout.created_at as string,
+      txHash,
+    };
 
-      if (paymentsData) {
-        newPayments = paymentsData.map((r) => ({
-          id: r.id,
-          payoutId: r.payout_id,
-          organizerId: r.organizer_id,
-          subscriberId: r.subscriber_id,
-          amount: Number(r.amount),
-          status: "claimable" as const,
-        }));
-      }
-
-      // update organizer total_distributed
-      const org = state.organizers.find((o) => o.id === params.organizerId);
-      if (org) {
-        const newTotal = org.totalDistributed + totalAmount;
-        await supabase.from("organizers").update({ total_distributed: newTotal }).eq("id", params.organizerId);
-      }
-    } else {
-      throw new Error(payoutError?.message ?? "Failed to create payout");
-    }
+    newPayments = data.payments.map((r) => ({
+      id: r.id as string,
+      payoutId: r.payout_id as string,
+      organizerId: r.organizer_id as string,
+      subscriberId: r.subscriber_id as string,
+      amount: Number(r.amount),
+      status: "claimable" as const,
+    }));
   } else {
-    // local-only fallback
     const payoutId = localId();
     payout = {
       id: payoutId,
@@ -418,7 +474,6 @@ export async function createPayout(params: {
     }));
   }
 
-  // update local state
   const org = state.organizers.find((o) => o.id === params.organizerId);
   if (org) {
     org.totalDistributed += totalAmount;
@@ -432,17 +487,33 @@ export async function createPayout(params: {
 }
 
 export async function claimPayment(
-  paymentId: string
+  paymentId: string,
+  walletClient?: WalletClient,
+  proofResult?: ProofResult
 ): Promise<{ txHash: string }> {
-  const txHash = mockTxHash();
+  let txHash: string;
+
+  // ── On-chain withdraw flow ─────────────────────────────
+  if (walletClient && proofResult) {
+    const publicClient = getPublicClient();
+    const withdrawTx = await withdrawFromPool(walletClient, {
+      expectedRoot: proofResult.publicInputs.expectedRoot,
+      nullifierIn: proofResult.publicInputs.nullifierIn,
+      merkleProofLength: proofResult.publicInputs.merkleProofLength,
+      proof: proofResult.proof,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: withdrawTx });
+    txHash = withdrawTx;
+  } else {
+    txHash = mockTxHash();
+  }
+
   const now = new Date().toISOString();
 
-  if (isSupabaseConfigured) {
-    await supabase
-      .from("payments")
-      .update({ status: "claimed", claimed_at: now, tx_hash: txHash })
-      .eq("id", paymentId);
-  }
+  await api(`/api/payments/${paymentId}/claim`, {
+    method: "PATCH",
+    body: JSON.stringify({ tx_hash: txHash }),
+  });
 
   const payment = state.payments.find((p) => p.id === paymentId);
   if (payment) {

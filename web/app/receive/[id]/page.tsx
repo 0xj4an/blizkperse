@@ -21,6 +21,18 @@ import {
   getOrganizerById,
   claimPayment,
 } from "@/lib/store";
+import { useParaWalletClient } from "@/lib/wallet";
+import { generateProof, fieldToHex, type ProofInput } from "@/lib/zk";
+import { buildTreeFromEvents, rootToHex } from "@/lib/merkle";
+import { registerRoot } from "@/lib/contracts";
+
+const STEP_MESSAGES: Record<string, string> = {
+  "loading-notes": "Loading payment data...",
+  "building-tree": "Building merkle tree from on-chain data...",
+  "generating-proof": "Generating ZK proof (this may take 10-30 seconds)...",
+  "registering-root": "Registering merkle root on-chain...",
+  "withdrawing": "Submitting withdrawal transaction...",
+};
 
 export default function ClaimPage() {
   const params = useParams();
@@ -33,6 +45,8 @@ export default function ClaimPage() {
   const [txState, setTxState] = useState<TxState>("idle");
   const [txHash, setTxHash] = useState<string>();
   const [claimed, setClaimed] = useState(payment?.status === "claimed");
+  const [claimStep, setClaimStep] = useState<string>("");
+  const { walletClient, isReady } = useParaWalletClient();
 
   if (!payment) {
     return (
@@ -53,16 +67,83 @@ export default function ClaimPage() {
   }
 
   const handleClaim = async () => {
+    if (!walletClient) {
+      // Fallback: mock claim without wallet
+      setTxState("pending");
+      try {
+        const result = await claimPayment(paymentId);
+        setTxHash(result.txHash);
+        setTxState("success");
+        setClaimed(true);
+        toast.success("Payment claimed successfully!");
+      } catch {
+        setTxState("error");
+        toast.error("Claim failed. Please try again.");
+      }
+      return;
+    }
+
     setTxState("pending");
     try {
-      const result = await claimPayment(paymentId);
+      // Step 1: Fetch note data
+      setClaimStep("loading-notes");
+      const noteRes = await fetch(`/api/notes?payment_id=${paymentId}`);
+      const noteData = noteRes.ok ? await noteRes.json() : null;
+
+      if (!noteData) {
+        // No note data — fallback to mock claim
+        const result = await claimPayment(paymentId);
+        setTxHash(result.txHash);
+        setTxState("success");
+        setClaimed(true);
+        toast.success("Payment claimed successfully!");
+        return;
+      }
+
+      // Step 2: Build merkle tree from Deposit events
+      setClaimStep("building-tree");
+      const tree = await buildTreeFromEvents();
+      const leafIndex = tree.indexOf(BigInt(noteData.commitment));
+      if (leafIndex === -1) throw new Error("Note not found in merkle tree");
+
+      const { siblings, indices, root } = await tree.getProof(leafIndex);
+
+      // Step 3: Generate ZK proof
+      setClaimStep("generating-proof");
+      const proofInput: ProofInput = {
+        new_commitment: "0x" + "0".repeat(64), // burn commitment = 0 for withdraw
+        nullifier_in: noteData.nullifier,
+        merkle_proof_length: String(indices.length),
+        expected_merkle_root: fieldToHex(root),
+        value: noteData.value,
+        pk_b: noteData.holder_pk,
+        random: noteData.randomness,
+        from: noteData.holder_pk,
+        merkle_proof_indices: indices,
+        merkle_proof_siblings: siblings.map((s: bigint) => fieldToHex(s)),
+      };
+      const proofResult = await generateProof(proofInput);
+
+      // Step 4: Register root on-chain (may already exist)
+      setClaimStep("registering-root");
+      try {
+        await registerRoot(walletClient, rootToHex(root));
+      } catch {
+        // Root may already be registered — OK
+      }
+
+      // Step 5: Submit withdrawal
+      setClaimStep("withdrawing");
+      const result = await claimPayment(paymentId, walletClient, proofResult);
       setTxHash(result.txHash);
       setTxState("success");
       setClaimed(true);
       toast.success("Payment claimed successfully!");
-    } catch {
+    } catch (err) {
+      console.error("Claim failed:", err);
       setTxState("error");
-      toast.error("Claim failed. Please try again.");
+      const msg = err instanceof Error ? err.message : "Claim failed";
+      toast.error(msg.includes("User rejected") ? "Transaction cancelled" : msg);
     }
   };
 
@@ -127,9 +208,14 @@ export default function ClaimPage() {
             </div>
 
             {!claimed && txState === "idle" && (
-              <Button size="lg" className="w-full gap-2" onClick={handleClaim}>
+              <Button
+                size="lg"
+                className="w-full gap-2"
+                onClick={handleClaim}
+                disabled={!isReady}
+              >
                 <Wallet className="h-5 w-5" />
-                Transfer to Wallet
+                {isReady ? "Transfer to Wallet" : "Connect wallet to claim"}
               </Button>
             )}
 
@@ -138,6 +224,7 @@ export default function ClaimPage() {
                 state={txState}
                 txHash={txHash}
                 successMessage="Payment transferred to your wallet!"
+                progressMessage={STEP_MESSAGES[claimStep] || "Processing..."}
               />
             )}
 

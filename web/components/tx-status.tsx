@@ -10,6 +10,7 @@ interface TxStatusProps {
   txHash?: string;
   successMessage?: string;
   errorMessage?: string;
+  progressMessage?: string;
 }
 
 export function TxStatus({
@@ -17,6 +18,7 @@ export function TxStatus({
   txHash,
   successMessage = "Transaction confirmed",
   errorMessage = "Transaction failed",
+  progressMessage,
 }: TxStatusProps) {
   if (state === "idle") return null;
 
@@ -34,7 +36,7 @@ export function TxStatus({
           <>
             <Loader2 className="h-10 w-10 animate-spin text-primary" />
             <p className="text-sm font-medium text-muted-foreground">
-              Confirming transaction...
+              {progressMessage ?? "Confirming transaction..."}
             </p>
           </>
         )}
