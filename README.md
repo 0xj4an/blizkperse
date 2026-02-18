@@ -12,14 +12,23 @@ Blizkperse is a general-purpose payout platform on **Monad**. It solves the "onb
 4.  **Privacy (ZK)**: Payments are processed via Zero-Knowledge proofs.
 5.  **Agents**: API-ready for AI Agents (OpenClaw) to trigger payouts autonomously.
 
+## Deployed Contracts (Monad Mainnet — Chain 143)
+
+| Contract | Address |
+|---|---|
+| **HonkVerifier** | `0x1d42C0cD5fF14Ee71456473828996b1bC251a735` |
+| **Pool** | `0x35C8F36a031389f469372C370dA3Cb46Dd69265a` |
+
+RPC: `https://rpc3.monad.xyz`
+
 ## Tech Stack
 
--   **Network**: Monad (EVM High Performance)
--   **Contracts**: Foundry (Solidity)
+-   **Network**: Monad Mainnet (Chain 143, EVM High Performance)
+-   **Contracts**: Foundry (Solidity) + Noir ZK Circuits
 -   **Frontend**: Next.js + TailwindCSS
--   **Auth**: Privy (Social Login + Embedded Wallets)
+-   **Auth**: Para (Social Login + Embedded Wallets)
 -   **Infrastructure**: Railway (PostgreSQL + Next.js Hosting)
--   **Payments**: Any ERC20 (Defaults to USDC: `0x534b...`)
+-   **Payments**: Any ERC20 (Defaults to USDC)
 
 ## Getting Started
 

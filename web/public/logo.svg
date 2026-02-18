@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 80" fill="none">
+  <defs>
+    <linearGradient id="icon-grad" x1="5" y1="5" x2="65" y2="75" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#a855f7"/>
+      <stop offset="50%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(4, 4)" stroke="url(#icon-grad)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Outer tilted arc / rotated ellipse shape -->
+    <ellipse cx="32" cy="36" rx="28" ry="34" transform="rotate(-15, 32, 36)" />
+
+    <!-- Inner hexagon (flat-top) -->
+    <polygon points="32,12 52,23.5 52,46.5 32,58 12,46.5 12,23.5" />
+
+    <!-- Lightning bolt -->
+    <polyline points="38,8 26,36 38,34 24,64" stroke-width="3" />
+  </g>
+
+  <!-- Wordmark -->
+  <text x="82" y="53" font-family="'Inter', 'Helvetica Neue', system-ui, sans-serif" font-size="34" font-weight="800" fill="white" letter-spacing="-0.02em">Blizkperse</text>
+</svg>

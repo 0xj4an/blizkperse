@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { Header } from "@/components/header";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import {
   Zap,
   CircleDollarSign,
   Lock,
+  Github,
 } from "lucide-react";
 
 const fadeUp = {
@@ -116,7 +118,7 @@ export default function LandingPage() {
           </motion.p>
 
           <motion.div variants={fadeUp} custom={3}>
-            <Link href="/payer">
+            <Link href="/dashboard">
               <Button size="lg" className="gap-2 text-base">
                 Launch App
                 <ArrowRight className="h-4 w-4" />
@@ -211,9 +213,26 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer className="border-t border-border px-4 py-8">
-        <div className="container mx-auto flex max-w-5xl items-center justify-between text-sm text-muted-foreground">
-          <span>Blizkperse</span>
-          <span>Built on Monad</span>
+        <div className="container mx-auto flex max-w-5xl flex-col items-center gap-4 sm:flex-row sm:justify-between">
+          <Image
+            src="/logo.svg"
+            alt="Blizkperse"
+            width={120}
+            height={30}
+            className="h-6 w-auto opacity-60"
+          />
+          <p className="text-sm text-muted-foreground">
+            Made by Blizkperse Team
+          </p>
+          <a
+            href="https://github.com/0xj4an/blizkperse"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Github className="h-4 w-4" />
+            GitHub
+          </a>
         </div>
       </footer>
     </div>
