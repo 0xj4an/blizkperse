@@ -8,25 +8,23 @@ pragma solidity ^0.8.19;
 
 import "forge-std/Script.sol";
 
-import "../contract/Verifier.sol";      // contiene HonkVerifier + IVerifier
-import "../contract/ShieldedPool.sol";  // tu pool MVP
+import "../contract/Verifier.sol";      // HonkVerifier + IVerifier
+import "../contract/ShieldedPool.sol";  // pool MVP
 
 contract DeployPool is Script {
     function run() external returns (address verifierAddr, address poolAddr) {
         // Requiere en el entorno: PRIVATE_KEY, USDC_ADDRESS
-        // Opción 1: cp .env.example .env, rellenar y luego: source .env
-        // Opción 2: PRIVATE_KEY=0x... USDC_ADDRESS=0x... forge script ...
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address usdc = vm.envAddress("USDC_ADDRESS");
 
         vm.startBroadcast(pk);
 
         HonkVerifier verifier = new HonkVerifier();
-
-        // Para MVP: genesisRoot puede ser 0x0 y luego registras roots reales offchain
         bytes32 genesisRoot = bytes32(0);
-
-        ShieldedPool pool = new ShieldedPool(usdc, address(verifier), genesisRoot);
+        // WithdrawVerifier no se puede importar junto con Verifier.sol (simbolos duplicados).
+        // Para pool con withdraw: despliega WithdrawVerifier en otro paso y pasa su address aqui.
+        address withdrawVerifierAddr = address(0);
+        ShieldedPool pool = new ShieldedPool(usdc, address(verifier), genesisRoot, withdrawVerifierAddr);
 
         vm.stopBroadcast();
 
