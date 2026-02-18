@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,19 +20,23 @@ import {
   Check,
 } from "lucide-react";
 import {
-  CURRENT_PAYER_ID,
-  getRegistrationsForPayer,
-  getParticipantById,
-} from "@/lib/mock-data";
-import { createPayout } from "@/lib/mock-actions";
+  useStore,
+  getSubscriberById,
+  createPayout,
+} from "@/lib/store";
 
 type Step = "select" | "amounts" | "review";
 
 export default function CreatePayoutPage() {
-  const regs = getRegistrationsForPayer(CURRENT_PAYER_ID);
-  const availableParticipants = regs
-    .map((r) => getParticipantById(r.participantId))
-    .filter(Boolean) as NonNullable<ReturnType<typeof getParticipantById>>[];
+  const searchParams = useSearchParams();
+  const orgId = searchParams.get("org") ?? "";
+  const store = useStore();
+
+  const org = store.organizers.find((o) => o.id === orgId);
+  const orgSubs = store.subscriptions.filter((s) => s.organizerId === orgId);
+  const availableSubscribers = orgSubs
+    .map((s) => getSubscriberById(s.subscriberId))
+    .filter(Boolean) as NonNullable<ReturnType<typeof getSubscriberById>>[];
 
   const [step, setStep] = useState<Step>("select");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -40,10 +45,10 @@ export default function CreatePayoutPage() {
   const [txState, setTxState] = useState<TxState>("idle");
   const [txHash, setTxHash] = useState<string>();
 
-  const filtered = availableParticipants.filter(
-    (p) =>
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.address.toLowerCase().includes(searchQuery.toLowerCase())
+  const filtered = availableSubscribers.filter(
+    (s) =>
+      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      s.address.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const totalAmount = Array.from(selected).reduce(
@@ -62,7 +67,7 @@ export default function CreatePayoutPage() {
     if (selected.size === filtered.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(filtered.map((p) => p.id)));
+      setSelected(new Set(filtered.map((s) => s.id)));
     }
   };
 
@@ -81,9 +86,9 @@ export default function CreatePayoutPage() {
     setTxState("pending");
     try {
       const result = await createPayout({
-        payerId: CURRENT_PAYER_ID,
-        participants: Array.from(selected).map((id) => ({
-          participantId: id,
+        organizerId: orgId,
+        recipients: Array.from(selected).map((id) => ({
+          subscriberId: id,
           amount: amounts[id] || 0,
         })),
       });
@@ -96,8 +101,23 @@ export default function CreatePayoutPage() {
     }
   };
 
+  if (!org) {
+    return (
+      <div className="py-12 text-center text-muted-foreground">
+        Organization not found.{" "}
+        <Link href="/payer" className="text-primary underline">
+          Go back
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
+      <p className="text-sm text-muted-foreground">
+        Creating payout for <span className="font-medium text-foreground">{org.name}</span>
+      </p>
+
       {/* Step Indicator */}
       <div className="flex items-center gap-3">
         {(["select", "amounts", "review"] as Step[]).map((s, i) => (
@@ -106,8 +126,7 @@ export default function CreatePayoutPage() {
               className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium transition-colors ${
                 step === s
                   ? "bg-primary text-primary-foreground"
-                  : (["select", "amounts", "review"].indexOf(step) >
-                        i)
+                  : (["select", "amounts", "review"].indexOf(step) > i)
                     ? "bg-primary/20 text-primary"
                     : "bg-muted text-muted-foreground"
               }`}
@@ -133,7 +152,6 @@ export default function CreatePayoutPage() {
       </div>
 
       <AnimatePresence mode="wait">
-        {/* Step 1: Select Participants */}
         {step === "select" && (
           <motion.div
             key="select"
@@ -159,19 +177,19 @@ export default function CreatePayoutPage() {
 
             <Card className="glass">
               <CardContent className="divide-y divide-border p-0">
-                {filtered.map((p) => (
+                {filtered.map((s) => (
                   <label
-                    key={p.id}
+                    key={s.id}
                     className="flex cursor-pointer items-center gap-4 px-4 py-3 transition-colors hover:bg-white/5"
                   >
                     <Checkbox
-                      checked={selected.has(p.id)}
-                      onCheckedChange={() => toggleSelect(p.id)}
+                      checked={selected.has(s.id)}
+                      onCheckedChange={() => toggleSelect(s.id)}
                     />
                     <div className="flex-1">
-                      <p className="font-medium">{p.name}</p>
+                      <p className="font-medium">{s.name}</p>
                       <p className="font-mono text-xs text-muted-foreground">
-                        {p.address.slice(0, 6)}...{p.address.slice(-4)}
+                        {s.address.slice(0, 6)}...{s.address.slice(-4)}
                       </p>
                     </div>
                   </label>
@@ -197,7 +215,6 @@ export default function CreatePayoutPage() {
           </motion.div>
         )}
 
-        {/* Step 2: Set Amounts */}
         {step === "amounts" && (
           <motion.div
             key="amounts"
@@ -218,17 +235,14 @@ export default function CreatePayoutPage() {
             <Card className="glass">
               <CardContent className="divide-y divide-border p-0">
                 {Array.from(selected).map((id) => {
-                  const p = getParticipantById(id);
-                  if (!p) return null;
+                  const s = getSubscriberById(id);
+                  if (!s) return null;
                   return (
-                    <div
-                      key={id}
-                      className="flex items-center gap-4 px-4 py-3"
-                    >
+                    <div key={id} className="flex items-center gap-4 px-4 py-3">
                       <div className="flex-1">
-                        <p className="font-medium">{p.name}</p>
+                        <p className="font-medium">{s.name}</p>
                         <p className="font-mono text-xs text-muted-foreground">
-                          {p.address.slice(0, 6)}...{p.address.slice(-4)}
+                          {s.address.slice(0, 6)}...{s.address.slice(-4)}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -246,9 +260,7 @@ export default function CreatePayoutPage() {
                           }
                           className="w-28 text-right"
                         />
-                        <span className="text-xs text-muted-foreground">
-                          tokens
-                        </span>
+                        <span className="text-xs text-muted-foreground">tokens</span>
                       </div>
                     </div>
                   );
@@ -264,19 +276,11 @@ export default function CreatePayoutPage() {
             </div>
 
             <div className="flex justify-between">
-              <Button
-                variant="outline"
-                onClick={() => setStep("select")}
-                className="gap-2"
-              >
+              <Button variant="outline" onClick={() => setStep("select")} className="gap-2">
                 <ArrowLeft className="h-4 w-4" />
                 Back
               </Button>
-              <Button
-                onClick={() => setStep("review")}
-                disabled={totalAmount === 0}
-                className="gap-2"
-              >
+              <Button onClick={() => setStep("review")} disabled={totalAmount === 0} className="gap-2">
                 Review
                 <ArrowRight className="h-4 w-4" />
               </Button>
@@ -284,7 +288,6 @@ export default function CreatePayoutPage() {
           </motion.div>
         )}
 
-        {/* Step 3: Review & Deposit */}
         {step === "review" && (
           <motion.div
             key="review"
@@ -305,14 +308,11 @@ export default function CreatePayoutPage() {
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
                       {Array.from(selected).map((id) => {
-                        const p = getParticipantById(id);
-                        if (!p) return null;
+                        const s = getSubscriberById(id);
+                        if (!s) return null;
                         return (
-                          <div
-                            key={id}
-                            className="flex items-center justify-between text-sm"
-                          >
-                            <span>{p.name}</span>
+                          <div key={id} className="flex items-center justify-between text-sm">
+                            <span>{s.name}</span>
                             <span className="font-medium">
                               ${(amounts[id] || 0).toLocaleString()} tokens
                             </span>
@@ -334,19 +334,11 @@ export default function CreatePayoutPage() {
                 </Card>
 
                 <div className="flex justify-between">
-                  <Button
-                    variant="outline"
-                    onClick={() => setStep("amounts")}
-                    className="gap-2"
-                  >
+                  <Button variant="outline" onClick={() => setStep("amounts")} className="gap-2">
                     <ArrowLeft className="h-4 w-4" />
                     Back
                   </Button>
-                  <Button
-                    size="lg"
-                    onClick={handleDeposit}
-                    className="gap-2"
-                  >
+                  <Button size="lg" onClick={handleDeposit} className="gap-2">
                     <CircleDollarSign className="h-5 w-5" />
                     Deposit ${totalAmount.toLocaleString()} tokens
                   </Button>

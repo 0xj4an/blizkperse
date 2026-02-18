@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { useAccount } from "@getpara/react-sdk";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,30 +18,44 @@ import {
 } from "@/components/ui/table";
 import { Building2, ClipboardCheck, History, ArrowRight, Loader2 } from "lucide-react";
 import {
-  payers,
-  CURRENT_PARTICIPANT_ID,
-  getRegistrationsForParticipant,
-  getPaymentsForParticipant,
-  getPayerById,
-} from "@/lib/mock-data";
-import { registerWithPayer } from "@/lib/mock-actions";
+  useStore,
+  getOrganizerById,
+  ensureSubscriber,
+  joinOrganizer,
+} from "@/lib/store";
 
 export default function ReceiveDashboard() {
-  const myRegistrations = getRegistrationsForParticipant(CURRENT_PARTICIPANT_ID);
-  const myPayments = getPaymentsForParticipant(CURRENT_PARTICIPANT_ID);
-  const registeredPayerIds = new Set(myRegistrations.map((r) => r.payerId));
+  const { embedded } = useAccount();
+  const address = embedded?.wallets?.[0]?.address ?? "";
+  const store = useStore();
 
-  const [registering, setRegistering] = useState<string | null>(null);
+  // ensure current user exists as subscriber
+  const [subId, setSubId] = useState("");
+  useEffect(() => {
+    if (!address) return;
+    ensureSubscriber(address).then((sub) => setSubId(sub.id));
+  }, [address]);
 
-  const handleRegister = async (payerId: string) => {
-    setRegistering(payerId);
+  const mySubscriptions = store.subscriptions.filter(
+    (s) => s.subscriberId === subId
+  );
+  const myPayments = store.payments.filter(
+    (p) => p.subscriberId === subId
+  );
+  const subscribedOrgIds = new Set(mySubscriptions.map((s) => s.organizerId));
+
+  const [joining, setJoining] = useState<string | null>(null);
+
+  const handleJoin = async (organizerId: string) => {
+    if (!subId) return;
+    setJoining(organizerId);
     try {
-      await registerWithPayer(payerId, CURRENT_PARTICIPANT_ID);
+      await joinOrganizer(organizerId, subId);
       toast.success("Joined successfully!");
     } catch {
       toast.error("Failed to join. Please try again.");
     } finally {
-      setRegistering(null);
+      setJoining(null);
     }
   };
 
@@ -61,17 +76,17 @@ export default function ReceiveDashboard() {
         </TabsTrigger>
       </TabsList>
 
-      {/* Browse Payers */}
+      {/* Browse Organizers */}
       <TabsContent value="browse" className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {payers.map((payer) => {
-            const isRegistered = registeredPayerIds.has(payer.id);
+          {store.organizers.map((org) => {
+            const isJoined = subscribedOrgIds.has(org.id);
             return (
-              <Card key={payer.id} className="glass group transition-all hover:glow-purple">
+              <Card key={org.id} className="glass group transition-all hover:glow-purple">
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
-                    <CardTitle className="text-base">{payer.name}</CardTitle>
-                    {isRegistered && (
+                    <CardTitle className="text-base">{org.name}</CardTitle>
+                    {isJoined && (
                       <Badge variant="default" className="text-xs">
                         Joined
                       </Badge>
@@ -82,21 +97,21 @@ export default function ReceiveDashboard() {
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Distributed</span>
                     <span className="font-medium">
-                      ${payer.totalDistributed.toLocaleString()}
+                      ${org.totalDistributed.toLocaleString()}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Subscribers</span>
-                    <span className="font-medium">{payer.participantCount}</span>
+                    <span className="font-medium">{org.subscriberCount}</span>
                   </div>
-                  {!isRegistered && (
+                  {!isJoined && (
                     <Button
                       size="sm"
                       className="w-full gap-2"
-                      onClick={() => handleRegister(payer.id)}
-                      disabled={registering === payer.id}
+                      onClick={() => handleJoin(org.id)}
+                      disabled={joining === org.id}
                     >
-                      {registering === payer.id ? (
+                      {joining === org.id ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         "Join"
@@ -107,6 +122,11 @@ export default function ReceiveDashboard() {
               </Card>
             );
           })}
+          {store.organizers.length === 0 && (
+            <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
+              No organizers available yet.
+            </p>
+          )}
         </div>
       </TabsContent>
 
@@ -122,29 +142,27 @@ export default function ReceiveDashboard() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {myRegistrations.map((reg) => {
-                const payer = getPayerById(reg.payerId);
+              {mySubscriptions.map((sub) => {
+                const org = getOrganizerById(sub.organizerId);
                 return (
-                  <TableRow key={reg.id}>
+                  <TableRow key={sub.id}>
                     <TableCell className="font-medium">
-                      {payer?.name ?? reg.payerId}
+                      {org?.name ?? sub.organizerId}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {new Date(reg.registeredAt).toLocaleDateString()}
+                      {new Date(sub.joinedAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
                       <Badge
-                        variant={
-                          reg.status === "active" ? "default" : "secondary"
-                        }
+                        variant={sub.status === "active" ? "default" : "secondary"}
                       >
-                        {reg.status}
+                        {sub.status}
                       </Badge>
                     </TableCell>
                   </TableRow>
                 );
               })}
-              {myRegistrations.length === 0 && (
+              {mySubscriptions.length === 0 && (
                 <TableRow>
                   <TableCell
                     colSpan={3}
@@ -173,11 +191,11 @@ export default function ReceiveDashboard() {
             </TableHeader>
             <TableBody>
               {myPayments.map((payment) => {
-                const payer = getPayerById(payment.payerId);
+                const org = getOrganizerById(payment.organizerId);
                 return (
                   <TableRow key={payment.id}>
                     <TableCell className="font-medium">
-                      {payer?.name ?? payment.payerId}
+                      {org?.name ?? payment.organizerId}
                     </TableCell>
                     <TableCell>
                       ${payment.amount.toLocaleString()}

@@ -16,14 +16,19 @@ import {
   Wallet,
   CheckCircle2,
 } from "lucide-react";
-import { getPaymentById, getPayerById } from "@/lib/mock-data";
-import { claimPayment } from "@/lib/mock-actions";
+import {
+  useStore,
+  getOrganizerById,
+  claimPayment,
+} from "@/lib/store";
 
 export default function ClaimPage() {
   const params = useParams();
   const paymentId = params.id as string;
-  const payment = getPaymentById(paymentId);
-  const payer = payment ? getPayerById(payment.payerId) : undefined;
+  const store = useStore();
+
+  const payment = store.payments.find((p) => p.id === paymentId);
+  const org = payment ? getOrganizerById(payment.organizerId) : undefined;
 
   const [txState, setTxState] = useState<TxState>("idle");
   const [txHash, setTxHash] = useState<string>();
@@ -90,31 +95,27 @@ export default function ClaimPage() {
           </CardHeader>
 
           <CardContent className="space-y-6">
-            {/* Amount */}
             <div className="text-center">
               <p className="text-4xl font-bold gradient-text">
                 ${payment.amount.toLocaleString()}
               </p>
-              <p className="mt-1 text-sm text-muted-foreground">USDm</p>
+              <p className="mt-1 text-sm text-muted-foreground">tokens</p>
             </div>
 
             <Separator />
 
-            {/* Details */}
             <div className="space-y-3">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">From</span>
-                <span className="font-medium">{payer?.name ?? "Unknown"}</span>
+                <span className="font-medium">{org?.name ?? "Unknown"}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Status</span>
-                <Badge
-                  variant={claimed ? "default" : "secondary"}
-                >
+                <Badge variant={claimed ? "default" : "secondary"}>
                   {claimed ? "Claimed" : "Claimable"}
                 </Badge>
               </div>
-              {(claimed && (payment.claimedAt || txHash)) && (
+              {claimed && (payment.claimedAt || txHash) && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Tx Hash</span>
                   <span className="font-mono text-xs text-muted-foreground">
@@ -125,13 +126,8 @@ export default function ClaimPage() {
               )}
             </div>
 
-            {/* Action */}
             {!claimed && txState === "idle" && (
-              <Button
-                size="lg"
-                className="w-full gap-2"
-                onClick={handleClaim}
-              >
+              <Button size="lg" className="w-full gap-2" onClick={handleClaim}>
                 <Wallet className="h-5 w-5" />
                 Transfer to Wallet
               </Button>
@@ -146,11 +142,7 @@ export default function ClaimPage() {
             )}
 
             {txState === "error" && (
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={handleClaim}
-              >
+              <Button variant="outline" className="w-full" onClick={handleClaim}>
                 Try Again
               </Button>
             )}

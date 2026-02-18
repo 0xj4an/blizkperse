@@ -1,74 +1,137 @@
-# Blizkperse - Technical Specification (Master Plan)
+# Blizkperse - Technical Specification
 
-> **Document Goal**: Complete guide for a developer to build "Blizkperse" on Monad Testnet.
-> **Core Concept**: General-purpose Payout & Claim platform where Participants register with Payers.
-> **Use Case**: Starting with Hackathons/Grants, scaling to Payroll/Social Payments.
+> **Core Concept**: ZK-private payout distribution platform on Monad. Organizers deposit tokens into an escrow, subscribers claim them with zero-knowledge proofs so payment amounts stay hidden on-chain.
+> **Use Case**: Starting with hackathon grants, scaling to payroll, bounties, and social payments.
 
 ---
 
 ## 1. Technology Stack
 
--   **Blockchain**: Monad Mainnet (Chain 143).
--   **Token Strategy**: Architecture supports **Any ERC20**. (MVP defaults to USDC for ease).
--   **Frontend**: Next.js 14+ (App Router), TailwindCSS, Lucide Icons.
--   **Auth & Wallets**: **Para** (Social Login + Embedded Wallets).
-    -   *Why*: Seamless onboarding for non-crypto users.
--   **Core Philosophy**: **Agent-Ready**. The system should be composable so AI Agents (like OpenClaw) can eventually trigger payouts programmatically.
--   **Smart Contracts**: Foundry (Solidity).
+- **Blockchain**: Monad Mainnet (Chain ID 143).
+- **Token Strategy**: Architecture supports any ERC-20. MVP defaults to USDm.
+- **Frontend**: Next.js 16 (App Router, Turbopack), Tailwind CSS v4, Framer Motion.
+- **UI Components**: shadcn/ui (new-york style, Radix primitives).
+- **Auth & Wallets**: Para SDK (`@getpara/react-sdk`) for social login + embedded wallets.
+- **Database**: Supabase (PostgreSQL) via `@supabase/supabase-js`.
+- **Smart Contracts**: Foundry (Solidity).
+- **ZK Circuits**: Noir (Aztec).
+- **Design Philosophy**: Agent-ready. The system should be composable so AI agents can trigger payouts programmatically.
 
 ---
 
-## 2. Architecture Overview (ZK Edition)
+## 2. Architecture Overview
 
 ### Actors
-1.  **Payer**: Deposits USDC and creates **Private Notes** (Commitments) for recipients.
-2.  **Participant**: Generates a **ZK Proof** to claim their note and withdraw USDC anonymously/securely.
+1. **Organizer**: Creates an organization, manages subscribers, deposits tokens and creates private commitments for recipients.
+2. **Subscriber**: Joins an organization, generates a ZK proof to claim their payment and withdraw tokens privately.
 
 ### User Flows
 
-#### A. Registration (Key Exchange)
-1.  **Participant** logs in (Social/Embedded Wallet).
-2.  Frontend generates a **ZK Identity** (Secret/Public Key).
-3.  **Save to DB**: Store `zk_public_key` linked to the user.
+#### A. Onboarding
+1. User logs in via Para SDK (social login or email).
+2. Para creates an embedded wallet automatically.
+3. User chooses role: **Organize** (distribute payouts) or **Receive** (claim payments).
 
-#### B. Payout (Deposit & Commit)
-1.  **Payer** selects recipients and amounts.
-2.  **Frontend** fetches `zk_public_key` for each recipient.
-3.  **Frontend** computes **Commitments** (Hash(amount, pk, random)) for each.
-4.  **Payer** calls `Escrow.deposit(commitments[])`.
-    -   Contract pulls USDC.
-    -   Contract inserts commitments into **Merkle Tree**.
+#### B. Organization Setup (Organizer)
+1. Organizer creates an organization (name + wallet address).
+2. Organization appears in the browse list for subscribers.
+3. Organizer can manage multiple organizations from one wallet.
 
-#### C. Claim (Prove & Withdraw)
-1.  **Participant** sees "Pending Payment".
-2.  **Frontend**:
-    -   Downloads Merkle Path from Contract/Indexer.
-    -   Generates **ZK Proof** (Circuit: "I own a note in the tree with Value X and Nullifier Y").
-3.  **Participant** calls `Escrow.withdraw(proof, nullifier, amount)`.
-    -   Contract verifies proof.
-    -   Contract checks nullifier (double-spend protection).
-    -   Contract transfers USDC to `msg.sender`.
+#### C. Subscription (Subscriber)
+1. Subscriber browses available organizations.
+2. Clicks "Join" to subscribe.
+3. Subscription is stored in Supabase with status `active`.
+
+#### D. Payout (Deposit & Commit)
+1. Organizer selects subscribers and sets amounts (manual or equal split).
+2. Frontend fetches `zk_public_key` for each recipient.
+3. Frontend computes commitments: `Hash(amount, public_key, randomness)`.
+4. Organizer calls `Escrow.deposit(commitments[])`.
+   - Contract pulls tokens.
+   - Contract inserts commitments into Merkle Tree.
+5. Payout and individual payment records are stored in Supabase.
+
+#### E. Claim (Prove & Withdraw)
+1. Subscriber sees "Claimable" payment in their dashboard.
+2. Frontend downloads Merkle path and generates a ZK proof.
+3. Subscriber calls `Escrow.withdraw(proof, nullifier, amount)`.
+   - Contract verifies proof.
+   - Contract checks nullifier (double-spend protection).
+   - Contract transfers tokens to `msg.sender`.
+4. Payment status updated to `claimed` in Supabase.
 
 ---
 
 ## 3. Database Schema (Supabase)
 
-### `users`
--   `address` (PK, string)
--   `zk_public_key` (string): For receiving private notes.
--   `name` / `email`
+Schema file: [`supabase/schema.sql`](../supabase/schema.sql)
 
-### `registrations` (Same as before)
+### `organizers`
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid (PK) | Auto-generated |
+| `name` | text | Organization name |
+| `owner_address` | text | Wallet address of the organizer |
+| `total_distributed` | numeric | Running total of distributed tokens |
+| `subscriber_count` | integer | Number of active subscribers |
+| `created_at` | timestamptz | Auto-generated |
+
+### `subscribers`
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid (PK) | Auto-generated |
+| `address` | text (unique) | Wallet address |
+| `name` | text | Display name |
+| `email` | text | Optional |
+| `created_at` | timestamptz | Auto-generated |
+
+### `subscriptions`
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid (PK) | Auto-generated |
+| `organizer_id` | uuid (FK) | References organizers |
+| `subscriber_id` | uuid (FK) | References subscribers |
+| `status` | text | `active` or `pending` |
+| `created_at` | timestamptz | Auto-generated |
+
+Unique constraint on `(organizer_id, subscriber_id)`.
 
 ### `payouts`
--   Tracks on-chain `Deposit` events to help users find their commitments.
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid (PK) | Auto-generated |
+| `organizer_id` | uuid (FK) | References organizers |
+| `total_amount` | numeric | Sum of all payments in this payout |
+| `status` | text | `pending`, `deposited`, `distributed`, `claimed` |
+| `tx_hash` | text | On-chain transaction hash |
+| `created_at` | timestamptz | Auto-generated |
+
+### `payments`
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid (PK) | Auto-generated |
+| `payout_id` | uuid (FK) | References payouts |
+| `organizer_id` | uuid (FK) | References organizers |
+| `subscriber_id` | uuid (FK) | References subscribers |
+| `amount` | numeric | Payment amount |
+| `status` | text | `claimable`, `claimed`, `expired` |
+| `claimed_at` | timestamptz | When claimed |
+| `tx_hash` | text | Claim transaction hash |
+| `created_at` | timestamptz | Auto-generated |
+
+### Row Level Security
+RLS is enabled on all tables. For the demo, public read/write policies are applied. In production, policies should be scoped to the authenticated user's wallet address.
 
 ---
 
-## 4. Smart Contract (ZK Escrow)
+## 4. Smart Contracts (Deployed on Monad Mainnet)
+
+### Deployed Addresses
+- **HonkVerifier**: `0x1d42C0cD5fF14Ee71456473828996b1bC251a735`
+- **Pool (Escrow)**: `0x35C8F36a031389f469372C370dA3Cb46Dd69265a`
 
 ### `BlizkperseEscrow.sol`
-Manages the Merkle Tree and Verification.
+Manages the Merkle Tree and ZK proof verification.
 
 ```solidity
 contract BlizkperseEscrow {
@@ -92,7 +155,7 @@ contract BlizkperseEscrow {
     ) external {
         require(!nullifiers[nullifier], "Double spend");
         require(verifier.verify(proof, root, nullifier, amount), "Invalid Proof");
-        
+
         nullifiers[nullifier] = true;
         usdm.transfer(msg.sender, amount);
     }
@@ -103,74 +166,106 @@ contract BlizkperseEscrow {
 
 ## 5. Zero Knowledge Circuits (Noir)
 
-### `withdraw.nr` (The "Pay" Circuit)
--   **Public Inputs**: `root`, `nullifier`, `amount`, `recipient` (optional, to bind to msg.sender).
--   **Private Inputs**: `secret_key`, `path_indices`, `path_siblings`, `randomness`.
--   **Logic**:
-    1.  Reconstruct `commitment = Hash(amount, public_key, randomness)`.
-    2.  Verify `commitment` exists in Merkle Tree at `root`.
-    3.  Verify `nullifier = Hash(secret_key, path_indices)` (Deterministic).
-    4.  Output `root`, `nullifier`, `amount`.
+Circuit source: [`blizkperse/`](../blizkperse/)
+
+### `withdraw.nr` (The Claim Circuit)
+- **Public Inputs**: `root`, `nullifier`, `amount`, `recipient` (bound to msg.sender).
+- **Private Inputs**: `secret_key`, `path_indices`, `path_siblings`, `randomness`.
+- **Logic**:
+  1. Reconstruct `commitment = Hash(amount, public_key, randomness)`.
+  2. Verify `commitment` exists in Merkle Tree at `root`.
+  3. Verify `nullifier = Hash(secret_key, path_indices)` (deterministic).
+  4. Output `root`, `nullifier`, `amount`.
 
 ---
 
-## 5. Development Steps (For the Dev)
+## 6. Frontend Architecture
 
-### Phase 1: Setup
-1.  **Repo**: `git init`.
-2.  **Monad Testnet**: Configure `foundry.toml` with RPC.
-3.  **Railway**:
-    -   Create new Project -> Provision PostgreSQL.
-    -   Get `DATABASE_URL`.
-    -   **Add Environment Variables**:
-        -   `NEXT_PUBLIC_PARA_API_KEY`: Get from Para Developer Portal.
-        -   `NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID`: (If needed).
-        -   *(Note: Para Environment is currently hardcoded to `BETA` in `providers.tsx`)*.
-    -   Connect GitHub Repo for automated Next.js deployments.
+Source: [`web/`](../web/)
 
-### Phase 2: Contracts
-1.  `forge init`.
-2.  Implement `BlizkperseEscrow.sol` + `MockUSDC.sol`.
-3.  Deploy to Monad Mainnet.
+### File Structure
+```
+web/
+  app/
+    layout.tsx          # Root layout: dark theme, Inter font, Providers, Toaster
+    globals.css         # Monad purple/black theme (oklch), glassmorphism utilities
+    page.tsx            # Landing page (hero, problem, how it works, features)
+    dashboard/page.tsx  # Role selection (Organize / Receive)
+    payer/
+      layout.tsx        # AuthGuard + PageShell wrapper
+      page.tsx          # Organizer dashboard (org selector, stats, subscribers, payouts)
+      create/page.tsx   # Multi-step payout creation (select > amounts > review > deposit)
+    receive/
+      layout.tsx        # AuthGuard + PageShell wrapper
+      page.tsx          # Subscriber dashboard (browse orgs, subscriptions, payment history)
+      [id]/page.tsx     # Claim page (view payment, transfer to wallet)
+  components/
+    providers.tsx       # ParaProvider + QueryClientProvider ("use client")
+    header.tsx          # Nav bar with wallet connect/disconnect
+    auth-guard.tsx      # Route protection via useAccount()
+    page-shell.tsx      # Page layout wrapper
+    tx-status.tsx       # Transaction status animation (idle > pending > success)
+    wallet-display.tsx  # Truncated address + copy
+    ui/                 # shadcn/ui components
+  lib/
+    utils.ts            # cn() helper
+    constants.ts        # App-wide constants
+    supabase.ts         # Supabase client
+    database.types.ts   # TypeScript types for Supabase tables
+    store.ts            # Reactive store (useSyncExternalStore + Supabase)
+    mock-data.ts        # Legacy mock data (unused)
+    mock-actions.ts     # Legacy mock actions (unused)
+```
 
-### Deployed Contracts (Monad Mainnet)
-- **HonkVerifier**: `0x1d42C0cD5fF14Ee71456473828996b1bC251a735`
-- **Pool**: `0x35C8F36a031389f469372C370dA3Cb46Dd69265a`
+### Reactive Store Pattern
+The app uses `useSyncExternalStore` to maintain a local cache that syncs with Supabase:
+- **Hydration**: On first render, all tables are fetched from Supabase into memory.
+- **Mutations**: Each action (create org, join, create payout, claim) writes to Supabase first, then updates the local cache and triggers re-renders.
+- **Hook**: `useStore()` provides reactive access to the full state.
 
-### Phase 3: Frontend & Auth
-1.  `npx create-next-app`.
-2.  Install `@privy-io/react-auth` (or Para equivalent).
-3.  Wrap app in AuthProvider.
-4.  Create Login Screen.
-
-### Phase 4: Integration - Registration
-1.  Create `web/app/receive/page.tsx` (Participant Dashboard).
-2.  Fetch Payers from Railway DB (`users` table) via Prisma/Drizzle.
-3.  "Join" button -> Insert into `registrations` table.
-
-### Phase 5: Integration - Payouts
-1.  Create `web/app/payer/create/page.tsx`.
-2.  Fetch `registrations` where `payer == me`.
-3.  **UI**: List with Checkboxes & Amount Inputs.
-4.  **Logic**: `merkletreejs` to generate Root.
-5.  **Tx**: `wagmi` `writeContract` -> `createPayout`.
-6.  **Storage**: Store metadata in Railway DB `payouts`.
-
-### Phase 6: Integration - Claiming
-1.  Participant sees Payout in Dashboard (Join `payouts` table).
-2.  Frontend recalculates/fetches Proof for the logged-in user.
-3.  User clicks "Claim" -> `writeContract` -> `claim`.
+### Design System
+- **Theme**: Monad purple/black with oklch color space.
+- **Primary**: `oklch(0.65 0.25 285)` (vibrant purple).
+- **Background**: `oklch(0.09 0.015 280)` (near-black with purple tint).
+- **Custom utilities**: `.glass` (glassmorphism), `.glow-purple` (hover glow), `.gradient-text`.
+- **Dark mode**: Always-on via `className="dark"` on `<html>`.
 
 ---
 
-## 6. Monad Specifics
--   **RPC**: `https://rpc3.monad.xyz`
--   **Chain ID**: `143`
--   **Currency**: `MON`.
--   **Explorer**: `https://testnet.monadexplorer.com`
--   **Speed**: Expect sub-second finality. UI should feel "instant".
+## 7. Environment Variables
 
-### Token Addresses (Testnet - To Verify)
--   **Native Gas Token**: `MON` (Used for Gas Fees).
--   **USDC** (Payment Token): `0x534b2f3A21130d7a60830c2Df862319e593943A3` OR `0x77F77926C6596c78f285D230Cd0dC8dC3540e3a6`.
+```env
+NEXT_PUBLIC_PARA_API_KEY=        # Para SDK API key
+NEXT_PUBLIC_SUPABASE_URL=        # Supabase project URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY=   # Supabase anonymous/public key
+```
 
+---
+
+## 8. Monad Network Details
+
+- **RPC**: `https://rpc3.monad.xyz`
+- **Chain ID**: `143`
+- **Currency**: `MON`
+- **Explorer**: `https://testnet.monadexplorer.com`
+- **Speed**: Sub-second finality. UI should feel instant.
+
+### Token Addresses
+- **Native Gas Token**: `MON` (for gas fees).
+- **USDC**: `0x534b2f3A21130d7a60830c2Df862319e593943A3` or `0x77F77926C6596c78f285D230Cd0dC8dC3540e3a6`.
+
+---
+
+## 9. Deployment
+
+### Frontend (Railway)
+- Connect GitHub repo for automated deployments.
+- Set `output: "standalone"` in `next.config.ts`.
+- Add environment variables in Railway dashboard.
+- `NEXT_PUBLIC_*` env vars are inlined at build time.
+
+### Database (Supabase)
+1. Create a new Supabase project.
+2. Run `supabase/schema.sql` in the SQL Editor to create all tables.
+3. Copy the project URL and anon key to environment variables.
+4. RLS policies are pre-configured (public for demo, restrict in production).
