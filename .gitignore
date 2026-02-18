@@ -32,14 +32,14 @@ yarn-error.log*
 .pnpm-debug.log*
 *.pem
 
-# ── Foundry (blizkperse/) ──────────────────────────
+# ── Foundry (zk/) ─────────────────────────────────
 cache/
 broadcast/
 proofs/
 plonk_vk.sol
 
 # ── Noir Circuits ───────────────────────────────────
-blizkperse/circuits/target/
+zk/circuits/target/
 
 # ── IDE ─────────────────────────────────────────────
 .idea/

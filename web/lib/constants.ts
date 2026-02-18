@@ -3,10 +3,11 @@ export const SITE_DESCRIPTION =
   "Painless crypto payments on Monad";
 export const MONAD_CHAIN_ID = 143;
 export const MONAD_RPC_URL = "https://rpc3.monad.xyz";
-// Deployed contracts (Monad Mainnet)
-export const VERIFIER_ADDRESS = "0xc300285105b376b9e0CF7Ed78EC42b74d9c3d060" as const;
-export const POOL_ADDRESS = "0xD850AF48bDdf6E568A994a870aA684B86Bb5054f" as const;
-export const USDC_ADDRESS = "0xf817257fed379853cDe0fa4F97AB987181B1E5Ea" as const;
+// Deployed contracts (Monad Mainnet — Chain 143)
+export const VERIFIER_ADDRESS = "0xf7b2eC9EC33e34431F7f184458aE18Fa418271E3" as const;
+export const WITHDRAW_VERIFIER_ADDRESS = "0xA465f96F9a0541D7392c5A22bBA7bc5f23e88f7c" as const;
+export const POOL_ADDRESS = "0x085BD9c0C568BE5093130E2359B00e46cb0800d1" as const;
+export const USDC_ADDRESS = "0x754704Bc059F8C67012fEd69BC8A327a5aafb603" as const;
 
 // The ShieldedPool was deployed with USDC as its token
 export const POOL_TOKEN_ADDRESS = USDC_ADDRESS;

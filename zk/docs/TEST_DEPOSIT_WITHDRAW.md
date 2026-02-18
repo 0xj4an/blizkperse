@@ -216,8 +216,8 @@ En `.env` o exportadas:
 ```bash
 export MONAD_RPC="https://rpc3.monad.xyz"
 export PRIVATE_KEY="0x..."
-export POOL_ADDRESS="0xD850AF48bDdf6E568A994a870aA684B86Bb5054f"   # tu pool desplegada
-export USDC_ADDRESS="0x754704bc059f8c67012fed69bc8a327a5aafb603"  # USDC en Monad (ajusta si aplica)
+export POOL_ADDRESS="0x085BD9c0C568BE5093130E2359B00e46cb0800d1"   # ShieldedPool on Monad Mainnet
+export USDC_ADDRESS="0x754704Bc059F8C67012fEd69BC8A327a5aafb603"  # USDC on Monad (6 decimals)
 ```
 
 ---

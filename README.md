@@ -177,10 +177,16 @@ erDiagram
 
 | Contract | Address |
 |---|---|
-| **HonkVerifier** | `0x1d42C0cD5fF14Ee71456473828996b1bC251a735` |
-| **Pool** | `0x35C8F36a031389f469372C370dA3Cb46Dd69265a` |
+| **HonkVerifier** | `0xf7b2eC9EC33e34431F7f184458aE18Fa418271E3` |
+| **WithdrawVerifier** | `0xA465f96F9a0541D7392c5A22bBA7bc5f23e88f7c` |
+| **ShieldedPool** | `0x085BD9c0C568BE5093130E2359B00e46cb0800d1` |
+| **USDC** | `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` |
 
-RPC: `https://rpc3.monad.xyz`
+- **RPC**: `https://rpc3.monad.xyz`
+- **Explorer**: `https://explorer.monad.xyz`
+- **Deployer**: `0xc696DDc31486D5d8b87254d3AA2985F6d0906b3a`
+- **Block**: `0x35811d2` (56,234,450)
+- **Deployment artifact**: [`zk/deployments/monad-mainnet/run-latest.json`](zk/deployments/monad-mainnet/run-latest.json)
 
 ## Tech Stack
 
@@ -193,19 +199,33 @@ RPC: `https://rpc3.monad.xyz`
 
 ## Documentation
 
+### Architecture & Integration
 | Doc | Description |
 |---|---|
-| [Technical Spec](docs/technical_spec.md) | Full architecture, ZK flows, DB schema, dev phases |
-| [Pitch Deck](docs/pitch_deck.md) | 3-minute pitch structure, GTM strategy, vision |
+| [Technical Spec](docs/technical_spec.md) | Full architecture, ZK flows, DB schema, deployment |
+| [Integration Guide](docs/integration_guide.md) | Frontend ↔ ZK ↔ Contract wiring, proof generation |
+
+### ZK Circuits & Contracts
+| Doc | Description |
+|---|---|
+| [Circuits README](zk/README.md) | Noir + Foundry setup, verifier generation |
+| [Deposit/Withdraw Demo](zk/docs/DEMO_DEPOSIT_WITHDRAW.md) | Step-by-step demo: compile, deploy, deposit, withdraw |
+| [Deposit/Withdraw Testing](zk/docs/TEST_DEPOSIT_WITHDRAW.md) | On-chain validation and anonymity verification |
+
+### Pitch & Brand
+| Doc | Description |
+|---|---|
+| [Pitch Deck](docs/pitch_deck.md) | 3-minute pitch narrative, GTM strategy, vision |
+| [Pitch Slides](docs/pitch_slides.md) | 5-slide structure with speaker notes |
 | [Brand Kit](docs/brand_kit.md) | Color palette, typography, design rules |
-| [Circuits README](blizkperse/README.md) | Noir + Foundry setup, verifier generation, testing |
+| [Hackathon Submission](docs/hackathon_submission.md) | Submission form, team info, project description |
 
 ## Deploy to Railway
 
 1.  **Create project** — [railway.app](https://railway.app) → New Project → Deploy from GitHub
 2.  **Add PostgreSQL** — Click "New" → "Database" → "PostgreSQL"
 3.  **Link the DB** — Railway auto-injects `DATABASE_URL` into your app service
-4.  **Run schema** — Connect to the DB (Railway → Data tab → Query) and paste [supabase/schema.sql](supabase/schema.sql)
+4.  **Run schema** — Connect to the DB (Railway → Data tab → Query) and paste [sql/schema.sql](sql/schema.sql)
 5.  **Set env vars** — Add `NEXT_PUBLIC_PARA_API_KEY` in the app service variables
 6.  **Deploy** — Push to GitHub; Railway builds and deploys automatically
 
@@ -221,9 +241,9 @@ RPC: `https://rpc3.monad.xyz`
 
 1.  Clone repo
 2.  `cd web && npm install`
-3.  `cd blizkperse && forge install`
+3.  `cd zk && forge install`
 4.  Copy `web/.env.example` → `web/.env.local` and fill in `DATABASE_URL`
-5.  Run `psql $DATABASE_URL < supabase/schema.sql` to set up tables
+5.  Run `psql $DATABASE_URL < sql/schema.sql` to set up tables
 6.  `cd web && npm run dev`
 
 *Built with high-throughput love on Monad.*

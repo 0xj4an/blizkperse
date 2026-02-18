@@ -32,7 +32,7 @@ function getDefaultRoot() {
 async function main() {
   const RPC = process.env.MONAD_RPC;
   const PK = process.env.PRIVATE_KEY;
-  const POOL = process.env.POOL_ADDRESS ?? "0xD850AF48bDdf6E568A994a870aA684B86Bb5054f";
+  const POOL = process.env.POOL_ADDRESS ?? "0x085BD9c0C568BE5093130E2359B00e46cb0800d1";
   let root = process.env.ROOT;
 
   if (!RPC || !PK) throw new Error("Set MONAD_RPC, PRIVATE_KEY");
@@ -55,7 +55,7 @@ async function main() {
     if (e.code === "TIMEOUT" || e.shortMessage?.includes("timeout") || e.message?.includes("detect network")) {
       throw new Error(
         "No se pudo conectar al RPC. Revisa MONAD_RPC en .env:\n" +
-        "  - ¿La URL es correcta? (ej. Celo: https://rpc.ankr.com/celo)\n" +
+        "  - ¿La URL es correcta? (ej. Monad: https://rpc3.monad.xyz)\n" +
         "  - ¿Tienes internet / la red está disponible?\n" +
         "  - Prueba en otra terminal: curl -s -X POST -H 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' " + RPC
       );
@@ -66,7 +66,7 @@ async function main() {
   if (!code || code === "0x") {
     throw new Error(
       `No contract at POOL_ADDRESS ${POOL} on this network. ` +
-      "Did you deploy the pool? Set POOL_ADDRESS in .env to your ShieldedPool address and MONAD_RPC to the correct chain (e.g. Celo)."
+      "Did you deploy the pool? Set POOL_ADDRESS in .env to your ShieldedPool address and MONAD_RPC to the correct chain."
     );
   }
 

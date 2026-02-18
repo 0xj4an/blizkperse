@@ -12,7 +12,7 @@
 - **Frontend**: Next.js 16 (App Router, Turbopack), Tailwind CSS v4, Framer Motion.
 - **UI Components**: shadcn/ui (new-york style, Radix primitives).
 - **Auth & Wallets**: Para SDK (`@getpara/react-sdk`) for social login + embedded wallets.
-- **Database**: Supabase (PostgreSQL) via `@supabase/supabase-js`.
+- **Database**: PostgreSQL via `postgres` npm package (hosted on Railway).
 - **Smart Contracts**: Foundry (Solidity).
 - **ZK Circuits**: Noir (Aztec).
 - **Design Philosophy**: Agent-ready. The system should be composable so AI agents can trigger payouts programmatically.
@@ -40,7 +40,7 @@
 #### C. Subscription (Subscriber)
 1. Subscriber browses available organizations.
 2. Clicks "Join" to subscribe.
-3. Subscription is stored in Supabase with status `active`.
+3. Subscription is stored in the database with status `active`.
 
 #### D. Payout (Deposit & Commit)
 1. Organizer selects subscribers and sets amounts (manual or equal split).
@@ -49,7 +49,7 @@
 4. Organizer calls `Escrow.deposit(commitments[])`.
    - Contract pulls tokens.
    - Contract inserts commitments into Merkle Tree.
-5. Payout and individual payment records are stored in Supabase.
+5. Payout and individual payment records are stored in the database.
 
 #### E. Claim (Prove & Withdraw)
 1. Subscriber sees "Claimable" payment in their dashboard.
@@ -58,13 +58,13 @@
    - Contract verifies proof.
    - Contract checks nullifier (double-spend protection).
    - Contract transfers tokens to `msg.sender`.
-4. Payment status updated to `claimed` in Supabase.
+4. Payment status updated to `claimed` in the database.
 
 ---
 
-## 3. Database Schema (Supabase)
+## 3. Database Schema (PostgreSQL)
 
-Schema file: [`supabase/schema.sql`](../supabase/schema.sql)
+Schema file: [`sql/schema.sql`](../sql/schema.sql)
 
 ### `organizers`
 | Column | Type | Notes |
@@ -127,8 +127,12 @@ RLS is enabled on all tables. For the demo, public read/write policies are appli
 ## 4. Smart Contracts (Deployed on Monad Mainnet)
 
 ### Deployed Addresses
-- **HonkVerifier**: `0x1d42C0cD5fF14Ee71456473828996b1bC251a735`
-- **Pool (Escrow)**: `0x35C8F36a031389f469372C370dA3Cb46Dd69265a`
+- **HonkVerifier**: `0xf7b2eC9EC33e34431F7f184458aE18Fa418271E3`
+- **WithdrawVerifier**: `0xA465f96F9a0541D7392c5A22bBA7bc5f23e88f7c`
+- **ShieldedPool**: `0x085BD9c0C568BE5093130E2359B00e46cb0800d1`
+- **USDC**: `0x754704Bc059F8C67012fEd69BC8A327a5aafb603`
+- **Deployer**: `0xc696DDc31486D5d8b87254d3AA2985F6d0906b3a`
+- **Deployment artifact**: `zk/deployments/monad-mainnet/run-latest.json`
 
 ### `BlizkperseEscrow.sol`
 Manages the Merkle Tree and ZK proof verification.
@@ -166,7 +170,7 @@ contract BlizkperseEscrow {
 
 ## 5. Zero Knowledge Circuits (Noir)
 
-Circuit source: [`blizkperse/`](../blizkperse/)
+Circuit source: [`zk/`](../zk/)
 
 ### `withdraw.nr` (The Claim Circuit)
 - **Public Inputs**: `root`, `nullifier`, `amount`, `recipient` (bound to msg.sender).
@@ -210,17 +214,17 @@ web/
   lib/
     utils.ts            # cn() helper
     constants.ts        # App-wide constants
-    supabase.ts         # Supabase client
-    database.types.ts   # TypeScript types for Supabase tables
-    store.ts            # Reactive store (useSyncExternalStore + Supabase)
+    db.ts               # PostgreSQL client
+    database.types.ts   # TypeScript types for DB tables
+    store.ts            # Reactive store (useSyncExternalStore + PostgreSQL)
     mock-data.ts        # Legacy mock data (unused)
     mock-actions.ts     # Legacy mock actions (unused)
 ```
 
 ### Reactive Store Pattern
-The app uses `useSyncExternalStore` to maintain a local cache that syncs with Supabase:
-- **Hydration**: On first render, all tables are fetched from Supabase into memory.
-- **Mutations**: Each action (create org, join, create payout, claim) writes to Supabase first, then updates the local cache and triggers re-renders.
+The app uses `useSyncExternalStore` to maintain a local cache that syncs with PostgreSQL:
+- **Hydration**: On first render, all tables are fetched from the database into memory.
+- **Mutations**: Each action (create org, join, create payout, claim) writes to the database first, then updates the local cache and triggers re-renders.
 - **Hook**: `useStore()` provides reactive access to the full state.
 
 ### Design System
@@ -236,8 +240,7 @@ The app uses `useSyncExternalStore` to maintain a local cache that syncs with Su
 
 ```env
 NEXT_PUBLIC_PARA_API_KEY=        # Para SDK API key
-NEXT_PUBLIC_SUPABASE_URL=        # Supabase project URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY=   # Supabase anonymous/public key
+DATABASE_URL=                    # PostgreSQL connection string (Railway auto-injects)
 ```
 
 ---
@@ -247,12 +250,12 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=   # Supabase anonymous/public key
 - **RPC**: `https://rpc3.monad.xyz`
 - **Chain ID**: `143`
 - **Currency**: `MON`
-- **Explorer**: `https://testnet.monadexplorer.com`
+- **Explorer**: `https://explorer.monad.xyz`
 - **Speed**: Sub-second finality. UI should feel instant.
 
 ### Token Addresses
 - **Native Gas Token**: `MON` (for gas fees).
-- **USDC**: `0x534b2f3A21130d7a60830c2Df862319e593943A3` or `0x77F77926C6596c78f285D230Cd0dC8dC3540e3a6`.
+- **USDC**: `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` (6 decimals).
 
 ---
 
@@ -264,8 +267,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=   # Supabase anonymous/public key
 - Add environment variables in Railway dashboard.
 - `NEXT_PUBLIC_*` env vars are inlined at build time.
 
-### Database (Supabase)
-1. Create a new Supabase project.
-2. Run `supabase/schema.sql` in the SQL Editor to create all tables.
-3. Copy the project URL and anon key to environment variables.
-4. RLS policies are pre-configured (public for demo, restrict in production).
+### Database (PostgreSQL on Railway)
+1. Add a PostgreSQL service in Railway (or use any PostgreSQL host).
+2. Railway auto-injects `DATABASE_URL` into the app service.
+3. The app auto-creates tables on first API call via `ensureSchema()` in `lib/db.ts`.
+4. Alternatively, run `sql/schema.sql` manually to pre-create tables.

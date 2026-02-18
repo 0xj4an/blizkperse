@@ -6,8 +6,8 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IVerifier} from "./Verifier.sol";
 
 contract ShieldedPool is ReentrancyGuard {
-    // 1 unit of token (18 decimals, e.g. 1 Mento USD on Celo)
-    uint256 public constant DENOMINATION = 1e18;
+    // 1 USDC (6 decimals)
+    uint256 public constant DENOMINATION = 1e6;
 
     IERC20 public immutable usdc;
     IVerifier public immutable verifier;
@@ -47,7 +47,7 @@ contract ShieldedPool is ReentrancyGuard {
         emit RootRegistered(root);
     }
 
-    /// @notice Deposit exactly DENOMINATION (1e18) of token to mint a note commitment (commitment computed offchain)
+    /// @notice Deposit exactly 1 USDC to mint a note commitment (commitment computed offchain)
     /// Each commitment can only be used once (ensures one note per commitment).
     function deposit(bytes32 commitment) external nonReentrant {
         require(!usedCommitments[commitment], "commitment already used");
@@ -83,7 +83,7 @@ contract ShieldedPool is ReentrancyGuard {
         emit TransferIntent(expectedRoot, nullifierIn, newCommitment);
     }
 
-    /// @notice Withdraw DENOMINATION (1e18) to the recipient proved in the circuit.
+    /// @notice Withdraw 1 USDC to the recipient proved in the circuit.
     /// Public inputs (withdraw circuit order): [value, nullifier, merkle_proof_length, expected_merkle_root, recipient].
     /// recipient is the address as Field (32 bytes, address in lower 20 bytes). Requires withdrawVerifier != address(0).
     function withdraw(bytes calldata proof, bytes32[] calldata publicInputs) external nonReentrant {
@@ -95,7 +95,7 @@ contract ShieldedPool is ReentrancyGuard {
         bytes32 expectedRoot = publicInputs[3];
         bytes32 recipientField = publicInputs[4];
 
-        require(valueField == bytes32(uint256(1)), "only 1 unit per note");
+        require(valueField == bytes32(uint256(1)), "only 1 USDC per note");
         require(isKnownRoot[expectedRoot], "unknown root");
         require(!nullifiers[nullifierIn], "nullifier used");
 

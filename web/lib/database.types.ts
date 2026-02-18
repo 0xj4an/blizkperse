@@ -1,4 +1,4 @@
-// Row types matching supabase/schema.sql
+// Row types matching sql/schema.sql
 
 export interface OrganizerRow {
   id: string;

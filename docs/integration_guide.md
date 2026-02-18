@@ -1,16 +1,19 @@
 # Blizkperse Integration Guide (Frontend <-> ZK <-> Contract)
 
-This guide details how to integrate the **Next.js Frontend** with the **ShieldedPool Contract** and **Noir ZK Circuits** found in the `blizkperse/` directory.
+This guide details how to integrate the **Next.js Frontend** with the **ShieldedPool Contract** and **Noir ZK Circuits** found in the `zk/` directory.
 
 ---
 
 ## 1. Resources Checklist
 
-*   **Contract Address (Monad Mainnet)**:
-    *   `ShieldedPool`: `0x35C8F36a031389f469372C370dA3Cb46Dd69265a`
-    *   `Verifier`: `0x1d42C0cD5fF14Ee71456473828996b1bC251a735`
-*   **Circuit Source**: `blizkperse/circuits/src/main.nr`
-*   **ABI**: Generate using `forge build` inside `blizkperse/`.
+*   **Contract Addresses (Monad Mainnet — Chain 143)**:
+    *   `ShieldedPool`: `0x085BD9c0C568BE5093130E2359B00e46cb0800d1`
+    *   `HonkVerifier`: `0xf7b2eC9EC33e34431F7f184458aE18Fa418271E3`
+    *   `WithdrawVerifier`: `0xA465f96F9a0541D7392c5A22bBA7bc5f23e88f7c`
+    *   `USDC`: `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` (6 decimals)
+*   **Circuit Source**: `zk/circuits/src/main.nr`
+*   **ABI**: Generate using `forge build` inside `zk/`.
+*   **Deployment Artifact**: `zk/deployments/monad-mainnet/run-latest.json`
 
 ---
 
@@ -26,7 +29,7 @@ npm install @noir-lang/noir_js @noir-lang/backend_barretenberg
 
 ### B. Compile Circuit (Artifact Generation)
 You need the compiled JSON of the circuit to load it in the browser.
-1.  Go to `blizkperse/circuits`.
+1.  Go to `zk/circuits`.
 2.  Run `nargo compile`.
 3.  Copy `target/main.json` to `web/public/circuits/main.json`.
 
@@ -67,7 +70,7 @@ export async function generateWithdrawProof(input: any) {
 2.  **Wagmi Call**:
     ```typescript
     writeContract({
-      address: '0x35C8...', // ShieldedPool
+      address: '0x085BD9c0C568BE5093130E2359B00e46cb0800d1', // ShieldedPool
       abi: ShieldedPoolABI,
       functionName: 'deposit',
       args: [commitment] // Loop for multiple deposits if needed
@@ -84,7 +87,7 @@ export async function generateWithdrawProof(input: any) {
 2.  **Wagmi Call**:
     ```typescript
     writeContract({
-      address: '0x35C8...', // ShieldedPool
+      address: '0x085BD9c0C568BE5093130E2359B00e46cb0800d1', // ShieldedPool
       abi: ShieldedPoolABI,
       functionName: 'withdraw',
       args: [

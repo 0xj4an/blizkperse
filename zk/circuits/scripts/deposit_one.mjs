@@ -24,8 +24,8 @@ const POOL_ABI = [
   { type: "function", name: "DENOMINATION", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
 ];
 
-// 1 unit with 18 decimals (e.g. 1 Mento USD on Celo)
-const ONE_UNIT = 10n ** 18n;
+// 1 USDC (6 decimals)
+const ONE_USDC = 1_000_000n;
 
 // Misma lógica de destinatarios que deposit_multi: A→B, A→C, A→B, A→C, A→B
 const B = 2n;
@@ -41,9 +41,8 @@ function toBigInt(frOrBytes) {
 async function main() {
   const RPC = process.env.MONAD_RPC;
   const PK = process.env.PRIVATE_KEY;
-  const POOL = process.env.POOL_ADDRESS ?? "0xf62E5a932a832C8EA990DedD87a05162C8905224";
-  // Celo Mento USD: 0x765DE816845861e75A25fCA122bb6898B8B1282a (18 decimals)
-  const USDC = process.env.USDC_ADDRESS ?? "0x765DE816845861e75A25fCA122bb6898B8B1282a";
+  const POOL = process.env.POOL_ADDRESS ?? "0x085BD9c0C568BE5093130E2359B00e46cb0800d1";
+  const USDC = process.env.USDC_ADDRESS ?? "0x754704Bc059F8C67012fEd69BC8A327a5aafb603";
   const index = process.env.PAYMENT_INDEX;
 
   if (!RPC || !PK) throw new Error("Set MONAD_RPC, PRIVATE_KEY");
@@ -74,8 +73,8 @@ async function main() {
     if (e.code === "BAD_DATA" && e.value === "0x") {
       throw new Error(
         "El token de la pool (" + poolTokenAddress + ") no responde en esta red (balanceOf devolvió vacío). " +
-        "Suele pasar cuando la pool se desplegó en otra red (ej. Monad) y estás llamando desde Celo (o al revés). " +
-        "Solución: usa el mismo RPC que usaste para desplegar la pool, o redespliega la pool en esta red con el token de esta red (ej. Mento en Celo)."
+        "Suele pasar cuando la pool se desplegó en otra red y estás llamando desde otra. " +
+        "Solución: usa el mismo RPC que usaste para desplegar la pool."
       );
     }
     throw e;

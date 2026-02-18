@@ -50,7 +50,7 @@ function readWithdrawProverToml() {
 async function main() {
   const RPC = process.env.MONAD_RPC;
   const PK = process.env.B_PRIVATE_KEY ?? process.env.PRIVATE_KEY;
-  const POOL = process.env.POOL_ADDRESS ?? "0xD850AF48bDdf6E568A994a870aA684B86Bb5054f";
+  const POOL = process.env.POOL_ADDRESS ?? "0x085BD9c0C568BE5093130E2359B00e46cb0800d1";
   const proofFile = process.env.PROOF_FILE;
 
   if (!RPC || !PK) throw new Error("Set MONAD_RPC and B_PRIVATE_KEY (or PRIVATE_KEY)");
