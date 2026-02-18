@@ -2,7 +2,8 @@
  * Un solo pago de 1 USDC (un depósito). Para demo: llamar 5 veces con PAYMENT_INDEX=0,1,2,3,4.
  * Luego un botón puede invocar este script (o una API que lo ejecute) con el índice deseado.
  *
- * Requiere: MONAD_RPC, PRIVATE_KEY, POOL_ADDRESS, USDC_ADDRESS, PAYMENT_INDEX (0..4 para 5 pagos)
+ * Requiere: MONAD_RPC, PRIVATE_KEY (POOL_ADDRESS, USDC_ADDRESS opcionales; tienen default)
+ * Requiere: PAYMENT_INDEX (0..4 para 5 pagos)
  *
  * Uso:
  *   PAYMENT_INDEX=0 node circuits/scripts/deposit_one.mjs   # 1er pago A→B
@@ -37,11 +38,11 @@ function toBigInt(frOrBytes) {
 async function main() {
   const RPC = process.env.MONAD_RPC;
   const PK = process.env.PRIVATE_KEY;
-  const POOL = process.env.POOL_ADDRESS;
+  const POOL = process.env.POOL_ADDRESS ?? "0xD850AF48bDdf6E568A994a870aA684B86Bb5054f";
   const USDC = process.env.USDC_ADDRESS ?? "0x754704bc059f8c67012fed69bc8a327a5aafb603";
   const index = process.env.PAYMENT_INDEX;
 
-  if (!RPC || !PK || !POOL) throw new Error("Set MONAD_RPC, PRIVATE_KEY, POOL_ADDRESS");
+  if (!RPC || !PK) throw new Error("Set MONAD_RPC, PRIVATE_KEY");
   if (index === undefined || index === "") throw new Error("Set PAYMENT_INDEX (0, 1, 2, 3, 4 para 5 pagos demo)");
 
   const paymentIndex = parseInt(index, 10);
