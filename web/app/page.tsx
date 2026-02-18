@@ -39,13 +39,13 @@ const steps = [
   {
     icon: Landmark,
     title: "Deposit with ZK Proof",
-    description: "Funds go into a non-custodial escrow. A ZK proof commits the distribution — amounts stay hidden on-chain.",
+    description: "Funds go into a non-custodial escrow. A ZK proof commits the distribution while amounts stay hidden on-chain.",
   },
   {
     icon: HandCoins,
     title: "Recipients Claim",
     description:
-      "Recipients sign in with email or social, get a wallet instantly, and claim — all in seconds.",
+      "Recipients sign in with email or social, get a wallet instantly, and claim. All in seconds.",
   },
 ];
 
@@ -54,7 +54,7 @@ const features = [
     icon: Lock,
     title: "ZK-Private Distributions",
     description:
-      "Zero-knowledge proofs hide individual amounts on-chain. Observers see that a payout happened — but not who got what.",
+      "Zero-knowledge proofs hide individual amounts on-chain. Observers see that a payout happened, but not who got what.",
   },
   {
     icon: ShieldCheck,
@@ -66,13 +66,13 @@ const features = [
     icon: Zap,
     title: "Zero Friction Onboarding",
     description:
-      "Recipients sign in with email or social — no existing wallet needed. Para creates one instantly.",
+      "Recipients sign in with email or social. No existing wallet needed. Para creates one instantly.",
   },
   {
     icon: CircleDollarSign,
     title: "Monad Speed, Any Token",
     description:
-      "Sub-second finality, negligible gas. Distribute USDC, MON, meme tokens — any ERC-20.",
+      "Sub-second finality, negligible gas. Distribute USDC, MON, meme tokens, any ERC-20.",
   },
 ];
 
@@ -116,7 +116,7 @@ export default function LandingPage() {
             custom={2}
             className="max-w-xl text-lg text-muted-foreground md:text-xl"
           >
-            On-chain payments are public — anyone can reverse-engineer who got
+            On-chain payments are public. Anyone can reverse-engineer who got
             paid what. Blizkperse uses zero-knowledge proofs so only the
             recipient knows their amount.
           </motion.p>
@@ -147,7 +147,7 @@ export default function LandingPage() {
             <p className="mx-auto max-w-2xl text-muted-foreground">
               Every transaction on a public blockchain is visible. When you
               distribute payments, anyone can see every recipient and every
-              amount — making it trivial to reverse-engineer salaries, grants,
+              amount, making it trivial to reverse-engineer salaries, grants,
               and reward structures.
             </p>
           </motion.div>
