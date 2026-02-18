@@ -21,6 +21,7 @@ contract ShieldedPool is ReentrancyGuard {
     event RootRegistered(bytes32 indexed root);
     event Deposit(address indexed sender, bytes32 indexed commitment);
     event TransferIntent(bytes32 indexed root, bytes32 indexed nullifier, bytes32 indexed newCommitment);
+    event Withdraw(address indexed recipient, bytes32 indexed nullifier);
 
     constructor(address _usdc, address _verifier, bytes32 _genesisRoot) {
         usdc = IERC20(_usdc);
@@ -71,5 +72,33 @@ contract ShieldedPool is ReentrancyGuard {
         nullifiers[nullifierIn] = true;
 
         emit TransferIntent(expectedRoot, nullifierIn, newCommitment);
+    }
+
+    /// @notice Withdraw 1 USDC to msg.sender. Requires a proof that burns one note (no new note).
+    /// Public inputs: [burnCommitment=0, nullifierIn, merkleProofLength, expectedRoot].
+    /// To support this you need a "withdraw" circuit that outputs new_commitment = 0 (burn).
+    bytes32 public constant BURN_COMMITMENT = bytes32(0);
+
+    function withdraw(
+        bytes32 expectedRoot,
+        bytes32 nullifierIn,
+        uint32 merkleProofLength,
+        bytes calldata proof
+    ) external nonReentrant {
+        require(isKnownRoot[expectedRoot], "unknown root");
+        require(!nullifiers[nullifierIn], "nullifier used");
+
+        bytes32[] memory publicInputs = new bytes32[](4);
+        publicInputs[0] = BURN_COMMITMENT;
+        publicInputs[1] = nullifierIn;
+        publicInputs[2] = bytes32(uint256(merkleProofLength));
+        publicInputs[3] = expectedRoot;
+
+        require(verifier.verify(proof, publicInputs), "invalid proof");
+
+        nullifiers[nullifierIn] = true;
+        require(usdc.transfer(msg.sender, DENOMINATION), "transfer failed");
+
+        emit Withdraw(msg.sender, nullifierIn);
     }
 }
