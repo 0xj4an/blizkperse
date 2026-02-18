@@ -30,13 +30,16 @@ const nextConfig: NextConfig = {
     return config;
   },
 
-  // SharedArrayBuffer requires COOP/COEP headers for multithreaded WASM
+  // COOP/COEP for WASM support — use "same-origin-allow-popups" so
+  // Para SDK auth popups can communicate back to the parent window.
+  // Full cross-origin isolation (SharedArrayBuffer) requires "same-origin",
+  // but that blocks Para login. bb.js can fall back to single-threaded WASM.
   async headers() {
     return [
       {
         source: "/(.*)",
         headers: [
-          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
           { key: "Cross-Origin-Embedder-Policy", value: "credentialless" },
         ],
       },
