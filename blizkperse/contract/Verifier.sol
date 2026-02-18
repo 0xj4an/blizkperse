@@ -2153,3 +2153,11 @@ contract HonkVerifier is BaseZKHonkVerifier(N, LOG_N, NUMBER_OF_PUBLIC_INPUTS) {
        return HonkVerificationKey.loadVerificationKey();
     }
 }
+
+// Withdraw circuit verifier (misma base Honk; comparte la misma verification key que el circuito transfer
+// hasta que se recompile withdraw.nr y se añada WithdrawVerificationKey con 5 public inputs).
+contract WithdrawVerifier is BaseZKHonkVerifier(N, LOG_N, NUMBER_OF_PUBLIC_INPUTS) {
+     function loadVerificationKey() internal pure override returns (Honk.VerificationKey memory) {
+       return HonkVerificationKey.loadVerificationKey();
+    }
+}

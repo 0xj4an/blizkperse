@@ -8,7 +8,7 @@ pragma solidity ^0.8.19;
 
 import "forge-std/Script.sol";
 
-import "../contract/Verifier.sol";      // HonkVerifier + IVerifier
+import "../contract/Verifier.sol";      // HonkVerifier + WithdrawVerifier + IVerifier
 import "../contract/ShieldedPool.sol";  // pool MVP
 
 contract DeployPool is Script {
@@ -20,11 +20,9 @@ contract DeployPool is Script {
         vm.startBroadcast(pk);
 
         HonkVerifier verifier = new HonkVerifier();
+        WithdrawVerifier withdrawVerifier = new WithdrawVerifier();
         bytes32 genesisRoot = bytes32(0);
-        // WithdrawVerifier no se puede importar junto con Verifier.sol (simbolos duplicados).
-        // Para pool con withdraw: despliega WithdrawVerifier en otro paso y pasa su address aqui.
-        address withdrawVerifierAddr = address(0);
-        ShieldedPool pool = new ShieldedPool(usdc, address(verifier), genesisRoot, withdrawVerifierAddr);
+        ShieldedPool pool = new ShieldedPool(usdc, address(verifier), genesisRoot, address(withdrawVerifier));
 
         vm.stopBroadcast();
 
