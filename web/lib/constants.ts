@@ -1,6 +1,6 @@
 export const SITE_NAME = "Blizkperse";
 export const SITE_DESCRIPTION =
-  "Painless crypto distribution on Monad";
+  "Painless crypto payments on Monad";
 export const MONAD_CHAIN_ID = 143;
 export const MONAD_RPC_URL = "https://rpc3.monad.xyz";
 export const USDM_DECIMALS = 6;

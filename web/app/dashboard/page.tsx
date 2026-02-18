@@ -11,14 +11,14 @@ const roles = [
   {
     href: "/payer",
     icon: LayoutDashboard,
-    title: "Pay",
-    description: "Distribute stablecoin rewards to your participants.",
+    title: "Organize",
+    description: "Create payouts and distribute tokens to your subscribers.",
   },
   {
     href: "/receive",
     icon: HandCoins,
     title: "Receive",
-    description: "Browse payers, register, and claim your payments.",
+    description: "Join organizers, subscribe to payouts, and claim your tokens.",
   },
 ];
 

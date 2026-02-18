@@ -46,7 +46,7 @@ export function Header() {
               <Link href="/payer">
                 <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
                   <LayoutDashboard className="mr-1.5 h-4 w-4" />
-                  Pay
+                  Organize
                 </Button>
               </Link>
               <Link href="/receive">
@@ -75,7 +75,7 @@ export function Header() {
               <Link href="/payer" className="md:hidden">
                 <DropdownMenuItem>
                   <LayoutDashboard className="mr-2 h-4 w-4" />
-                  Pay Dashboard
+                  Organizer Dashboard
                 </DropdownMenuItem>
               </Link>
               <Link href="/receive" className="md:hidden">

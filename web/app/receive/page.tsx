@@ -36,9 +36,9 @@ export default function ReceiveDashboard() {
     setRegistering(payerId);
     try {
       await registerWithPayer(payerId, CURRENT_PARTICIPANT_ID);
-      toast.success("Registered successfully!");
+      toast.success("Joined successfully!");
     } catch {
-      toast.error("Registration failed.");
+      toast.error("Failed to join. Please try again.");
     } finally {
       setRegistering(null);
     }
@@ -49,11 +49,11 @@ export default function ReceiveDashboard() {
       <TabsList className="grid w-full grid-cols-3 max-w-md">
         <TabsTrigger value="browse" className="gap-2">
           <Building2 className="h-4 w-4" />
-          Browse
+          Organizers
         </TabsTrigger>
         <TabsTrigger value="registrations" className="gap-2">
           <ClipboardCheck className="h-4 w-4" />
-          My Regs
+          Subscriptions
         </TabsTrigger>
         <TabsTrigger value="history" className="gap-2">
           <History className="h-4 w-4" />
@@ -73,7 +73,7 @@ export default function ReceiveDashboard() {
                     <CardTitle className="text-base">{payer.name}</CardTitle>
                     {isRegistered && (
                       <Badge variant="default" className="text-xs">
-                        Registered
+                        Joined
                       </Badge>
                     )}
                   </div>
@@ -86,7 +86,7 @@ export default function ReceiveDashboard() {
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Participants</span>
+                    <span className="text-muted-foreground">Subscribers</span>
                     <span className="font-medium">{payer.participantCount}</span>
                   </div>
                   {!isRegistered && (
@@ -99,7 +99,7 @@ export default function ReceiveDashboard() {
                       {registering === payer.id ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
-                        "Register"
+                        "Join"
                       )}
                     </Button>
                   )}
@@ -110,14 +110,14 @@ export default function ReceiveDashboard() {
         </div>
       </TabsContent>
 
-      {/* My Registrations */}
+      {/* Subscriptions */}
       <TabsContent value="registrations">
         <Card className="glass overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Payer</TableHead>
-                <TableHead>Registered</TableHead>
+                <TableHead>Organizer</TableHead>
+                <TableHead>Joined</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
@@ -150,7 +150,7 @@ export default function ReceiveDashboard() {
                     colSpan={3}
                     className="py-8 text-center text-sm text-muted-foreground"
                   >
-                    No registrations yet. Browse payers to get started.
+                    No subscriptions yet. Browse organizers to get started.
                   </TableCell>
                 </TableRow>
               )}
@@ -165,7 +165,7 @@ export default function ReceiveDashboard() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>From</TableHead>
+                <TableHead>Organizer</TableHead>
                 <TableHead>Amount</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Action</TableHead>
@@ -180,7 +180,7 @@ export default function ReceiveDashboard() {
                       {payer?.name ?? payment.payerId}
                     </TableCell>
                     <TableCell>
-                      ${payment.amount.toLocaleString()} USDm
+                      ${payment.amount.toLocaleString()}
                     </TableCell>
                     <TableCell>
                       <Badge

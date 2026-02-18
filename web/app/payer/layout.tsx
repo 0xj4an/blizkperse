@@ -11,8 +11,8 @@ export default function PayerLayout({
   return (
     <AuthGuard>
       <PageShell
-        title="Pay Dashboard"
-        description="Manage your payout distributions"
+        title="Organizer Dashboard"
+        description="Manage your subscribers and distribute payouts"
       >
         {children}
       </PageShell>

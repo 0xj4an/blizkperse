@@ -125,7 +125,7 @@ export default function CreatePayoutPage() {
         ))}
         <span className="ml-2 text-sm text-muted-foreground capitalize">
           {step === "select"
-            ? "Select Participants"
+            ? "Select Subscribers"
             : step === "amounts"
               ? "Set Amounts"
               : "Review & Deposit"}
@@ -144,7 +144,7 @@ export default function CreatePayoutPage() {
           >
             <div className="flex items-center gap-3">
               <Input
-                placeholder="Search participants..."
+                placeholder="Search subscribers..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="max-w-sm"
@@ -178,7 +178,7 @@ export default function CreatePayoutPage() {
                 ))}
                 {filtered.length === 0 && (
                   <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-                    No participants found.
+                    No subscribers found.
                   </p>
                 )}
               </CardContent>
@@ -208,7 +208,7 @@ export default function CreatePayoutPage() {
           >
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
-                Set USDm amount per participant
+                Set amount per subscriber
               </p>
               <Button variant="outline" size="sm" onClick={handleEqualSplit}>
                 Equal Split
@@ -247,7 +247,7 @@ export default function CreatePayoutPage() {
                           className="w-28 text-right"
                         />
                         <span className="text-xs text-muted-foreground">
-                          USDm
+                          tokens
                         </span>
                       </div>
                     </div>
@@ -259,7 +259,7 @@ export default function CreatePayoutPage() {
             <div className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
               <span className="text-sm font-medium">Total</span>
               <span className="text-xl font-bold">
-                ${totalAmount.toLocaleString()} USDm
+                ${totalAmount.toLocaleString()} tokens
               </span>
             </div>
 
@@ -314,7 +314,7 @@ export default function CreatePayoutPage() {
                           >
                             <span>{p.name}</span>
                             <span className="font-medium">
-                              ${(amounts[id] || 0).toLocaleString()} USDm
+                              ${(amounts[id] || 0).toLocaleString()} tokens
                             </span>
                           </div>
                         );
@@ -327,7 +327,7 @@ export default function CreatePayoutPage() {
                         {selected.size} recipients
                       </div>
                       <span className="text-2xl font-bold gradient-text">
-                        ${totalAmount.toLocaleString()} USDm
+                        ${totalAmount.toLocaleString()} tokens
                       </span>
                     </div>
                   </CardContent>
@@ -348,7 +348,7 @@ export default function CreatePayoutPage() {
                     className="gap-2"
                   >
                     <CircleDollarSign className="h-5 w-5" />
-                    Deposit ${totalAmount.toLocaleString()} USDm
+                    Deposit ${totalAmount.toLocaleString()} tokens
                   </Button>
                 </div>
               </>

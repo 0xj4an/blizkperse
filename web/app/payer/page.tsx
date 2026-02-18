@@ -52,7 +52,7 @@ export default function PayerDashboard() {
               <Users className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Participants</p>
+              <p className="text-sm text-muted-foreground">Subscribers</p>
               <p className="text-2xl font-bold">{regs.length}</p>
             </div>
           </CardContent>
@@ -72,7 +72,7 @@ export default function PayerDashboard() {
 
       {/* CTA */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Registered Participants</h2>
+        <h2 className="text-xl font-semibold">Subscribers</h2>
         <Link href="/payer/create">
           <Button className="gap-2">
             <Plus className="h-4 w-4" />
@@ -88,7 +88,7 @@ export default function PayerDashboard() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Address</TableHead>
-              <TableHead>Registered</TableHead>
+              <TableHead>Joined</TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
           </TableHeader>

@@ -30,6 +30,15 @@ RPC: `https://rpc3.monad.xyz`
 -   **Infrastructure**: Railway (PostgreSQL + Next.js Hosting)
 -   **Payments**: Any ERC20 (Defaults to USDC)
 
+## Documentation
+
+| Doc | Description |
+|---|---|
+| [Technical Spec](docs/technical_spec.md) | Full architecture, ZK flows, DB schema, dev phases |
+| [Pitch Deck](docs/pitch_deck.md) | 3-minute pitch structure, GTM strategy, vision |
+| [Brand Kit](docs/brand_kit.md) | Color palette, typography, design rules |
+| [Circuits README](blizkperse/README.md) | Noir + Foundry setup, verifier generation, testing |
+
 ## Getting Started
 
 ### Prerequisites
@@ -40,7 +49,7 @@ RPC: `https://rpc3.monad.xyz`
 ### Installation
 
 1.  Clone repo
-2.  `pnpm install`
-3.  `forge up`
+2.  `cd web && pnpm install`
+3.  `cd blizkperse && forge install`
 
 *Built with high-throughput love on Monad.*

@@ -16,6 +16,9 @@ import {
   CircleDollarSign,
   Lock,
   Github,
+  Eye,
+  EyeOff,
+  Search,
 } from "lucide-react";
 
 const fadeUp = {
@@ -31,45 +34,45 @@ const steps = [
   {
     icon: Upload,
     title: "Create Payout",
-    description: "Select recipients and set amounts. No CSV uploads needed.",
+    description: "Select your subscribers, set amounts or split equally. No CSV uploads needed.",
   },
   {
     icon: Landmark,
-    title: "Deposit Funds",
-    description: "Deposit USDm into the smart contract. One transaction.",
+    title: "Deposit with ZK Proof",
+    description: "Funds go into a non-custodial escrow. A ZK proof commits the distribution — amounts stay hidden on-chain.",
   },
   {
     icon: HandCoins,
     title: "Recipients Claim",
     description:
-      "Recipients sign in, get a wallet, and claim — all in seconds.",
+      "Recipients sign in with email or social, get a wallet instantly, and claim — all in seconds.",
   },
 ];
 
 const features = [
   {
-    icon: Zap,
-    title: "Zero Friction",
-    description:
-      "Recipients don't need an existing wallet. Para creates one on sign-in.",
-  },
-  {
     icon: Lock,
-    title: "Private by Design",
+    title: "ZK-Private Distributions",
     description:
-      "ZK proofs ensure distribution data stays confidential on-chain.",
-  },
-  {
-    icon: CircleDollarSign,
-    title: "Monad Fast",
-    description:
-      "Built on Monad for sub-second finality and negligible gas fees.",
+      "Zero-knowledge proofs hide individual amounts on-chain. Observers see that a payout happened — but not who got what.",
   },
   {
     icon: ShieldCheck,
-    title: "USDm Stablecoin",
+    title: "Non-Custodial Escrow",
     description:
-      "Distribute real value with USDm — stable, reliable, and auditable.",
+      "Funds sit in a smart contract, not a middleman. Only verified recipients can claim their share.",
+  },
+  {
+    icon: Zap,
+    title: "Zero Friction Onboarding",
+    description:
+      "Recipients sign in with email or social — no existing wallet needed. Para creates one instantly.",
+  },
+  {
+    icon: CircleDollarSign,
+    title: "Monad Speed, Any Token",
+    description:
+      "Sub-second finality, negligible gas. Distribute USDC, MON, meme tokens — any ERC-20.",
   },
 ];
 
@@ -95,8 +98,8 @@ export default function LandingPage() {
             custom={0}
             className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-1.5 text-sm text-primary"
           >
-            <Zap className="h-3.5 w-3.5" />
-            Built on Monad
+            <Lock className="h-3.5 w-3.5" />
+            ZK-Private Payments on Monad
           </motion.div>
 
           <motion.h1
@@ -104,8 +107,8 @@ export default function LandingPage() {
             custom={1}
             className="text-4xl font-bold leading-tight tracking-tight md:text-6xl md:leading-tight"
           >
-            Distribute Stablecoin Rewards.{" "}
-            <span className="gradient-text">Painlessly.</span>
+            Pay On-Chain.{" "}
+            <span className="gradient-text">Stay Private.</span>
           </motion.h1>
 
           <motion.p
@@ -113,8 +116,9 @@ export default function LandingPage() {
             custom={2}
             className="max-w-xl text-lg text-muted-foreground md:text-xl"
           >
-            Recipients don&apos;t need a wallet. They sign in, get one, and
-            claim — all in seconds.
+            On-chain payments are public — anyone can reverse-engineer who got
+            paid what. Blizkperse uses zero-knowledge proofs so only the
+            recipient knows their amount.
           </motion.p>
 
           <motion.div variants={fadeUp} custom={3}>
@@ -126,6 +130,71 @@ export default function LandingPage() {
             </Link>
           </motion.div>
         </motion.div>
+      </section>
+
+      {/* The Problem */}
+      <section className="px-4 pb-24">
+        <div className="container mx-auto max-w-4xl">
+          <motion.div
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true }}
+            className="mb-10 text-center"
+          >
+            <h2 className="mb-4 text-2xl font-semibold md:text-3xl">
+              The Problem
+            </h2>
+            <p className="mx-auto max-w-2xl text-muted-foreground">
+              Every transaction on a public blockchain is visible. When you
+              distribute payments, anyone can see every recipient and every
+              amount — making it trivial to reverse-engineer salaries, grants,
+              and reward structures.
+            </p>
+          </motion.div>
+          <div className="grid gap-6 md:grid-cols-3">
+            {[
+              {
+                icon: Eye,
+                title: "Fully Transparent",
+                description:
+                  "Every transfer amount and recipient address is public on the blockchain explorer.",
+              },
+              {
+                icon: Search,
+                title: "Easy to Reverse-Engineer",
+                description:
+                  "Observers can reconstruct your entire payment structure from on-chain data.",
+              },
+              {
+                icon: EyeOff,
+                title: "No Confidentiality",
+                description:
+                  "Recipients can see what everyone else received. Competitive intel leaks freely.",
+              },
+            ].map((item, i) => (
+              <motion.div
+                key={item.title}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true }}
+                variants={fadeUp}
+                custom={i}
+              >
+                <Card className="glass h-full border-destructive/20">
+                  <CardContent className="flex flex-col gap-3 p-6">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
+                      <item.icon className="h-5 w-5" />
+                    </div>
+                    <h3 className="font-semibold">{item.title}</h3>
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                      {item.description}
+                    </p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* How It Works */}

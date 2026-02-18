@@ -1,0 +1,48 @@
+# ── OS ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Environment / Secrets ───────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Private Docs ────────────────────────────────────
+docs/hackathon_submission.md
+
+# ── Node / Next.js (web/) ───────────────────────────
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+.next/
+out/
+build/
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.pem
+
+# ── Foundry (blizkperse/) ──────────────────────────
+cache/
+broadcast/
+proofs/
+plonk_vk.sol
+
+# ── Noir Circuits ───────────────────────────────────
+blizkperse/circuits/target/
+
+# ── IDE ─────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
