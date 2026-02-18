@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Blizkperse | Painless Stablecoin Distribution",
-  description: "Distribute USDm rewards on Monad with zero friction",
+  description: "Distribute crypto rewards on Monad with zero friction",
 };
 
 export default function RootLayout({

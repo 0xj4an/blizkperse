@@ -10,7 +10,7 @@ import {
   type Hex,
   type Chain,
 } from "viem";
-import { MONAD_RPC_URL, POOL_ADDRESS, USDM_ADDRESS, SUPPORTED_TOKENS, type TokenConfig } from "./constants";
+import { MONAD_RPC_URL, POOL_ADDRESS, POOL_TOKEN_ADDRESS, POOL_DENOMINATION, SUPPORTED_TOKENS, type TokenConfig } from "./constants";
 
 // ── Monad chain definition ──────────────────────────────
 export const monadMainnet = {
@@ -57,17 +57,14 @@ export function getPublicClient(): PublicClient {
   return _publicClient;
 }
 
-// ── Constants ───────────────────────────────────────────
-const DENOMINATION = 1_000_000n; // 1 USDm = 1e6
-
 // ── Write functions ─────────────────────────────────────
 
-export async function approveUSDm(
+export async function approvePoolToken(
   walletClient: WalletClient,
-  amount: bigint = DENOMINATION
+  amount: bigint = POOL_DENOMINATION
 ): Promise<Hash> {
   return walletClient.writeContract({
-    address: USDM_ADDRESS,
+    address: POOL_TOKEN_ADDRESS,
     abi: ERC20_ABI,
     functionName: "approve",
     args: [POOL_ADDRESS, amount],
@@ -134,29 +131,6 @@ export async function isRootKnown(root: Hex): Promise<boolean> {
     functionName: "isKnownRoot",
     args: [root],
   }) as Promise<boolean>;
-}
-
-export async function getUSDmBalance(account: Hex): Promise<bigint> {
-  const client = getPublicClient();
-  return client.readContract({
-    address: USDM_ADDRESS,
-    abi: ERC20_ABI,
-    functionName: "balanceOf",
-    args: [account],
-  }) as Promise<bigint>;
-}
-
-export async function getUSDmAllowance(
-  owner: Hex,
-  spender: Hex = POOL_ADDRESS
-): Promise<bigint> {
-  const client = getPublicClient();
-  return client.readContract({
-    address: USDM_ADDRESS,
-    abi: ERC20_ABI,
-    functionName: "allowance",
-    args: [owner, spender],
-  }) as Promise<bigint>;
 }
 
 // ── Token balance helpers ────────────────────────────────

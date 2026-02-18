@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from "react";
 import type { WalletClient, Hex } from "viem";
 import {
-  approveUSDm,
+  approvePoolToken,
   depositToPool,
   withdrawFromPool,
   getPublicClient,
@@ -412,7 +412,7 @@ export async function createPayout(params: {
   const token = params.token ?? "MON";
   const totalAmount = params.recipients.reduce((s, r) => s + r.amount, 0);
 
-  // Calculate total notes needed (1 note = 1 USDm)
+  // Calculate total notes needed (1 note = 1 USDC)
   const totalNotes = params.recipients.reduce(
     (s, r) => s + Math.floor(r.amount),
     0
@@ -425,8 +425,8 @@ export async function createPayout(params: {
     const publicClient = getPublicClient();
 
     // Step 1: Batch approve total amount
-    params.onProgress?.("Approving USDm", 0, totalNotes);
-    const approveTx = await approveUSDm(
+    params.onProgress?.("Approving token", 0, totalNotes);
+    const approveTx = await approvePoolToken(
       params.walletClient,
       BigInt(totalNotes) * 1_000_000n
     );
