@@ -22,7 +22,7 @@ contract StarterTest is Test {
     function test_verifyProof() public {
         noirHelper.withInput("x", 1).withInput("y", 1).withInput("return", 1);
         (bytes32[] memory publicInputs, bytes memory proof) = noirHelper.generateProof("test_verifyProof", 2);
-        starter.verifyEqual(proof, publicInputs);
+        starter.verifyPay(proof, publicInputs);
     }
 
     function test_wrongProof() public {
@@ -30,7 +30,7 @@ contract StarterTest is Test {
         noirHelper.withInput("x", 1).withInput("y", 5).withInput("return", 5);
         (bytes32[] memory publicInputs, bytes memory proof) = noirHelper.generateProof("test_wrongProof", 2);
         vm.expectRevert();
-        starter.verifyEqual(proof, publicInputs);
+        starter.verifyPay(proof, publicInputs);
     }
 
     // function test_all() public {

@@ -1,0 +1,12 @@
+[
+    {"type":"function","name":"registerRoot","stateMutability":"nonpayable","inputs":[{"name":"root","type":"bytes32"}],"outputs":[]},
+    {"type":"function","name":"transferIntent","stateMutability":"nonpayable","inputs":[
+      {"name":"expectedRoot","type":"bytes32"},
+      {"name":"nullifierIn","type":"bytes32"},
+      {"name":"merkleProofLength","type":"uint32"},
+      {"name":"newCommitment","type":"bytes32"},
+      {"name":"proof","type":"bytes"}
+    ],"outputs":[]},
+    {"type":"function","name":"deposit","stateMutability":"nonpayable","inputs":[{"name":"commitment","type":"bytes32"}],"outputs":[]}
+  ]
+  
