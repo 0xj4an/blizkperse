@@ -1,6 +1,6 @@
 # Demo: Deposit (wallet A) y Withdraw (wallet B)
 
-Lista de pasos y comandos para compilar circuitos, desplegar contratos y ejecutar una demo: **wallet A** deposita 1 USDC (creando una nota para B); **wallet B** retira ese 1 USDC a su dirección.
+Lista de pasos y comandos para compilar circuitos, desplegar contratos y ejecutar una demo: **wallet A** deposita 1 unidad del token (creando una nota para B); **wallet B** retira esa 1 unidad a su dirección. Por defecto el token es **Mento USD en Celo** (18 decimales); en Monad se usa USDC (6 decimales) configurando `USDC_ADDRESS` en `.env`.
 
 ---
 
@@ -10,8 +10,8 @@ Lista de pasos y comandos para compilar circuitos, desplegar contratos y ejecuta
 - **Forge** (Foundry)
 - **Nargo** (Noir), p. ej. `noirup`
 - **Barretenberg** (`bb`), p. ej. vía [bbup](https://github.com/AztecProtocol/aztec-packages/tree/master/barretenberg/bbup)
-- **Wallet A:** con USDC y ETH (gas) en la red destino
-- **Wallet B:** con ETH (gas); no necesita USDC (recibirá 1 USDC en el withdraw)
+- **Wallet A:** con el token (Mento USD en Celo, o USDC en Monad) y CELO/ETH (gas) en la red destino
+- **Wallet B:** con CELO/ETH (gas); no necesita token (recibirá 1 unidad en el withdraw)
 
 ---
 
@@ -22,8 +22,8 @@ Crea o edita `.env` en la raíz del repo:
 ```bash
 # Deploy (Forge)
 PRIVATE_KEY=          # Clave del deployer (p. ej. la de A para simplificar)
-USDC_ADDRESS=         # USDC en la red (Monad: 0x754704bc059f8c67012fed69bc8a327a5aafb603 u otra)
-MONAD_RPC=https://rpc3.monad.xyz
+USDC_ADDRESS=         # Token: Celo Mento USD 0x765DE816845861e75A25fCA122bb6898B8B1282a (18 dec); Monad USDC otra
+MONAD_RPC=            # Celo: https://rpc.ankr.com/celo o similar; Monad: https://rpc3.monad.xyz
 
 # Tras el deploy, rellenar con la nueva pool
 POOL_ADDRESS=         # Se rellena después del paso 3
@@ -71,6 +71,8 @@ Desde la **raíz del repo**:
 source .env
 forge script script/Deploy.s.sol:DeployPool --rpc-url "$MONAD_RPC" --broadcast
 ```
+
+**Celo + Mento USD:** en `.env` pon `USDC_ADDRESS=0x765DE816845861e75A25fCA122bb6898B8B1282a` y `MONAD_RPC` al RPC de Celo (ej. `https://rpc.ankr.com/celo`). La pool usa 18 decimales (1 unidad = 1 Mento USD).
 
 Anota la dirección de la **ShieldedPool** que imprima el script (o en `broadcast/.../run-latest.json`). Es la que usarás como `POOL_ADDRESS`.
 

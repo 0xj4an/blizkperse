@@ -47,9 +47,44 @@ async function main() {
 
   const provider = new ethers.JsonRpcProvider(RPC);
   const wallet = new ethers.Wallet(PK, provider);
+
+  let code;
+  try {
+    code = await provider.getCode(POOL);
+  } catch (e) {
+    if (e.code === "TIMEOUT" || e.shortMessage?.includes("timeout") || e.message?.includes("detect network")) {
+      throw new Error(
+        "No se pudo conectar al RPC. Revisa MONAD_RPC en .env:\n" +
+        "  - ¿La URL es correcta? (ej. Celo: https://rpc.ankr.com/celo)\n" +
+        "  - ¿Tienes internet / la red está disponible?\n" +
+        "  - Prueba en otra terminal: curl -s -X POST -H 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' " + RPC
+      );
+    }
+    throw e;
+  }
+
+  if (!code || code === "0x") {
+    throw new Error(
+      `No contract at POOL_ADDRESS ${POOL} on this network. ` +
+      "Did you deploy the pool? Set POOL_ADDRESS in .env to your ShieldedPool address and MONAD_RPC to the correct chain (e.g. Celo)."
+    );
+  }
+
   const pool = new ethers.Contract(POOL, POOL_ABI, wallet);
 
-  const known = await pool.isKnownRoot(root);
+  let known;
+  try {
+    known = await pool.isKnownRoot(root);
+  } catch (e) {
+    if (e.info?.method === "isKnownRoot" && (e.value === "0x" || e.code === "BAD_DATA")) {
+      throw new Error(
+        `Contract at ${POOL} did not return valid data (isKnownRoot). ` +
+        "Check that POOL_ADDRESS is your ShieldedPool, not another contract, and that you are on the right network (MONAD_RPC)."
+      );
+    }
+    throw e;
+  }
+
   if (known) {
     console.log("Root already registered:", root);
     return;

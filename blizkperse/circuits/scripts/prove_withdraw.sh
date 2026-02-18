@@ -29,6 +29,10 @@ if [ -z "$WITNESS_PATH" ] || ! [ -f "$WITNESS_PATH" ]; then
 fi
 echo "Usando witness: $WITNESS_PATH"
 
+# Escribir la vk del circuito withdraw (target/vk) para que bb prove y bb verify usen la misma key.
+# Si no hacemos esto, target/vk puede ser del circuito transfer y el sumcheck falla.
+bb write_vk -b ./target/with_foundry.json -o ./target --oracle_hash keccak
+
 bb prove -b ./target/with_foundry.json -w "$WITNESS_PATH" -o ./target --oracle_hash keccak
 
 # 4. Convertir proof binario a hex para withdraw_one.mjs
@@ -50,3 +54,5 @@ mv "$BACKUP" src/main.nr 2>/dev/null || true
 echo "Listo. Para enviar el withdraw:"
 echo "  Desde circuits/: PROOF_FILE=proofs/withdraw.proof node scripts/withdraw_one.mjs"
 echo "  Desde repo root: PROOF_FILE=circuits/proofs/withdraw.proof node scripts/withdraw_one.mjs"
+echo ""
+echo "Verificar proof localmente con bb: bb verify -p ./target/proof -k ./target/vk -i ./target/public_inputs --oracle_hash keccak"

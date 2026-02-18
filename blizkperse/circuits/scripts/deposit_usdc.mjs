@@ -26,7 +26,8 @@ async function main() {
   const RPC = process.env.MONAD_RPC;
   const PK = process.env.PRIVATE_KEY;
   const POOL = process.env.POOL_ADDRESS;
-  const USDC = process.env.USDC_ADDRESS ?? "0x754704bc059f8c67012fed69bc8a327a5aafb603";
+  // Celo Mento USD: 0x765DE816845861e75A25fCA122bb6898B8B1282a (18 decimals)
+  const USDC = process.env.USDC_ADDRESS ?? "0x765DE816845861e75A25fCA122bb6898B8B1282a";
 
   if (!RPC || !PK || !POOL) throw new Error("Set MONAD_RPC, PRIVATE_KEY, POOL_ADDRESS");
 
@@ -48,7 +49,7 @@ async function main() {
   const bal = await usdc.balanceOf(wallet.address);
   console.log("USDC balance:", bal.toString());
 
-  const amount = 1_000_000n; // 1 USDC
+  const amount = 10n ** 18n; // 1 unit (18 decimals, e.g. 1 Mento USD)
   const tx1 = await usdc.approve(POOL, amount);
   console.log("approve tx:", tx1.hash);
   await tx1.wait();

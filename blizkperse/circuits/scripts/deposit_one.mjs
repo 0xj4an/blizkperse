@@ -20,9 +20,12 @@ const ERC20_ABI = [
 ];
 const POOL_ABI = [
   { type: "function", name: "deposit", stateMutability: "nonpayable", inputs: [{ name: "commitment", type: "bytes32" }], outputs: [] },
+  { type: "function", name: "usdc", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "DENOMINATION", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
 ];
 
-const ONE_USDC = 1_000_000n;
+// 1 unit with 18 decimals (e.g. 1 Mento USD on Celo)
+const ONE_UNIT = 10n ** 18n;
 
 // Misma lógica de destinatarios que deposit_multi: A→B, A→C, A→B, A→C, A→B
 const B = 2n;
@@ -38,8 +41,9 @@ function toBigInt(frOrBytes) {
 async function main() {
   const RPC = process.env.MONAD_RPC;
   const PK = process.env.PRIVATE_KEY;
-  const POOL = process.env.POOL_ADDRESS ?? "0xD850AF48bDdf6E568A994a870aA684B86Bb5054f";
-  const USDC = process.env.USDC_ADDRESS ?? "0x754704bc059f8c67012fed69bc8a327a5aafb603";
+  const POOL = process.env.POOL_ADDRESS ?? "0xf62E5a932a832C8EA990DedD87a05162C8905224";
+  // Celo Mento USD: 0x765DE816845861e75A25fCA122bb6898B8B1282a (18 decimals)
+  const USDC = process.env.USDC_ADDRESS ?? "0x765DE816845861e75A25fCA122bb6898B8B1282a";
   const index = process.env.PAYMENT_INDEX;
 
   if (!RPC || !PK) throw new Error("Set MONAD_RPC, PRIVATE_KEY");
@@ -52,11 +56,32 @@ async function main() {
 
   const provider = new ethers.JsonRpcProvider(RPC);
   const wallet = new ethers.Wallet(PK, provider);
-  const usdc = new ethers.Contract(USDC, ERC20_ABI, wallet);
   const pool = new ethers.Contract(POOL, POOL_ABI, wallet);
 
-  const bal = await usdc.balanceOf(wallet.address);
-  if (bal < ONE_USDC) throw new Error(`Need 1 USDC, balance: ${bal}`);
+  // Usar el token y la cantidad que exige la pool (evita desajustes con USDC_ADDRESS / DENOMINATION)
+  const poolTokenAddress = await pool.usdc();
+  const denomination = await pool.DENOMINATION();
+  const token = new ethers.Contract(poolTokenAddress, ERC20_ABI, wallet);
+
+  if (poolTokenAddress.toLowerCase() !== (USDC ?? "").toLowerCase()) {
+    console.log("Aviso: la pool usa token", poolTokenAddress, "(.env USDC_ADDRESS:", USDC ?? "default", ")");
+  }
+
+  let bal;
+  try {
+    bal = await token.balanceOf(wallet.address);
+  } catch (e) {
+    if (e.code === "BAD_DATA" && e.value === "0x") {
+      throw new Error(
+        "El token de la pool (" + poolTokenAddress + ") no responde en esta red (balanceOf devolvió vacío). " +
+        "Suele pasar cuando la pool se desplegó en otra red (ej. Monad) y estás llamando desde Celo (o al revés). " +
+        "Solución: usa el mismo RPC que usaste para desplegar la pool, o redespliega la pool en esta red con el token de esta red (ej. Mento en Celo)."
+      );
+    }
+    throw e;
+  }
+  console.log("Pool DENOMINATION:", denomination.toString(), "| Tu balance:", bal.toString());
+  if (bal < denomination) throw new Error(`Necesitas al menos ${denomination} del token. Balance: ${bal}`);
 
   const pk_b = RECIPIENTS[paymentIndex];
   const value = 1n;
@@ -81,11 +106,37 @@ async function main() {
   const toLabel = pk_b === B ? "B" : "C";
   console.log(`Payment ${paymentIndex + 1} (A→${toLabel}), commitment:`, commitment);
 
-  const allowance = await usdc.allowance(wallet.address, POOL);
-  if (allowance < ONE_USDC) {
-    const tx0 = await usdc.approve(POOL, ONE_USDC);
+  let allowance = await token.allowance(wallet.address, POOL);
+  if (allowance < denomination) {
+    console.log("Aprobando", denomination.toString(), "para la pool (allowance actual:", allowance.toString(), ")");
+    const tx0 = await token.approve(POOL, denomination);
     console.log("approve tx:", tx0.hash);
     await tx0.wait();
+    allowance = await token.allowance(wallet.address, POOL);
+    console.log("Allowance tras approve:", allowance.toString());
+  }
+
+  try {
+    await pool.deposit.staticCall(commitment);
+  } catch (simErr) {
+    if (simErr.code === "CALL_EXCEPTION") {
+      const reason = simErr.reason ?? simErr.shortMessage ?? "";
+      if (reason.includes("commitment already used")) {
+        throw new Error(
+          "Este commitment ya se usó en un deposit anterior. Con PAYMENT_INDEX=0 el commitment es siempre el mismo. " +
+          "Prueba con otro índice: PAYMENT_INDEX=1 (o 2, 3, 4), o cambia los datos del pago para generar un commitment nuevo."
+        );
+      }
+      if (reason.includes("transferFrom failed")) {
+        throw new Error(
+          `transferFrom falló: la pool cobra DENOMINATION=${denomination}. Balance y allowance deben ser >= ${denomination}.`
+        );
+      }
+      throw new Error(
+        `deposit revertió: ${reason || "sin mensaje"}. Posibles causas: (1) commitment ya usado → prueba PAYMENT_INDEX=1,2,3,4. (2) allowance/balance insuficientes para ${denomination}.`
+      );
+    }
+    throw simErr;
   }
 
   const tx = await pool.deposit(commitment);
