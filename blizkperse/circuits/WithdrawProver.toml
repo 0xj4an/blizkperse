@@ -4,7 +4,7 @@ value = "0x1"
 nullifier = "0x2f2db3ebc29365d92b4c3c567ec37494c011331eedf2eb88972d6a5aee08d400"
 merkle_proof_length = 1
 expected_merkle_root = "0x1364dee863ea150a4774ed9bc287bd4a4b7bec30e86f6bc29decf65a3b3bc4aa"
-recipient = "0x0000000000000000000000001234567890123456789012345678901234567890"
+recipient = "0x000000000000000000000000635BB386312470490Dd5864258bcb7Ab505bF42d"
 
 # Private (mismo esquema que deposit_one: pk_b = 2 para B, random = 100 para index 0)
 pk_b = "0x2"

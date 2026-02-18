@@ -2,15 +2,12 @@
  * Llama pool.withdraw(proof, publicInputs) para retirar 1 USDC al recipient.
  * Orden publicInputs: [value, nullifier, merkle_proof_length, expected_merkle_root, recipient].
  *
- * Requiere: MONAD_RPC, PRIVATE_KEY, POOL_ADDRESS, PROOF_FILE (ruta a fichero con proof en hex 0x...)
- * Opcional: WITHDRAW_VALUE, NULLIFIER, MERKLE_PROOF_LENGTH, EXPECTED_ROOT, RECIPIENT
+ * Requiere: MONAD_RPC, PROOF_FILE. Para firmar la tx: B_PRIVATE_KEY (recomendado para wallet B) o PRIVATE_KEY.
+ * Opcional: POOL_ADDRESS, WITHDRAW_VALUE, NULLIFIER, MERKLE_PROOF_LENGTH, EXPECTED_ROOT, RECIPIENT
  *           (si no se pasan, se leen de WithdrawProver.toml)
  *
- * Nota: El WithdrawVerifier actual espera 4 public inputs (misma key que transfer).
- *       Hasta integrar la key del withdraw (5 inputs), esta tx fallará en verify().
- *
- * Uso:
- *   PROOF_FILE=circuits/proofs/withdraw.proof node circuits/scripts/withdraw_one.mjs
+ * Uso (wallet B en la demo):
+ *   B_PRIVATE_KEY=0x... PROOF_FILE=circuits/proofs/withdraw.proof node circuits/scripts/withdraw_one.mjs
  */
 import fs from "fs";
 import path from "path";
@@ -52,12 +49,18 @@ function readWithdrawProverToml() {
 
 async function main() {
   const RPC = process.env.MONAD_RPC;
-  const PK = process.env.PRIVATE_KEY;
+  const PK = process.env.B_PRIVATE_KEY ?? process.env.PRIVATE_KEY;
   const POOL = process.env.POOL_ADDRESS ?? "0xD850AF48bDdf6E568A994a870aA684B86Bb5054f";
   const proofFile = process.env.PROOF_FILE;
 
-  if (!RPC || !PK) throw new Error("Set MONAD_RPC, PRIVATE_KEY");
-  if (!proofFile || !fs.existsSync(proofFile)) throw new Error("Set PROOF_FILE to path of proof hex file (0x...)");
+  if (!RPC || !PK) throw new Error("Set MONAD_RPC and B_PRIVATE_KEY (or PRIVATE_KEY)");
+  if (!proofFile) throw new Error("Set PROOF_FILE to path of proof hex file (0x...)");
+  let proofPath = path.resolve(proofFile);
+  if (!fs.existsSync(proofPath)) {
+    const alt = path.resolve(__dirname, "..", "proofs", path.basename(proofFile));
+    if (fs.existsSync(alt)) proofPath = alt;
+    else throw new Error(`PROOF_FILE not found: ${proofFile} (tried also ${alt})`);
+  }
 
   let value = process.env.WITHDRAW_VALUE;
   let nullifier = process.env.NULLIFIER;
@@ -89,7 +92,7 @@ async function main() {
     bytes32(recipient),
   ];
 
-  let proofHex = fs.readFileSync(proofFile, "utf8").trim();
+  let proofHex = fs.readFileSync(proofPath, "utf8").trim();
   if (!proofHex.startsWith("0x")) proofHex = "0x" + proofHex;
   const proofBytes = ethers.getBytes(proofHex);
 

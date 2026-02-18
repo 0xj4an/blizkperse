@@ -5,6 +5,9 @@ pragma solidity >=0.8.21;
 uint256 constant N = 32768;
 uint256 constant LOG_N = 15;
 uint256 constant NUMBER_OF_PUBLIC_INPUTS = 20;
+// Withdraw circuit: 5 public inputs; total for Honk = 5 + 16 (PAIRING_POINTS_SIZE) = 21
+uint256 constant WITHDRAW_NUMBER_OF_PUBLIC_INPUTS = 5;
+uint256 constant WITHDRAW_PUBLIC_INPUTS_TOTAL = 21;
 library HonkVerificationKey {
     function loadVerificationKey() internal pure returns (Honk.VerificationKey memory) {
         Honk.VerificationKey memory vk = Honk.VerificationKey({
@@ -120,6 +123,15 @@ library HonkVerificationKey {
                y: uint256(0x0a92dc3c0e5597c42db52fb556397404200f8834c05e5f9cb08a439167cf90b6)
             })
         });
+        return vk;
+    }
+}
+
+// Key para withdraw: misma estructura que Honk, pero publicInputsSize = 21 (5 inputs + 16 pairing).
+library WithdrawVerificationKey {
+    function loadVerificationKey() internal pure returns (Honk.VerificationKey memory) {
+        Honk.VerificationKey memory vk = HonkVerificationKey.loadVerificationKey();
+        vk.publicInputsSize = 21;
         return vk;
     }
 }
@@ -2154,10 +2166,9 @@ contract HonkVerifier is BaseZKHonkVerifier(N, LOG_N, NUMBER_OF_PUBLIC_INPUTS) {
     }
 }
 
-// Withdraw circuit verifier (misma base Honk; comparte la misma verification key que el circuito transfer
-// hasta que se recompile withdraw.nr y se añada WithdrawVerificationKey con 5 public inputs).
-contract WithdrawVerifier is BaseZKHonkVerifier(N, LOG_N, NUMBER_OF_PUBLIC_INPUTS) {
-     function loadVerificationKey() internal pure override returns (Honk.VerificationKey memory) {
-       return HonkVerificationKey.loadVerificationKey();
+// Withdraw: 5 public inputs; base expects total size (21). Uses WithdrawVerificationKey (publicInputsSize 21).
+contract WithdrawVerifier is BaseZKHonkVerifier(N, LOG_N, WITHDRAW_PUBLIC_INPUTS_TOTAL) {
+    function loadVerificationKey() internal pure override returns (Honk.VerificationKey memory) {
+        return WithdrawVerificationKey.loadVerificationKey();
     }
 }

@@ -102,7 +102,8 @@ contract ShieldedPool is ReentrancyGuard {
         require(withdrawVerifier.verify(proof, publicInputs), "invalid proof");
 
         nullifiers[nullifierIn] = true;
-        address recipient = address(uint160(uint256(recipientField)));
+        // Mask to 160 bits to avoid overflow when converting bytes32 to address (Solidity 0.8 reverts on uint160(x) if x > 2^160-1)
+        address recipient = address(uint160(uint256(recipientField) & type(uint160).max));
         require(usdc.transfer(recipient, DENOMINATION), "transfer failed");
 
         emit Withdraw(recipient, nullifierIn);
