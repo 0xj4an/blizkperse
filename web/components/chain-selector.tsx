@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ChevronDown } from "lucide-react";
 import { useChain } from "@/lib/chain-context";
-import { CHAINS, CHAIN_IDS, type SupportedChainId } from "@/lib/constants";
+import { CHAINS, CHAIN_IDS } from "@/lib/constants";
 
 const CHAIN_COLORS: Record<string, string> = {
   monad: "bg-purple-500",
@@ -36,16 +36,11 @@ export function ChainSelector() {
           return (
             <DropdownMenuItem
               key={id}
-              onClick={() => !chain.placeholder && setChainId(id)}
-              className={chain.placeholder ? "opacity-50" : ""}
-              disabled={chain.placeholder}
+              onClick={() => setChainId(id)}
             >
               <span className={`mr-2 h-2 w-2 rounded-full ${CHAIN_COLORS[chain.slug]}`} />
               <span className="flex-1">{chain.name}</span>
-              {chain.placeholder && (
-                <span className="text-[10px] text-muted-foreground">Soon</span>
-              )}
-              {isActive && !chain.placeholder && (
+              {isActive && (
                 <span className="text-[10px] text-muted-foreground">Active</span>
               )}
             </DropdownMenuItem>
