@@ -57,7 +57,7 @@ export default function ClaimPage() {
   if (!payment) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
-        <Card className="glass max-w-md w-full text-center">
+        <Card className="max-w-md w-full text-center">
           <CardContent className="py-12">
             <p className="text-muted-foreground">Payment not found.</p>
             <Link href="/receive" className="mt-4 inline-block">
@@ -156,13 +156,13 @@ export default function ClaimPage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
       >
-        <Card className="glass glow-purple overflow-hidden">
+        <Card className="overflow-hidden">
           <CardHeader className="text-center pb-4">
-            <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+            <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full border border-foreground/10">
               {claimed ? (
-                <CheckCircle2 className="h-8 w-8 text-green-500" />
+                <CheckCircle2 className="h-8 w-8 text-green-500/80" />
               ) : (
-                <CircleDollarSign className="h-8 w-8 text-primary" />
+                <CircleDollarSign className="h-8 w-8 text-muted-foreground" />
               )}
             </div>
             <CardTitle className="text-xl">
@@ -172,7 +172,7 @@ export default function ClaimPage() {
 
           <CardContent className="space-y-6">
             <div className="text-center">
-              <p className="text-4xl font-bold gradient-text">
+              <p className="text-4xl font-bold">
                 ${payment.amount.toLocaleString()}
               </p>
               <p className="mt-1 text-sm text-muted-foreground">tokens</p>
@@ -218,7 +218,7 @@ export default function ClaimPage() {
                     <button
                       type="button"
                       onClick={() => setDestinationAddress(address)}
-                      className="text-xs text-primary hover:underline"
+                      className="text-xs text-muted-foreground hover:text-foreground hover:underline"
                     >
                       Use connected wallet ({address.slice(0, 6)}...{address.slice(-4)})
                     </button>

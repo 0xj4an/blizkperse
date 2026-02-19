@@ -82,7 +82,7 @@ export default function ReceiveDashboard() {
           {store.organizers.map((org) => {
             const isJoined = subscribedOrgIds.has(org.id);
             return (
-              <Card key={org.id} className="glass group transition-all hover:glow-purple">
+              <Card key={org.id} className="group transition-colors hover:border-foreground/20">
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
                     <CardTitle className="text-base">{org.name}</CardTitle>
@@ -132,7 +132,7 @@ export default function ReceiveDashboard() {
 
       {/* Subscriptions */}
       <TabsContent value="registrations">
-        <Card className="glass overflow-hidden">
+        <Card className="overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -179,7 +179,7 @@ export default function ReceiveDashboard() {
 
       {/* Payment History */}
       <TabsContent value="history">
-        <Card className="glass overflow-hidden">
+        <Card className="overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>

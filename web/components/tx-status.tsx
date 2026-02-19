@@ -34,7 +34,7 @@ export function TxStatus({
       >
         {state === "pending" && (
           <>
-            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+            <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
             <p className="text-sm font-medium text-muted-foreground">
               {progressMessage ?? "Confirming transaction..."}
             </p>
@@ -48,7 +48,7 @@ export function TxStatus({
               animate={{ scale: 1 }}
               transition={{ type: "spring", stiffness: 200, damping: 12 }}
             >
-              <CheckCircle2 className="h-10 w-10 text-green-500" />
+              <CheckCircle2 className="h-10 w-10 text-green-500/80" />
             </motion.div>
             <p className="text-sm font-medium">{successMessage}</p>
             {txHash && (

@@ -34,7 +34,7 @@ export default function DashboardPage() {
             transition={{ duration: 0.4 }}
             className="mb-10 text-center"
           >
-            <h1 className="text-3xl font-bold gradient-text">
+            <h1 className="text-3xl font-bold">
               What would you like to do?
             </h1>
             <p className="mt-2 text-muted-foreground">
@@ -51,16 +51,16 @@ export default function DashboardPage() {
                 transition={{ delay: 0.15 + i * 0.1, duration: 0.4 }}
               >
                 <Link href={role.href}>
-                  <Card className="glass group h-full cursor-pointer transition-all hover:glow-purple hover:border-primary/30">
+                  <Card className="group h-full cursor-pointer transition-colors hover:border-foreground/20">
                     <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
-                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/20">
-                        <role.icon className="h-8 w-8" />
+                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-foreground/10">
+                        <role.icon className="h-8 w-8 text-muted-foreground" />
                       </div>
                       <h2 className="text-xl font-semibold">{role.title}</h2>
                       <p className="text-sm leading-relaxed text-muted-foreground">
                         {role.description}
                       </p>
-                      <div className="flex items-center gap-1 text-sm font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+                      <div className="flex items-center gap-1 text-sm font-medium text-foreground opacity-0 transition-opacity group-hover:opacity-100">
                         Continue
                         <ArrowRight className="h-4 w-4" />
                       </div>

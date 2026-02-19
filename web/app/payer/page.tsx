@@ -130,7 +130,7 @@ export default function PayerDashboard() {
       </div>
 
       {!selectedOrg ? (
-        <Card className="glass">
+        <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             Create an organization to start distributing payouts.
           </CardContent>
@@ -139,33 +139,27 @@ export default function PayerDashboard() {
         <>
           {/* Stats */}
           <div className="grid gap-4 sm:grid-cols-3">
-            <Card className="glass">
+            <Card>
               <CardContent className="flex items-center gap-4 p-6">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-                  <CircleDollarSign className="h-6 w-6 text-primary" />
-                </div>
+                <CircleDollarSign className="h-6 w-6 text-muted-foreground" />
                 <div>
                   <p className="text-sm text-muted-foreground">Total Distributed</p>
                   <p className="text-2xl font-bold">${totalDistributed.toLocaleString()}</p>
                 </div>
               </CardContent>
             </Card>
-            <Card className="glass">
+            <Card>
               <CardContent className="flex items-center gap-4 p-6">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-                  <Users className="h-6 w-6 text-primary" />
-                </div>
+                <Users className="h-6 w-6 text-muted-foreground" />
                 <div>
                   <p className="text-sm text-muted-foreground">Subscribers</p>
                   <p className="text-2xl font-bold">{orgSubs.length}</p>
                 </div>
               </CardContent>
             </Card>
-            <Card className="glass">
+            <Card>
               <CardContent className="flex items-center gap-4 p-6">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-                  <Clock className="h-6 w-6 text-primary" />
-                </div>
+                <Clock className="h-6 w-6 text-muted-foreground" />
                 <div>
                   <p className="text-sm text-muted-foreground">Pending Payouts</p>
                   <p className="text-2xl font-bold">{pendingPayouts}</p>
@@ -186,7 +180,7 @@ export default function PayerDashboard() {
           </div>
 
           {/* Subscribers Table */}
-          <Card className="glass overflow-hidden">
+          <Card className="overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -230,7 +224,7 @@ export default function PayerDashboard() {
 
           {/* Recent Payouts */}
           <h2 className="text-xl font-semibold">Recent Payouts</h2>
-          <Card className="glass overflow-hidden">
+          <Card className="overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>

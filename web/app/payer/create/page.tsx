@@ -124,7 +124,7 @@ export default function CreatePayoutPage() {
     return (
       <div className="py-12 text-center text-muted-foreground">
         Organization not found.{" "}
-        <Link href="/payer" className="text-primary underline">
+        <Link href="/payer" className="text-foreground underline">
           Go back
         </Link>
       </div>
@@ -146,7 +146,7 @@ export default function CreatePayoutPage() {
                 step === s
                   ? "bg-primary text-primary-foreground"
                   : (["select", "amounts", "review"].indexOf(step) > i)
-                    ? "bg-primary/20 text-primary"
+                    ? "bg-foreground/10 text-foreground"
                     : "bg-muted text-muted-foreground"
               }`}
             >
@@ -194,12 +194,12 @@ export default function CreatePayoutPage() {
               <Badge variant="secondary">{selected.size} selected</Badge>
             </div>
 
-            <Card className="glass">
+            <Card>
               <CardContent className="divide-y divide-border p-0">
                 {filtered.map((s) => (
                   <label
                     key={s.id}
-                    className="flex cursor-pointer items-center gap-4 px-4 py-3 transition-colors hover:bg-white/5"
+                    className="flex cursor-pointer items-center gap-4 px-4 py-3 transition-colors hover:bg-muted/50"
                   >
                     <Checkbox
                       checked={selected.has(s.id)}
@@ -269,7 +269,7 @@ export default function CreatePayoutPage() {
               </Button>
             </div>
 
-            <Card className="glass">
+            <Card>
               <CardContent className="divide-y divide-border p-0">
                 {Array.from(selected).map((id) => {
                   const s = getSubscriberById(id);
@@ -336,10 +336,10 @@ export default function CreatePayoutPage() {
           >
             {txState === "idle" || txState === "error" ? (
               <>
-                <Card className="glass glow-purple">
+                <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-lg">
-                      <CircleDollarSign className="h-5 w-5 text-primary" />
+                      <CircleDollarSign className="h-5 w-5 text-muted-foreground" />
                       Payout Summary
                     </CardTitle>
                   </CardHeader>
@@ -364,7 +364,7 @@ export default function CreatePayoutPage() {
                         <Users className="h-4 w-4" />
                         {selected.size} recipients
                       </div>
-                      <span className="text-2xl font-bold gradient-text">
+                      <span className="text-2xl font-bold">
                         {totalAmount.toLocaleString()} {selectedToken.symbol}
                       </span>
                     </div>
