@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { TxStatus, type TxState } from "@/components/tx-status";
 import {
@@ -46,7 +47,12 @@ export default function ClaimPage() {
   const [txHash, setTxHash] = useState<string>();
   const [claimed, setClaimed] = useState(payment?.status === "claimed");
   const [claimStep, setClaimStep] = useState<string>("");
-  const { walletClient, isReady } = useParaWalletClient();
+  const { walletClient, address, isReady } = useParaWalletClient();
+  const [destinationAddress, setDestinationAddress] = useState("");
+
+  useEffect(() => {
+    if (address && !destinationAddress) setDestinationAddress(address);
+  }, [address]);
 
   if (!payment) {
     return (
@@ -67,51 +73,40 @@ export default function ClaimPage() {
   }
 
   const handleClaim = async () => {
-    if (!walletClient) {
-      // Fallback: mock claim without wallet
-      setTxState("pending");
-      try {
-        const result = await claimPayment(paymentId);
-        setTxHash(result.txHash);
-        setTxState("success");
-        setClaimed(true);
-        toast.success("Payment claimed successfully!");
-      } catch {
-        setTxState("error");
-        toast.error("Claim failed. Please try again.");
-      }
+    if (!walletClient || !isReady) {
+      toast.error("Connect your wallet first");
+      return;
+    }
+
+    if (!destinationAddress || !/^0x[a-fA-F0-9]{40}$/.test(destinationAddress)) {
+      toast.error("Enter a valid wallet address");
       return;
     }
 
     setTxState("pending");
     try {
-      // Step 1: Fetch note data
+      // Step 1: Fetch note data for this payment
       setClaimStep("loading-notes");
       const noteRes = await fetch(`/api/notes?payment_id=${paymentId}`);
-      const noteData = noteRes.ok ? await noteRes.json() : null;
+      const notes = noteRes.ok ? await noteRes.json() : [];
+      const noteData = Array.isArray(notes) ? notes[0] : notes;
 
-      if (!noteData) {
-        // No note data — fallback to mock claim
-        const result = await claimPayment(paymentId);
-        setTxHash(result.txHash);
-        setTxState("success");
-        setClaimed(true);
-        toast.success("Payment claimed successfully!");
-        return;
+      if (!noteData?.commitment) {
+        throw new Error("No note data found for this payment. The deposit may not have stored note details.");
       }
 
-      // Step 2: Build merkle tree from Deposit events
+      // Step 2: Build merkle tree from on-chain Deposit events
       setClaimStep("building-tree");
       const tree = await buildTreeFromEvents();
       const leafIndex = tree.indexOf(BigInt(noteData.commitment));
-      if (leafIndex === -1) throw new Error("Note not found in merkle tree");
+      if (leafIndex === -1) throw new Error("Note commitment not found on-chain. The deposit may still be pending.");
 
       const { siblings, indices, root } = await tree.getProof(leafIndex);
 
       // Step 3: Generate ZK proof
       setClaimStep("generating-proof");
       const proofInput: ProofInput = {
-        new_commitment: "0x" + "0".repeat(64), // burn commitment = 0 for withdraw
+        new_commitment: "0x" + "0".repeat(64),
         nullifier_in: noteData.nullifier,
         merkle_proof_length: String(indices.length),
         expected_merkle_root: fieldToHex(root),
@@ -208,15 +203,37 @@ export default function ClaimPage() {
             </div>
 
             {!claimed && txState === "idle" && (
-              <Button
-                size="lg"
-                className="w-full gap-2"
-                onClick={handleClaim}
-                disabled={!isReady}
-              >
-                <Wallet className="h-5 w-5" />
-                {isReady ? "Transfer to Wallet" : "Connect wallet to claim"}
-              </Button>
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <label className="text-sm text-muted-foreground">
+                    Destination wallet
+                  </label>
+                  <Input
+                    placeholder="0x..."
+                    value={destinationAddress}
+                    onChange={(e) => setDestinationAddress(e.target.value)}
+                    className="font-mono text-sm"
+                  />
+                  {address && destinationAddress !== address && (
+                    <button
+                      type="button"
+                      onClick={() => setDestinationAddress(address)}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      Use connected wallet ({address.slice(0, 6)}...{address.slice(-4)})
+                    </button>
+                  )}
+                </div>
+                <Button
+                  size="lg"
+                  className="w-full gap-2"
+                  onClick={handleClaim}
+                  disabled={!isReady}
+                >
+                  <Wallet className="h-5 w-5" />
+                  {isReady ? "Claim Payment" : "Connect wallet to claim"}
+                </Button>
+              </div>
             )}
 
             {(txState === "pending" || txState === "success" || txState === "error") && (
