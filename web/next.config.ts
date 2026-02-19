@@ -30,7 +30,7 @@ const nextConfig: NextConfig = {
     return config;
   },
 
-  // NOTE: COOP/COEP headers removed — they break Para SDK auth (iframes/popups).
+  // NOTE: COOP/COEP headers removed - they break Para SDK auth (iframes/popups).
   // bb.js proof generation works in single-threaded mode without SharedArrayBuffer.
 };
 

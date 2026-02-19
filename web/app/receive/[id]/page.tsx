@@ -124,7 +124,7 @@ export default function ClaimPage() {
       try {
         await registerRoot(walletClient, rootToHex(root));
       } catch {
-        // Root may already be registered — OK
+        // Root may already be registered - OK
       }
 
       // Step 5: Submit withdrawal

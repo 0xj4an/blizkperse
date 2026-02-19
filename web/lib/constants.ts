@@ -3,7 +3,7 @@ export const SITE_DESCRIPTION =
   "Painless crypto payments on Monad";
 export const MONAD_CHAIN_ID = 143;
 export const MONAD_RPC_URL = "https://rpc3.monad.xyz";
-// Deployed contracts (Monad Mainnet — Chain 143)
+// Deployed contracts (Monad Mainnet - Chain 143)
 export const VERIFIER_ADDRESS = "0xf7b2eC9EC33e34431F7f184458aE18Fa418271E3" as const;
 export const WITHDRAW_VERIFIER_ADDRESS = "0xA465f96F9a0541D7392c5A22bBA7bc5f23e88f7c" as const;
 export const POOL_ADDRESS = "0x085BD9c0C568BE5093130E2359B00e46cb0800d1" as const;

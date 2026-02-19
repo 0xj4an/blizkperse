@@ -3,7 +3,7 @@ import postgres from "postgres";
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
-  console.warn("DATABASE_URL not set — API routes will fail");
+  console.warn("DATABASE_URL not set - API routes will fail");
 }
 
 const sql = postgres(connectionString ?? "", {

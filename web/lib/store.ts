@@ -143,7 +143,7 @@ export function hydrateStore() {
     }>("/api/data");
 
     if (!data) {
-      // API unavailable — start with empty state
+      // API unavailable - start with empty state
       state.loaded = true;
       emitChange();
       return;

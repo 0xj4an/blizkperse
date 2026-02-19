@@ -105,7 +105,7 @@ export class MerkleTree {
 
 /**
  * Builds a merkle tree from on-chain Deposit events.
- * This is the MVP indexing approach — no subgraph needed.
+ * This is the MVP indexing approach - no subgraph needed.
  */
 export async function buildTreeFromEvents(
   fromBlock?: bigint
