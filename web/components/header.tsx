@@ -12,10 +12,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogIn, ChevronDown, LayoutDashboard, HandCoins, LogOut, Copy, Check, Wallet } from "lucide-react";
+import { ChainSelector } from "@/components/chain-selector";
+import { LogIn, ChevronDown, LayoutDashboard, HandCoins, LogOut, Copy, Check } from "lucide-react";
 import { useState, useEffect } from "react";
 import { getAllBalances } from "@/lib/contracts";
-import { SUPPORTED_TOKENS } from "@/lib/constants";
+import { useChain } from "@/lib/chain-context";
 import type { Hex } from "viem";
 
 function truncateAddress(address: string) {
@@ -26,6 +27,7 @@ export function Header() {
   const { isConnected, embedded } = useAccount();
   const { openModal } = useModal();
   const { logout } = useLogout();
+  const { chain } = useChain();
   const [copied, setCopied] = useState(false);
   const [balances, setBalances] = useState<Record<string, bigint>>({});
 
@@ -33,12 +35,12 @@ export function Header() {
 
   useEffect(() => {
     if (!address) return;
-    getAllBalances(address as Hex).then(setBalances).catch(() => {});
+    getAllBalances(chain, address as Hex).then(setBalances).catch(() => {});
     const interval = setInterval(() => {
-      getAllBalances(address as Hex).then(setBalances).catch(() => {});
+      getAllBalances(chain, address as Hex).then(setBalances).catch(() => {});
     }, 30_000);
     return () => clearInterval(interval);
-  }, [address]);
+  }, [address, chain.id]);
 
   const copyAddress = async () => {
     if (!address) return;
@@ -81,99 +83,103 @@ export function Header() {
           )}
         </div>
 
-        {/* Wallet / Connect */}
-        {isConnected && address ? (
-          <div className="flex items-center gap-2">
-            {/* Balances */}
-            {Object.keys(balances).length > 0 && (
-              <div className="hidden items-center gap-1.5 md:flex">
-                {SUPPORTED_TOKENS.map((t) => {
-                  const raw = balances[t.symbol];
-                  if (raw === undefined) return null;
-                  const formatted = Number(raw) / 10 ** t.decimals;
-                  return (
-                    <Badge key={t.symbol} variant="outline" className="gap-1 font-mono text-xs">
-                      {formatted < 0.01 && formatted > 0
-                        ? "<0.01"
-                        : formatted.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      <span className="text-muted-foreground">{t.symbol}</span>
-                    </Badge>
-                  );
-                })}
-              </div>
-            )}
-            <Badge
-              variant="secondary"
-              className="cursor-pointer gap-1.5 font-mono text-xs transition-colors hover:bg-secondary/80"
-              onClick={(e) => { e.stopPropagation(); copyAddress(); }}
-            >
-              {copied ? "Copied!" : truncateAddress(address)}
-              {copied ? (
-                <Check className="h-3 w-3 text-green-500" />
-              ) : (
-                <Copy className="h-3 w-3 text-muted-foreground" />
-              )}
-            </Badge>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" className="h-8 w-8">
-                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              {/* Mobile balances */}
+        {/* Chain Selector + Wallet */}
+        <div className="flex items-center gap-2">
+          <ChainSelector />
+
+          {isConnected && address ? (
+            <>
+              {/* Balances */}
               {Object.keys(balances).length > 0 && (
-                <>
-                  <div className="px-2 py-1.5 md:hidden">
-                    <p className="mb-1 text-xs font-medium text-muted-foreground">Balances</p>
-                    {SUPPORTED_TOKENS.map((t) => {
-                      const raw = balances[t.symbol];
-                      if (raw === undefined) return null;
-                      const formatted = Number(raw) / 10 ** t.decimals;
-                      return (
-                        <div key={t.symbol} className="flex items-center justify-between py-0.5 text-sm">
-                          <span>{t.symbol}</span>
-                          <span className="font-mono">
-                            {formatted < 0.01 && formatted > 0
-                              ? "<0.01"
-                              : formatted.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <DropdownMenuSeparator className="md:hidden" />
-                </>
+                <div className="hidden items-center gap-1.5 md:flex">
+                  {chain.tokens.map((t) => {
+                    const raw = balances[t.symbol];
+                    if (raw === undefined) return null;
+                    const formatted = Number(raw) / 10 ** t.decimals;
+                    return (
+                      <Badge key={t.symbol} variant="outline" className="gap-1 font-mono text-xs">
+                        {formatted < 0.01 && formatted > 0
+                          ? "<0.01"
+                          : formatted.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        <span className="text-muted-foreground">{t.symbol}</span>
+                      </Badge>
+                    );
+                  })}
+                </div>
               )}
-              <Link href="/payer" className="md:hidden">
-                <DropdownMenuItem>
-                  <LayoutDashboard className="mr-2 h-4 w-4" />
-                  Organizer Dashboard
-                </DropdownMenuItem>
-              </Link>
-              <Link href="/receive" className="md:hidden">
-                <DropdownMenuItem>
-                  <HandCoins className="mr-2 h-4 w-4" />
-                  Recipient Dashboard
-                </DropdownMenuItem>
-              </Link>
-              <DropdownMenuSeparator className="md:hidden" />
-              <DropdownMenuItem
-                onClick={() => logout()}
-                className="text-destructive focus:text-destructive"
+              <Badge
+                variant="secondary"
+                className="cursor-pointer gap-1.5 font-mono text-xs transition-colors hover:bg-secondary/80"
+                onClick={(e) => { e.stopPropagation(); copyAddress(); }}
               >
-                <LogOut className="mr-2 h-4 w-4" />
-                Log Out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          </div>
-        ) : (
-          <Button size="sm" onClick={() => openModal()} className="gap-2">
-            <LogIn className="h-4 w-4" />
-            Log In
-          </Button>
-        )}
+                {copied ? "Copied!" : truncateAddress(address)}
+                {copied ? (
+                  <Check className="h-3 w-3 text-green-500" />
+                ) : (
+                  <Copy className="h-3 w-3 text-muted-foreground" />
+                )}
+              </Badge>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" className="h-8 w-8">
+                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  {/* Mobile balances */}
+                  {Object.keys(balances).length > 0 && (
+                    <>
+                      <div className="px-2 py-1.5 md:hidden">
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">Balances</p>
+                        {chain.tokens.map((t) => {
+                          const raw = balances[t.symbol];
+                          if (raw === undefined) return null;
+                          const formatted = Number(raw) / 10 ** t.decimals;
+                          return (
+                            <div key={t.symbol} className="flex items-center justify-between py-0.5 text-sm">
+                              <span>{t.symbol}</span>
+                              <span className="font-mono">
+                                {formatted < 0.01 && formatted > 0
+                                  ? "<0.01"
+                                  : formatted.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <DropdownMenuSeparator className="md:hidden" />
+                    </>
+                  )}
+                  <Link href="/payer" className="md:hidden">
+                    <DropdownMenuItem>
+                      <LayoutDashboard className="mr-2 h-4 w-4" />
+                      Organizer Dashboard
+                    </DropdownMenuItem>
+                  </Link>
+                  <Link href="/receive" className="md:hidden">
+                    <DropdownMenuItem>
+                      <HandCoins className="mr-2 h-4 w-4" />
+                      Recipient Dashboard
+                    </DropdownMenuItem>
+                  </Link>
+                  <DropdownMenuSeparator className="md:hidden" />
+                  <DropdownMenuItem
+                    onClick={() => logout()}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Log Out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          ) : (
+            <Button size="sm" onClick={() => openModal()} className="gap-2">
+              <LogIn className="h-4 w-4" />
+              Log In
+            </Button>
+          )}
+        </div>
       </div>
     </header>
   );

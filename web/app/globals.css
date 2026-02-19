@@ -47,7 +47,7 @@
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
-/* ── Monad Dark Theme (default) ─────────────────────── */
+/* ── Default Theme (Monad - purple, hue ~280) ────────── */
 
 :root {
   --radius: 0.75rem;
@@ -116,6 +116,43 @@
   --sidebar-accent-foreground: oklch(0.92 0.01 280);
   --sidebar-border: oklch(0.22 0.03 280);
   --sidebar-ring: oklch(0.65 0.25 285);
+}
+
+/* ── Celo Theme (green/gold, hue ~145) ───────────────── */
+
+html[data-chain="celo"],
+html[data-chain="celo"] .dark {
+  --background: oklch(0.09 0.015 155);
+  --foreground: oklch(0.96 0.005 155);
+  --card: oklch(0.13 0.02 155);
+  --card-foreground: oklch(0.96 0.005 155);
+  --popover: oklch(0.13 0.02 155);
+  --popover-foreground: oklch(0.96 0.005 155);
+  --primary: oklch(0.72 0.19 155);
+  --primary-foreground: oklch(0.1 0.02 155);
+  --secondary: oklch(0.18 0.03 155);
+  --secondary-foreground: oklch(0.92 0.01 155);
+  --muted: oklch(0.18 0.02 155);
+  --muted-foreground: oklch(0.6 0.02 155);
+  --accent: oklch(0.78 0.15 155);
+  --accent-foreground: oklch(0.1 0.02 155);
+  --destructive: oklch(0.65 0.22 25);
+  --border: oklch(0.22 0.03 155);
+  --input: oklch(0.22 0.03 155);
+  --ring: oklch(0.72 0.19 155);
+  --chart-1: oklch(0.72 0.19 155);
+  --chart-2: oklch(0.7 0.17 60);
+  --chart-3: oklch(0.77 0.19 200);
+  --chart-4: oklch(0.63 0.27 170);
+  --chart-5: oklch(0.65 0.25 100);
+  --sidebar: oklch(0.11 0.02 155);
+  --sidebar-foreground: oklch(0.96 0.005 155);
+  --sidebar-primary: oklch(0.72 0.19 155);
+  --sidebar-primary-foreground: oklch(0.1 0.02 155);
+  --sidebar-accent: oklch(0.18 0.03 155);
+  --sidebar-accent-foreground: oklch(0.92 0.01 155);
+  --sidebar-border: oklch(0.22 0.03 155);
+  --sidebar-ring: oklch(0.72 0.19 155);
 }
 
 @layer base {

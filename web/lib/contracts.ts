@@ -10,23 +10,24 @@ import {
   type Hex,
   type Chain,
 } from "viem";
-import { MONAD_RPC_URL, POOL_ADDRESS, POOL_TOKEN_ADDRESS, POOL_DENOMINATION, SUPPORTED_TOKENS, type TokenConfig } from "./constants";
+import { type ChainConfig, type TokenConfig } from "./constants";
 
-// ── Monad chain definition ──────────────────────────────
-export const monadMainnet = {
-  id: 143,
-  name: "Monad",
-  nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
-  rpcUrls: { default: { http: [MONAD_RPC_URL] } },
-  blockExplorers: {
-    default: {
-      name: "Monad Explorer",
-      url: "https://monadexplorer.com",
+// ── Chain builder ───────────────────────────────────────
+
+export function buildViemChain(config: ChainConfig): Chain {
+  return {
+    id: config.id,
+    name: config.name,
+    nativeCurrency: config.nativeCurrency,
+    rpcUrls: { default: { http: [config.rpcUrl] } },
+    blockExplorers: {
+      default: { name: config.explorerName, url: config.explorerUrl },
     },
-  },
-} as const satisfies Chain;
+  } as const satisfies Chain;
+}
 
 // ── ABI fragments ───────────────────────────────────────
+
 const POOL_ABI = parseAbi([
   "function deposit(bytes32 commitment) external",
   "function registerRoot(bytes32 root) external",
@@ -45,70 +46,78 @@ const ERC20_ABI = parseAbi([
   "function balanceOf(address account) view returns (uint256)",
 ]);
 
-// ── Public client (read-only singleton) ─────────────────
-let _publicClient: PublicClient | null = null;
-export function getPublicClient(): PublicClient {
-  if (!_publicClient) {
-    _publicClient = createPublicClient({
-      chain: monadMainnet,
-      transport: http(MONAD_RPC_URL),
+// ── Public client cache (one per chain) ─────────────────
+
+const _clients = new Map<number, PublicClient>();
+
+export function getPublicClient(config: ChainConfig): PublicClient {
+  let client = _clients.get(config.id);
+  if (!client) {
+    client = createPublicClient({
+      chain: buildViemChain(config),
+      transport: http(config.rpcUrl),
     });
+    _clients.set(config.id, client);
   }
-  return _publicClient;
+  return client;
 }
 
 // ── Write functions ─────────────────────────────────────
 
 export async function approvePoolToken(
   walletClient: WalletClient,
-  amount: bigint = POOL_DENOMINATION
+  config: ChainConfig,
+  amount: bigint = config.poolDenomination,
 ): Promise<Hash> {
   return walletClient.writeContract({
-    address: POOL_TOKEN_ADDRESS,
+    address: config.contracts.stablecoin,
     abi: ERC20_ABI,
     functionName: "approve",
-    args: [POOL_ADDRESS, amount],
-    chain: monadMainnet,
+    args: [config.contracts.pool, amount],
+    chain: buildViemChain(config),
   });
 }
 
 export async function depositToPool(
   walletClient: WalletClient,
-  commitment: Hex
+  config: ChainConfig,
+  commitment: Hex,
 ): Promise<Hash> {
   return walletClient.writeContract({
-    address: POOL_ADDRESS,
+    address: config.contracts.pool,
     abi: POOL_ABI,
     functionName: "deposit",
     args: [commitment],
-    chain: monadMainnet,
+    chain: buildViemChain(config),
   });
 }
 
 export async function registerRoot(
   walletClient: WalletClient,
-  root: Hex
+  config: ChainConfig,
+  root: Hex,
 ): Promise<Hash> {
   return walletClient.writeContract({
-    address: POOL_ADDRESS,
+    address: config.contracts.pool,
     abi: POOL_ABI,
     functionName: "registerRoot",
     args: [root],
-    chain: monadMainnet,
+    chain: buildViemChain(config),
   });
 }
 
 export async function withdrawFromPool(
   walletClient: WalletClient,
+  config: ChainConfig,
   params: {
     expectedRoot: Hex;
     nullifierIn: Hex;
     merkleProofLength: number;
     proof: Hex;
-  }
+  },
 ): Promise<Hash> {
   return walletClient.writeContract({
-    address: POOL_ADDRESS,
+    address: config.contracts.pool,
     abi: POOL_ABI,
     functionName: "withdraw",
     args: [
@@ -117,16 +126,19 @@ export async function withdrawFromPool(
       params.merkleProofLength,
       params.proof,
     ],
-    chain: monadMainnet,
+    chain: buildViemChain(config),
   });
 }
 
 // ── Read functions ──────────────────────────────────────
 
-export async function isRootKnown(root: Hex): Promise<boolean> {
-  const client = getPublicClient();
+export async function isRootKnown(
+  config: ChainConfig,
+  root: Hex,
+): Promise<boolean> {
+  const client = getPublicClient(config);
   return client.readContract({
-    address: POOL_ADDRESS,
+    address: config.contracts.pool,
     abi: POOL_ABI,
     functionName: "isKnownRoot",
     args: [root],
@@ -136,10 +148,11 @@ export async function isRootKnown(root: Hex): Promise<boolean> {
 // ── Token balance helpers ────────────────────────────────
 
 export async function getTokenBalance(
+  config: ChainConfig,
   account: Hex,
-  token: TokenConfig
+  token: TokenConfig,
 ): Promise<bigint> {
-  const client = getPublicClient();
+  const client = getPublicClient(config);
   if (token.isNative) {
     return client.getBalance({ address: account });
   }
@@ -152,26 +165,31 @@ export async function getTokenBalance(
 }
 
 export async function getAllBalances(
-  account: Hex
+  config: ChainConfig,
+  account: Hex,
 ): Promise<Record<string, bigint>> {
   const results = await Promise.all(
-    SUPPORTED_TOKENS.map(async (t) => {
+    config.tokens.map(async (t) => {
       try {
-        const bal = await getTokenBalance(account, t);
+        const bal = await getTokenBalance(config, account, t);
         return [t.symbol, bal] as const;
       } catch {
         return [t.symbol, 0n] as const;
       }
-    })
+    }),
   );
   return Object.fromEntries(results);
 }
 
 // ── Event indexing ──────────────────────────────────────
-export async function getDepositEvents(fromBlock?: bigint) {
-  const client = getPublicClient();
+
+export async function getDepositEvents(
+  config: ChainConfig,
+  fromBlock?: bigint,
+) {
+  const client = getPublicClient(config);
   return client.getLogs({
-    address: POOL_ADDRESS,
+    address: config.contracts.pool,
     event: {
       type: "event",
       name: "Deposit",

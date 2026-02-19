@@ -32,7 +32,8 @@ import {
   createPayout,
 } from "@/lib/store";
 import { useParaWalletClient } from "@/lib/wallet";
-import { SUPPORTED_TOKENS, DEFAULT_TOKEN, type TokenConfig } from "@/lib/constants";
+import { useChain } from "@/lib/chain-context";
+import type { TokenConfig } from "@/lib/constants";
 
 type Step = "select" | "amounts" | "review";
 
@@ -54,7 +55,8 @@ export default function CreatePayoutPage() {
   const [txState, setTxState] = useState<TxState>("idle");
   const [txHash, setTxHash] = useState<string>();
   const [progressMsg, setProgressMsg] = useState<string>();
-  const [selectedToken, setSelectedToken] = useState<TokenConfig>(DEFAULT_TOKEN);
+  const { chain } = useChain();
+  const [selectedToken, setSelectedToken] = useState<TokenConfig>(chain.defaultToken);
   const { walletClient, isReady } = useParaWalletClient();
 
   const filtered = availableSubscribers.filter(
@@ -106,6 +108,7 @@ export default function CreatePayoutPage() {
         })),
         token: selectedToken.symbol,
         walletClient: walletClient ?? undefined,
+        chainConfig: chain,
         onProgress: (step, current, total) => {
           setProgressMsg(`${step} (${current}/${total})`);
         },
@@ -248,7 +251,7 @@ export default function CreatePayoutPage() {
                 <Select
                   value={selectedToken.symbol}
                   onValueChange={(val) => {
-                    const t = SUPPORTED_TOKENS.find((t) => t.symbol === val);
+                    const t = chain.tokens.find((t) => t.symbol === val);
                     if (t) setSelectedToken(t);
                   }}
                 >
@@ -256,7 +259,7 @@ export default function CreatePayoutPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {SUPPORTED_TOKENS.map((t) => (
+                    {chain.tokens.map((t) => (
                       <SelectItem key={t.symbol} value={t.symbol}>
                         {t.symbol}
                       </SelectItem>

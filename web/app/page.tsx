@@ -361,12 +361,16 @@ export default function LandingPage() {
                   title: "DAO treasury",
                   text: "Execute distributions without leaking allocation decisions.",
                 },
+                {
+                  title: "x402 agent payments",
+                  text: "AI agents pay for API access using shielded stablecoin transfers. No exposed wallets, no trackable spending patterns.",
+                },
               ].map((uc, i) => (
                 <motion.div
                   key={uc.title}
                   variants={fadeIn}
                   custom={i + 2}
-                  className="bg-card p-6"
+                  className={`bg-card p-6${uc.title === "x402 agent payments" ? " sm:col-span-2" : ""}`}
                 >
                   <h3 className="mb-1 text-sm font-semibold">{uc.title}</h3>
                   <p className="text-sm leading-relaxed text-muted-foreground">
@@ -409,8 +413,8 @@ export default function LandingPage() {
                   text: "Funds sit in an auditable smart contract, not a multisig or a mixer. Only verified recipients can withdraw their share.",
                 },
                 {
-                  label: "Monad-native speed",
-                  text: "Sub-second finality. Negligible gas. Distribute any ERC-20 - USDC, MON, or any token - at the speed the chain was built for.",
+                  label: "Multi-chain deployment",
+                  text: "Deploy on any EVM chain. Currently live on Monad and Celo, with the same shielded pool contract and proof system on every network.",
                 },
                 {
                   label: "Zero friction onboarding",
@@ -450,7 +454,7 @@ export default function LandingPage() {
             custom={0}
             className="mb-4 font-mono text-xs uppercase tracking-widest text-muted-foreground"
           >
-            Live on Monad
+            Multi-chain
           </motion.p>
           <motion.h2
             variants={fadeIn}

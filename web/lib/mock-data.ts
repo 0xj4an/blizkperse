@@ -50,7 +50,7 @@ export interface Payment {
 export const payers: Payer[] = [
   {
     id: "payer-1",
-    name: "Monad Foundation",
+    name: "Blizkperse Foundation",
     address: "0x1a2B3c4D5e6F7890AbCdEf1234567890aBcDeF12",
     totalDistributed: 0,
     participantCount: 0,

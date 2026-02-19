@@ -3,22 +3,23 @@
 import { useViemClient } from "@getpara/react-sdk/evm/hooks";
 import { useAccount } from "@getpara/react-sdk";
 import { http, type WalletClient } from "viem";
-import { monadMainnet } from "./contracts";
-import { MONAD_RPC_URL } from "./constants";
+import { useChain } from "./chain-context";
+import { buildViemChain } from "./contracts";
 
 /**
  * Hook that bridges Para SDK's embedded wallet to a viem WalletClient
- * configured for Monad mainnet.
+ * configured for the currently selected chain.
  */
 export function useParaWalletClient() {
   const { embedded } = useAccount();
   const address = embedded?.wallets?.[0]?.address as `0x${string}` | undefined;
+  const { chain } = useChain();
 
   const { viemClient } = useViemClient({
     address,
     walletClientConfig: {
-      chain: monadMainnet,
-      transport: http(MONAD_RPC_URL),
+      chain: buildViemChain(chain),
+      transport: http(chain.rpcUrl),
     },
   });
 

@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { WalletClient, Hex } from "viem";
+import type { ChainConfig } from "./constants";
 import {
   approvePoolToken,
   depositToPool,
@@ -350,9 +351,10 @@ export async function createPayout(params: {
   recipients: { subscriberId: string; amount: number }[];
   token?: string;
   walletClient?: WalletClient;
+  chainConfig: ChainConfig;
   onProgress?: (step: string, current: number, total: number) => void;
 }): Promise<Payout> {
-  const token = params.token ?? "MON";
+  const token = params.token ?? params.chainConfig.defaultToken.symbol;
   const totalAmount = params.recipients.reduce((s, r) => s + r.amount, 0);
 
   // Calculate total notes needed (1 note = 1 USDC)
@@ -365,13 +367,14 @@ export async function createPayout(params: {
 
   // ── On-chain deposit flow ──────────────────────────────
   if (params.walletClient) {
-    const publicClient = getPublicClient();
+    const publicClient = getPublicClient(params.chainConfig);
 
     // Step 1: Batch approve total amount
     params.onProgress?.("Approving token", 0, totalNotes);
     const approveTx = await approvePoolToken(
       params.walletClient,
-      BigInt(totalNotes) * 1_000_000n
+      params.chainConfig,
+      BigInt(totalNotes) * params.chainConfig.poolDenomination,
     );
     await publicClient.waitForTransactionReceipt({ hash: approveTx });
 
@@ -394,7 +397,7 @@ export async function createPayout(params: {
         const note = await createNote(1n, pk_b, randomness);
         const commitment = bigintToBytes32(note.commitment) as Hex;
 
-        const depositTx = await depositToPool(params.walletClient, commitment);
+        const depositTx = await depositToPool(params.walletClient, params.chainConfig, commitment);
         await publicClient.waitForTransactionReceipt({ hash: depositTx });
         lastTxHash = depositTx;
 
@@ -496,14 +499,15 @@ export async function createPayout(params: {
 export async function claimPayment(
   paymentId: string,
   walletClient?: WalletClient,
-  proofResult?: ProofResult
+  proofResult?: ProofResult,
+  chainConfig?: ChainConfig,
 ): Promise<{ txHash: string }> {
   let txHash: string;
 
   // ── On-chain withdraw flow ─────────────────────────────
-  if (walletClient && proofResult) {
-    const publicClient = getPublicClient();
-    const withdrawTx = await withdrawFromPool(walletClient, {
+  if (walletClient && proofResult && chainConfig) {
+    const publicClient = getPublicClient(chainConfig);
+    const withdrawTx = await withdrawFromPool(walletClient, chainConfig, {
       expectedRoot: proofResult.publicInputs.expectedRoot,
       nullifierIn: proofResult.publicInputs.nullifierIn,
       merkleProofLength: proofResult.publicInputs.merkleProofLength,

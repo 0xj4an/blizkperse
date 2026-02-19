@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
   // insert payout
   const [payout] = await sql`
     INSERT INTO payouts (organizer_id, total_amount, token, status, tx_hash)
-    VALUES (${organizer_id}, ${total_amount}, ${token ?? 'MON'}, 'deposited', ${tx_hash})
+    VALUES (${organizer_id}, ${total_amount}, ${token ?? 'USDC'}, 'deposited', ${tx_hash})
     RETURNING *
   `;
 

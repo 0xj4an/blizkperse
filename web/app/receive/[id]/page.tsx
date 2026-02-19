@@ -23,6 +23,7 @@ import {
   claimPayment,
 } from "@/lib/store";
 import { useParaWalletClient } from "@/lib/wallet";
+import { useChain } from "@/lib/chain-context";
 import { generateProof, fieldToHex, type ProofInput } from "@/lib/zk";
 import { buildTreeFromEvents, rootToHex } from "@/lib/merkle";
 import { registerRoot } from "@/lib/contracts";
@@ -48,6 +49,7 @@ export default function ClaimPage() {
   const [claimed, setClaimed] = useState(payment?.status === "claimed");
   const [claimStep, setClaimStep] = useState<string>("");
   const { walletClient, address, isReady } = useParaWalletClient();
+  const { chain } = useChain();
   const [destinationAddress, setDestinationAddress] = useState("");
 
   useEffect(() => {
@@ -97,7 +99,7 @@ export default function ClaimPage() {
 
       // Step 2: Build merkle tree from on-chain Deposit events
       setClaimStep("building-tree");
-      const tree = await buildTreeFromEvents();
+      const tree = await buildTreeFromEvents(chain);
       const leafIndex = tree.indexOf(BigInt(noteData.commitment));
       if (leafIndex === -1) throw new Error("Note commitment not found on-chain. The deposit may still be pending.");
 
@@ -122,14 +124,14 @@ export default function ClaimPage() {
       // Step 4: Register root on-chain (may already exist)
       setClaimStep("registering-root");
       try {
-        await registerRoot(walletClient, rootToHex(root));
+        await registerRoot(walletClient, chain, rootToHex(root));
       } catch {
         // Root may already be registered - OK
       }
 
       // Step 5: Submit withdrawal
       setClaimStep("withdrawing");
-      const result = await claimPayment(paymentId, walletClient, proofResult);
+      const result = await claimPayment(paymentId, walletClient, proofResult, chain);
       setTxHash(result.txHash);
       setTxState("success");
       setClaimed(true);

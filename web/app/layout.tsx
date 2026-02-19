@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Blizkperse | Painless Stablecoin Distribution",
-  description: "Distribute crypto rewards on Monad with zero friction",
+  title: "Blizkperse | Private Stablecoin Payments",
+  description: "Zero-knowledge payment layer for private on-chain stablecoin transfers",
 };
 
 export default function RootLayout({
@@ -24,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" data-chain="monad">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

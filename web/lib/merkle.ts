@@ -2,6 +2,7 @@
 
 import { poseidon2, bigintToBytes32 } from "./zk";
 import { getDepositEvents } from "./contracts";
+import type { ChainConfig } from "./constants";
 import type { Hex } from "viem";
 
 const MAX_DEPTH = 10;
@@ -108,9 +109,10 @@ export class MerkleTree {
  * This is the MVP indexing approach - no subgraph needed.
  */
 export async function buildTreeFromEvents(
-  fromBlock?: bigint
+  config: ChainConfig,
+  fromBlock?: bigint,
 ): Promise<MerkleTree> {
-  const events = await getDepositEvents(fromBlock);
+  const events = await getDepositEvents(config, fromBlock);
   const tree = new MerkleTree(MAX_DEPTH);
 
   for (const event of events) {
