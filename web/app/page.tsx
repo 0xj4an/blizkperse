@@ -45,7 +45,7 @@ export default function LandingPage() {
           <motion.pre
             variants={fadeIn}
             custom={0}
-            className="hidden select-none overflow-hidden text-center font-mono text-[0.45rem] leading-[1.1] text-foreground/80 sm:block sm:text-[0.55rem] md:text-xs"
+            className="hidden select-none overflow-hidden text-center font-mono text-[0.45rem] leading-[1.1] text-primary/70 transition-colors duration-500 sm:block sm:text-[0.55rem] md:text-xs"
             aria-hidden="true"
           >
             {ASCII_ART}

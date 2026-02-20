@@ -13,7 +13,7 @@ import { CHAINS, CHAIN_IDS } from "@/lib/constants";
 
 const CHAIN_COLORS: Record<string, string> = {
   monad: "bg-purple-500",
-  celo: "bg-green-500",
+  celo: "bg-yellow-400",
 };
 
 export function ChainSelector() {

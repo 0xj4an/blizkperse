@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { useAccount, useModal, useLogout } from "@getpara/react-sdk";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -54,15 +53,22 @@ export function Header() {
       <div className="container mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
         {/* Logo + Nav */}
         <div className="flex items-center gap-6">
-          <Link href="/" className="flex items-center">
-            <Image
-              src="/logo.svg"
-              alt="Blizkperse"
-              width={160}
-              height={40}
-              className="h-8 w-auto"
-              priority
-            />
+          <Link href="/" className="flex items-center text-primary transition-colors duration-500">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 56" fill="none" className="h-8 w-auto" aria-label="Blizkperse">
+              <g transform="translate(2, 2)">
+                <path
+                  d="M26 4L6 14v14c0 12.5 8.5 24.2 20 27 11.5-2.8 20-14.5 20-27V14L26 4z"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                  fill="none"
+                  opacity="0.7"
+                />
+                <circle cx="26" cy="24" r="5" stroke="white" strokeWidth="1.8" fill="none" />
+                <line x1="26" y1="29" x2="26" y2="35" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+              </g>
+              <text x="62" y="38" fontFamily="'Geist', 'Inter', ui-monospace, monospace" fontSize="28" fontWeight="700" fill="white" letterSpacing="-0.01em" opacity="0.9">blizkperse</text>
+            </svg>
           </Link>
 
           {isConnected && (

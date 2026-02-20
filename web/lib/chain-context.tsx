@@ -41,9 +41,11 @@ export function ChainProvider({ children }: { children: ReactNode }) {
     document.documentElement.setAttribute("data-chain", CHAINS[id].slug);
   }, []);
 
-  // Set data-chain on mount
+  // Only set data-chain on mount if user previously selected a chain
   useEffect(() => {
-    document.documentElement.setAttribute("data-chain", CHAINS[chainId].slug);
+    if (localStorage.getItem(STORAGE_KEY)) {
+      document.documentElement.setAttribute("data-chain", CHAINS[chainId].slug);
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
