@@ -1,25 +1,26 @@
-# Blizkperse (Monad)
+# Blizkperse
 
-**Making distributing crypto payments painless.**
+**Private stablecoin payments on any chain.**
 
-Blizkperse is a general-purpose payout platform on **Monad**. It solves the "onboarding gap" by allowing organizers to send funds to users who haven't set up a wallet yet.
+Blizkperse is a chain-agnostic payout platform that uses Zero-Knowledge proofs to make on-chain payments confidential. Organizers deposit tokens into a shielded pool; recipients claim them with ZK proofs so payment amounts stay hidden on-chain.
 
 ## How it works
 
-1.  **Recipients** login via **Social Login** (Para) -> Instantly get an Embedded Wallet.
+1.  **Recipients** login via **Social Login** (Para) and instantly get an Embedded Wallet.
 2.  **Recipients** "Subscribe" to a Payer (Organizer/DAO).
-3.  **Payers** select subscribers from a list, input amounts of **Any Token** (USDC, MON, Memes), and execute a **Bulk Payout**.
-4.  **Privacy (ZK)**: Payments are processed via Zero-Knowledge proofs.
-5.  **Agents**: API-ready for AI Agents (OpenClaw) to trigger payouts autonomously.
+3.  **Payers** select subscribers, input amounts of **any stablecoin**, and execute a **Bulk Payout** into a Shielded Pool.
+4.  **Recipients** claim funds using a **Zero-Knowledge Proof** — no link between sender and receiver.
+5.  **Agents**: API-ready for AI Agents and **x402** to trigger payouts autonomously.
 
 ## Architecture
 
 ```mermaid
 graph TB
-    subgraph Frontend["Frontend (Next.js)"]
+    subgraph Frontend["Frontend (Next.js 16)"]
         UI[App UI]
         Auth[Para SDK<br/>Social Login + Wallets]
         Store[Reactive Store]
+        Chain[Chain Context<br/>Multi-chain Support]
     end
 
     subgraph Backend["Backend (Railway)"]
@@ -27,10 +28,10 @@ graph TB
         DB[(PostgreSQL)]
     end
 
-    subgraph Blockchain["Monad Mainnet (Chain 143)"]
+    subgraph Blockchain["EVM Chains"]
         Pool[ShieldedPool Contract]
         Verifier[HonkVerifier Contract]
-        USDC[ERC-20 Token]
+        Token[ERC-20 Stablecoin]
     end
 
     subgraph ZK["Zero-Knowledge Layer"]
@@ -40,19 +41,41 @@ graph TB
 
     UI --> Auth
     UI --> Store
+    UI --> Chain
     Store <--> API
     API <--> DB
     UI --> Pool
     Pool --> Verifier
-    Pool <--> USDC
+    Pool <--> Token
     Proof --> Pool
     Circuit --> Proof
 
-    style Frontend fill:#1a1030,stroke:#a855f7,color:#e2e8f0
-    style Backend fill:#1a1030,stroke:#a855f7,color:#e2e8f0
-    style Blockchain fill:#1a1030,stroke:#a855f7,color:#e2e8f0
-    style ZK fill:#1a1030,stroke:#a855f7,color:#e2e8f0
+    style Frontend fill:#1a1a1a,stroke:#888,color:#e2e8f0
+    style Backend fill:#1a1a1a,stroke:#888,color:#e2e8f0
+    style Blockchain fill:#1a1a1a,stroke:#888,color:#e2e8f0
+    style ZK fill:#1a1a1a,stroke:#888,color:#e2e8f0
 ```
+
+## Supported Chains
+
+| Chain | ID | Status | Stablecoin | Explorer |
+|---|---|---|---|---|
+| **Monad** | 143 | Live | USDC | [monadexplorer.com](https://monadexplorer.com) |
+| **Celo** | 42220 | Planned | cUSD | [celoscan.io](https://celoscan.io) |
+
+### Deployed Contracts (Monad Mainnet)
+
+| Contract | Address |
+|---|---|
+| **HonkVerifier** | `0xf7b2eC9EC33e34431F7f184458aE18Fa418271E3` |
+| **WithdrawVerifier** | `0xA465f96F9a0541D7392c5A22bBA7bc5f23e88f7c` |
+| **ShieldedPool** | `0x085BD9c0C568BE5093130E2359B00e46cb0800d1` |
+| **USDC** | `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` |
+
+- **RPC**: `https://rpc3.monad.xyz`
+- **Deployer**: `0xc696DDc31486D5d8b87254d3AA2985F6d0906b3a`
+- **Block**: `0x35811d2` (56,234,450)
+- **Deployment artifact**: [`zk/deployments/monad-mainnet/run-latest.json`](zk/deployments/monad-mainnet/run-latest.json)
 
 ## User Flow
 
@@ -80,9 +103,9 @@ flowchart LR
 
     H -.->|Funds Available| K
 
-    style Onboarding fill:#1a1030,stroke:#a855f7,color:#e2e8f0
-    style Organizer fill:#1a1030,stroke:#7c3aed,color:#e2e8f0
-    style Subscriber fill:#1a1030,stroke:#7c3aed,color:#e2e8f0
+    style Onboarding fill:#1a1a1a,stroke:#888,color:#e2e8f0
+    style Organizer fill:#1a1a1a,stroke:#666,color:#e2e8f0
+    style Subscriber fill:#1a1a1a,stroke:#666,color:#e2e8f0
 ```
 
 ## ZK Payment Flow
@@ -99,8 +122,8 @@ sequenceDiagram
     Note over O,R: --- DEPOSIT PHASE ---
     O->>App: Select recipients & amounts
     App->>App: Compute commitments<br/>C = Poseidon(amount, pubKey, random)
-    O->>P: approve(USDC) + deposit(commitment)
-    P->>P: Pull USDC, store commitment
+    O->>P: approve(token) + deposit(commitment)
+    P->>P: Pull tokens, store commitment
     P-->>App: Deposit event
     App->>S: Record payout (status: deposited)
 
@@ -112,7 +135,7 @@ sequenceDiagram
     P->>V: Verify ZK proof
     V-->>P: Valid
     P->>P: Check nullifier (no double-spend)
-    P->>R: Transfer USDC
+    P->>R: Transfer tokens
     App->>S: Update payment (status: claimed)
 ```
 
@@ -173,29 +196,15 @@ erDiagram
     SUBSCRIBERS ||--o{ PAYMENTS : "receives"
 ```
 
-## Deployed Contracts (Monad Mainnet — Chain 143)
-
-| Contract | Address |
-|---|---|
-| **HonkVerifier** | `0xf7b2eC9EC33e34431F7f184458aE18Fa418271E3` |
-| **WithdrawVerifier** | `0xA465f96F9a0541D7392c5A22bBA7bc5f23e88f7c` |
-| **ShieldedPool** | `0x085BD9c0C568BE5093130E2359B00e46cb0800d1` |
-| **USDC** | `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` |
-
-- **RPC**: `https://rpc3.monad.xyz`
-- **Explorer**: `https://explorer.monad.xyz`
-- **Deployer**: `0xc696DDc31486D5d8b87254d3AA2985F6d0906b3a`
-- **Block**: `0x35811d2` (56,234,450)
-- **Deployment artifact**: [`zk/deployments/monad-mainnet/run-latest.json`](zk/deployments/monad-mainnet/run-latest.json)
-
 ## Tech Stack
 
--   **Network**: Monad Mainnet (Chain 143, EVM High Performance)
+-   **Chains**: Monad (143), Celo (42220) — any EVM chain supported
 -   **Contracts**: Foundry (Solidity) + Noir ZK Circuits
--   **Frontend**: Next.js + TailwindCSS
--   **Auth**: Para (Social Login + Embedded Wallets)
+-   **Frontend**: Next.js 16 (App Router, Webpack) + Tailwind CSS v4
+-   **Auth**: Para SDK (Social Login + Embedded Wallets)
 -   **Infrastructure**: Railway (PostgreSQL + Next.js Hosting)
--   **Payments**: Any ERC20 (Defaults to USDC)
+-   **Payments**: Any ERC-20 stablecoin (defaults to USDC)
+-   **Theming**: Chain-adaptive — neutral default, colors activate per selected chain
 
 ## Documentation
 
@@ -203,7 +212,7 @@ erDiagram
 | Doc | Description |
 |---|---|
 | [Technical Spec](docs/technical_spec.md) | Full architecture, ZK flows, DB schema, deployment |
-| [Integration Guide](docs/integration_guide.md) | Frontend ↔ ZK ↔ Contract wiring, proof generation |
+| [Integration Guide](docs/integration_guide.md) | Frontend <-> ZK <-> Contract wiring, proof generation |
 
 ### ZK Circuits & Contracts
 | Doc | Description |
@@ -215,19 +224,9 @@ erDiagram
 ### Pitch & Brand
 | Doc | Description |
 |---|---|
-| [Pitch Deck](docs/pitch_deck.md) | 3-minute pitch narrative, GTM strategy, vision |
-| [Pitch Slides](docs/pitch_slides.md) | 5-slide structure with speaker notes |
+| [Pitch Deck](docs/pitch_deck.md) | Pitch narrative, GTM strategy, vision |
+| [Pitch Slides](docs/pitch_slides.md) | Slide structure with speaker notes |
 | [Brand Kit](docs/brand_kit.md) | Color palette, typography, design rules |
-| [Hackathon Submission](docs/hackathon_submission.md) | Submission form, team info, project description |
-
-## Deploy to Railway
-
-1.  **Create project** — [railway.app](https://railway.app) → New Project → Deploy from GitHub
-2.  **Add PostgreSQL** — Click "New" → "Database" → "PostgreSQL"
-3.  **Link the DB** — Railway auto-injects `DATABASE_URL` into your app service
-4.  **Run schema** — Connect to the DB (Railway → Data tab → Query) and paste [sql/schema.sql](sql/schema.sql)
-5.  **Set env vars** — Add `NEXT_PUBLIC_PARA_API_KEY` in the app service variables
-6.  **Deploy** — Push to GitHub; Railway builds and deploys automatically
 
 ## Getting Started (Local)
 
@@ -242,8 +241,15 @@ erDiagram
 1.  Clone repo
 2.  `cd web && npm install`
 3.  `cd zk && forge install`
-4.  Copy `web/.env.example` → `web/.env.local` and fill in `DATABASE_URL`
+4.  Copy `web/.env.example` -> `web/.env.local` and fill in `DATABASE_URL`
 5.  Run `psql $DATABASE_URL < sql/schema.sql` to set up tables
-6.  `cd web && npm run dev`
+6.  `cd web && npm run dev -- --webpack`
 
-*Built with high-throughput love on Monad.*
+## Deploy to Railway
+
+1.  **Create project** — [railway.app](https://railway.app) -> New Project -> Deploy from GitHub
+2.  **Add PostgreSQL** — Click "New" -> "Database" -> "PostgreSQL"
+3.  **Link the DB** — Railway auto-injects `DATABASE_URL` into your app service
+4.  **Run schema** — Connect to the DB (Railway -> Data tab -> Query) and paste [sql/schema.sql](sql/schema.sql)
+5.  **Set env vars** — Add `NEXT_PUBLIC_PARA_API_KEY` in the app service variables
+6.  **Deploy** — Push to GitHub; Railway builds and deploys automatically

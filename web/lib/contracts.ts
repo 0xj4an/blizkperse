@@ -32,7 +32,7 @@ const POOL_ABI = parseAbi([
   "function deposit(bytes32 commitment) external",
   "function registerRoot(bytes32 root) external",
   "function transferIntent(bytes32 expectedRoot, bytes32 nullifierIn, uint32 merkleProofLength, bytes32 newCommitment, bytes proof) external",
-  "function withdraw(bytes32 expectedRoot, bytes32 nullifierIn, uint32 merkleProofLength, bytes proof) external",
+  "function withdraw(bytes proof, bytes32[] publicInputs) external",
   "function isKnownRoot(bytes32) view returns (bool)",
   "function nullifiers(bytes32) view returns (bool)",
   "event Deposit(address indexed sender, bytes32 indexed commitment)",
@@ -110,22 +110,15 @@ export async function withdrawFromPool(
   walletClient: WalletClient,
   config: ChainConfig,
   params: {
-    expectedRoot: Hex;
-    nullifierIn: Hex;
-    merkleProofLength: number;
     proof: Hex;
+    publicInputs: Hex[]; // [value, nullifier, merkleProofLength, expectedRoot, recipient]
   },
 ): Promise<Hash> {
   return walletClient.writeContract({
     address: config.contracts.pool,
     abi: POOL_ABI,
     functionName: "withdraw",
-    args: [
-      params.expectedRoot,
-      params.nullifierIn,
-      params.merkleProofLength,
-      params.proof,
-    ],
+    args: [params.proof, params.publicInputs],
     chain: buildViemChain(config),
   });
 }
@@ -153,11 +146,8 @@ export async function getTokenBalance(
   token: TokenConfig,
 ): Promise<bigint> {
   const client = getPublicClient(config);
-  if (token.isNative) {
-    return client.getBalance({ address: account });
-  }
   return client.readContract({
-    address: token.address! as Hex,
+    address: token.address as Hex,
     abi: ERC20_ABI,
     functionName: "balanceOf",
     args: [account],
@@ -183,22 +173,51 @@ export async function getAllBalances(
 
 // ── Event indexing ──────────────────────────────────────
 
+const DEPOSIT_EVENT = {
+  type: "event" as const,
+  name: "Deposit" as const,
+  inputs: [
+    { type: "address" as const, indexed: true, name: "sender" as const },
+    { type: "bytes32" as const, indexed: true, name: "commitment" as const },
+  ],
+};
+
+/** Max block range per getLogs call — Monad rejects >= 1000 blocks */
+const MAX_BLOCK_RANGE = BigInt(999);
+
 export async function getDepositEvents(
   config: ChainConfig,
   fromBlock?: bigint,
 ) {
   const client = getPublicClient(config);
-  return client.getLogs({
-    address: config.contracts.pool,
-    event: {
-      type: "event",
-      name: "Deposit",
-      inputs: [
-        { type: "address", indexed: true, name: "sender" },
-        { type: "bytes32", indexed: true, name: "commitment" },
-      ],
-    },
-    fromBlock: fromBlock ?? 0n,
-    toBlock: "latest",
-  });
+  const start = fromBlock ?? config.deployBlock;
+  const latest = await client.getBlockNumber();
+
+  // If range is small enough, single call
+  if (latest - start <= MAX_BLOCK_RANGE) {
+    return client.getLogs({
+      address: config.contracts.pool,
+      event: DEPOSIT_EVENT,
+      fromBlock: start,
+      toBlock: latest,
+    });
+  }
+
+  // Paginate in chunks
+  const allLogs: Awaited<ReturnType<typeof client.getLogs>>[] = [];
+  let cursor = start;
+
+  while (cursor <= latest) {
+    const end = cursor + MAX_BLOCK_RANGE > latest ? latest : cursor + MAX_BLOCK_RANGE;
+    const logs = await client.getLogs({
+      address: config.contracts.pool,
+      event: DEPOSIT_EVENT,
+      fromBlock: cursor,
+      toBlock: end,
+    });
+    allLogs.push(logs);
+    cursor = end + 1n;
+  }
+
+  return allLogs.flat();
 }

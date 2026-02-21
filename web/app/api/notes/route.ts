@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   await ensureSchema();
 
-  const { subscriber_id, commitment, value, holder_pk, randomness, nullifier } =
+  const { subscriber_id, chain_id, commitment, value, holder_pk, randomness, nullifier } =
     await req.json();
 
   // Find the most recent claimable payment for this subscriber
@@ -35,8 +35,8 @@ export async function POST(req: NextRequest) {
   `;
 
   const [row] = await sql`
-    INSERT INTO notes (payment_id, commitment, value, holder_pk, randomness, nullifier)
-    VALUES (${payment?.id ?? null}, ${commitment}, ${value}, ${holder_pk}, ${randomness}, ${nullifier})
+    INSERT INTO notes (payment_id, chain_id, commitment, value, holder_pk, randomness, nullifier)
+    VALUES (${payment?.id ?? null}, ${chain_id ?? 143}, ${commitment}, ${value}, ${holder_pk}, ${randomness}, ${nullifier})
     RETURNING *
   `;
 

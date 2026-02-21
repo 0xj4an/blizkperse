@@ -52,7 +52,7 @@ export function ensureSchema() {
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         organizer_id uuid REFERENCES organizers(id) ON DELETE CASCADE,
         total_amount numeric NOT NULL,
-        token text DEFAULT 'MON',
+        token text DEFAULT 'USDC',
         status text DEFAULT 'pending' CHECK (status IN ('pending', 'deposited', 'distributed', 'claimed')),
         tx_hash text,
         created_at timestamptz DEFAULT now()
@@ -76,6 +76,7 @@ export function ensureSchema() {
       CREATE TABLE IF NOT EXISTS notes (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         payment_id uuid REFERENCES payments(id) ON DELETE CASCADE,
+        chain_id integer NOT NULL DEFAULT 143,
         commitment text NOT NULL,
         value text NOT NULL,
         holder_pk text NOT NULL,
@@ -83,6 +84,23 @@ export function ensureSchema() {
         nullifier text NOT NULL,
         leaf_index integer,
         created_at timestamptz DEFAULT now()
+      )
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS deposit_events_cache (
+        id serial PRIMARY KEY,
+        chain_id integer NOT NULL,
+        block_number bigint NOT NULL,
+        sender text NOT NULL,
+        commitment text NOT NULL,
+        UNIQUE(chain_id, commitment)
+      )
+    `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS scan_cursor (
+        chain_id integer PRIMARY KEY,
+        last_block bigint NOT NULL
       )
     `;
 
@@ -94,6 +112,7 @@ export function ensureSchema() {
     await sql`CREATE INDEX IF NOT EXISTS idx_payouts_org ON payouts(organizer_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_payments_sub ON payments(subscriber_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_payments_payout ON payments(payout_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_deposit_cache_chain ON deposit_events_cache(chain_id)`;
 
     console.log("Database schema initialized");
   })();

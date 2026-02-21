@@ -16,6 +16,13 @@ const nextConfig: NextConfig = {
         worker_threads: false,
       };
     }
+    // Suppress Farcaster warnings (optional peer deps of Para SDK — not a miniapp)
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "@farcaster/miniapp-sdk": false,
+      "@farcaster/miniapp-wagmi-connector": false,
+      "@farcaster/mini-app-solana": false,
+    };
     config.experiments = {
       ...config.experiments,
       asyncWebAssembly: true,

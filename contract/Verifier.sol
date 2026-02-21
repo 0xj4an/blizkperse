@@ -3,12 +3,6 @@
 // Copyright 2022 Aztec
 pragma solidity >=0.8.4;
 
-// IVerifier interface for ShieldedPool compatibility
-interface IVerifier {
-    function verify(bytes calldata proof, bytes32[] calldata publicInputs) external view returns (bool);
-}
-
-
 library UltraVerificationKey {
     function verificationKeyHash() internal pure returns(bytes32) {
         return 0xffe75494d1fa8dd827f55c73932f003933da4689b1e6b19294ae7ef9f54da655;
@@ -2782,8 +2776,21 @@ contract UltraVerifier is BaseUltraVerifier {
     }
 }
 
+// IVerifier interface for ShieldedPool compatibility
+interface IVerifier {
+    function verify(bytes calldata proof, bytes32[] calldata publicInputs) external view returns (bool);
+}
+
 // HonkVerifier (deposit verifier) - uses UltraVerifier
-contract HonkVerifier is UltraVerifier {}
+contract HonkVerifier is UltraVerifier {
+    function verify(bytes calldata proof, bytes32[] calldata publicInputs) public view returns (bool) {
+        return this.verify(proof, publicInputs);
+    }
+}
 
 // WithdrawVerifier - uses UltraVerifier  
-contract WithdrawVerifier is UltraVerifier {}
+contract WithdrawVerifier is UltraVerifier {
+    function verify(bytes calldata proof, bytes32[] calldata publicInputs) public view returns (bool) {
+        return this.verify(proof, publicInputs);
+    }
+}

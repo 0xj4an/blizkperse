@@ -178,7 +178,7 @@ export function hydrateStore() {
       id: r.id as string,
       organizerId: r.organizer_id as string,
       totalAmount: Number(r.total_amount),
-      token: (r.token as string) ?? "MON",
+      token: (r.token as string) ?? "USDC",
       status: r.status as Payout["status"],
       createdAt: r.created_at as string,
       txHash: (r.tx_hash as string) ?? undefined,
@@ -507,11 +507,16 @@ export async function claimPayment(
   // ── On-chain withdraw flow ─────────────────────────────
   if (walletClient && proofResult && chainConfig) {
     const publicClient = getPublicClient(chainConfig);
+    const pi = proofResult.publicInputs;
     const withdrawTx = await withdrawFromPool(walletClient, chainConfig, {
-      expectedRoot: proofResult.publicInputs.expectedRoot,
-      nullifierIn: proofResult.publicInputs.nullifierIn,
-      merkleProofLength: proofResult.publicInputs.merkleProofLength,
       proof: proofResult.proof,
+      publicInputs: [
+        pi.value,
+        pi.nullifier,
+        `0x${pi.merkleProofLength.toString(16).padStart(64, "0")}` as Hex,
+        pi.expectedRoot,
+        pi.recipient,
+      ],
     });
     await publicClient.waitForTransactionReceipt({ hash: withdrawTx });
     txHash = withdrawTx;

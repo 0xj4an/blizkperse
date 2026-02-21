@@ -5,7 +5,6 @@ import {
   useContext,
   useState,
   useCallback,
-  useEffect,
   type ReactNode,
 } from "react";
 import {
@@ -23,30 +22,13 @@ interface ChainContextValue {
 
 const ChainContext = createContext<ChainContextValue | null>(null);
 
-const STORAGE_KEY = "blizkperse-chain";
-
 export function ChainProvider({ children }: { children: ReactNode }) {
-  const [chainId, setChainIdRaw] = useState<SupportedChainId>(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored && Number(stored) in CHAINS)
-        return Number(stored) as SupportedChainId;
-    }
-    return DEFAULT_CHAIN_ID;
-  });
+  const [chainId, setChainIdRaw] = useState<SupportedChainId>(DEFAULT_CHAIN_ID);
 
   const setChainId = useCallback((id: SupportedChainId) => {
     setChainIdRaw(id);
-    localStorage.setItem(STORAGE_KEY, String(id));
     document.documentElement.setAttribute("data-chain", CHAINS[id].slug);
   }, []);
-
-  // Only set data-chain on mount if user previously selected a chain
-  useEffect(() => {
-    if (localStorage.getItem(STORAGE_KEY)) {
-      document.documentElement.setAttribute("data-chain", CHAINS[chainId].slug);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <ChainContext.Provider value={{ chainId, chain: CHAINS[chainId], setChainId }}>

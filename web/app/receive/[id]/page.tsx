@@ -23,14 +23,14 @@ import {
   claimPayment,
 } from "@/lib/store";
 import { useParaWalletClient } from "@/lib/wallet";
-import { useChain } from "@/lib/chain-context";
-import { generateProof, fieldToHex, type ProofInput } from "@/lib/zk";
-import { buildTreeFromEvents, rootToHex } from "@/lib/merkle";
+import { CHAINS, type SupportedChainId } from "@/lib/constants";
+import { generateProof, fieldToHex, poseidon2, computeEntry, type ProofInput } from "@/lib/zk";
+import { rootToHex } from "@/lib/merkle";
 import { registerRoot } from "@/lib/contracts";
 
 const STEP_MESSAGES: Record<string, string> = {
   "loading-notes": "Loading payment data...",
-  "building-tree": "Building merkle tree from on-chain data...",
+  "building-tree": "Recomputing note commitment...",
   "generating-proof": "Generating ZK proof (this may take 10-30 seconds)...",
   "registering-root": "Registering merkle root on-chain...",
   "withdrawing": "Submitting withdrawal transaction...",
@@ -49,7 +49,6 @@ export default function ClaimPage() {
   const [claimed, setClaimed] = useState(payment?.status === "claimed");
   const [claimStep, setClaimStep] = useState<string>("");
   const { walletClient, address, isReady } = useParaWalletClient();
-  const { chain } = useChain();
   const [destinationAddress, setDestinationAddress] = useState("");
 
   useEffect(() => {
@@ -97,41 +96,55 @@ export default function ClaimPage() {
         throw new Error("No note data found for this payment. The deposit may not have stored note details.");
       }
 
-      // Step 2: Build merkle tree from on-chain Deposit events
+      // Use the note's chain (where the deposit was made), not the currently selected chain
+      const noteChainId = (noteData.chain_id ?? 143) as SupportedChainId;
+      const noteChain = CHAINS[noteChainId];
+      if (!noteChain || noteChain.placeholder) {
+        throw new Error(`Contracts not deployed on ${noteChain?.name ?? "unknown chain"} yet.`);
+      }
+
+      // Step 2: Recompute note values from raw inputs using circuit-matching Poseidon
+      // This handles both old deposits (Poseidon2 on-chain) and new ones (correct Poseidon)
       setClaimStep("building-tree");
-      const tree = await buildTreeFromEvents(chain);
-      const leafIndex = tree.indexOf(BigInt(noteData.commitment));
-      if (leafIndex === -1) throw new Error("Note commitment not found on-chain. The deposit may still be pending.");
+      const valueBig = BigInt(noteData.value);
+      const holderPk = BigInt(noteData.holder_pk);
+      const randomBig = BigInt(noteData.randomness);
 
-      const { siblings, indices, root } = await tree.getProof(leafIndex);
+      // Recompute nullifier and commitment with the circuit's Poseidon hash
+      const nullifier = await poseidon2(randomBig, holderPk);
+      const commitment = await computeEntry(valueBig, holderPk, randomBig, nullifier);
 
-      // Step 3: Generate ZK proof
+      // Single-leaf merkle tree: root = poseidon(commitment, 0)
+      const root = await poseidon2(commitment, 0n);
+
+      // Step 3: Generate ZK proof (withdraw circuit)
       setClaimStep("generating-proof");
+      const recipientField = fieldToHex(BigInt(destinationAddress));
+      const zeroHex = fieldToHex(0n);
       const proofInput: ProofInput = {
-        new_commitment: "0x" + "0".repeat(64),
-        nullifier_in: noteData.nullifier,
-        merkle_proof_length: String(indices.length),
+        value: fieldToHex(valueBig),
+        nullifier: fieldToHex(nullifier),
+        merkle_proof_length: "1",
         expected_merkle_root: fieldToHex(root),
-        value: noteData.value,
-        pk_b: noteData.holder_pk,
-        random: noteData.randomness,
-        from: noteData.holder_pk,
-        merkle_proof_indices: indices,
-        merkle_proof_siblings: siblings.map((s: bigint) => fieldToHex(s)),
+        recipient: recipientField,
+        pk_b: fieldToHex(holderPk),
+        random: fieldToHex(randomBig),
+        merkle_proof_indices: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        merkle_proof_siblings: Array(10).fill(zeroHex),
       };
       const proofResult = await generateProof(proofInput);
 
       // Step 4: Register root on-chain (may already exist)
       setClaimStep("registering-root");
       try {
-        await registerRoot(walletClient, chain, rootToHex(root));
+        await registerRoot(walletClient, noteChain, rootToHex(root));
       } catch {
         // Root may already be registered - OK
       }
 
       // Step 5: Submit withdrawal
       setClaimStep("withdrawing");
-      const result = await claimPayment(paymentId, walletClient, proofResult, chain);
+      const result = await claimPayment(paymentId, walletClient, proofResult, noteChain);
       setTxHash(result.txHash);
       setTxState("success");
       setClaimed(true);

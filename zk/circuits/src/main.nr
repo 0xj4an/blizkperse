@@ -1,6 +1,5 @@
 // Withdraw circuit: prove ownership of a note and bind withdrawal to a recipient.
 // Public inputs (order for Solidity): value, nullifier, merkle_proof_length, expected_merkle_root, recipient.
-// Prover: WithdrawProver.toml. Para compilar verifier: ./scripts/compile_withdraw_verifier.sh
 use binary_merkle_root::binary_merkle_root;
 use poseidon::poseidon::bn254::hash_2 as poseidon2;
 
