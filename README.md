@@ -67,15 +67,17 @@ graph TB
 
 | Contract | Address |
 |---|---|
-| **HonkVerifier** | `0xf7b2eC9EC33e34431F7f184458aE18Fa418271E3` |
-| **WithdrawVerifier** | `0xA465f96F9a0541D7392c5A22bBA7bc5f23e88f7c` |
-| **ShieldedPool** | `0x085BD9c0C568BE5093130E2359B00e46cb0800d1` |
+| **HonkVerifier** | `0x3D76FC7Ce515aB1d69A4e734354c6EC94c22CCb9` |
+| **WithdrawVerifier** | `0x6e4794166dE8Af43D1720f66bA39f561F2C0eD95` |
+| **ShieldedPool** | `0x1aBee1E0205BB4E6d0b95a2C1F5072d9f3064778` |
 | **USDC** | `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` |
 
 - **RPC**: `https://rpc3.monad.xyz`
-- **Deployer**: `0xc696DDc31486D5d8b87254d3AA2985F6d0906b3a`
-- **Block**: `0x35811d2` (56,234,450)
-- **Deployment artifact**: [`zk/deployments/monad-mainnet/run-latest.json`](zk/deployments/monad-mainnet/run-latest.json)
+- **Chain ID**: 143
+- **Block**: 57,841,520
+- **Deployment artifact**: [`zk/broadcast/Deploy.s.sol/143/run-latest.json`](zk/broadcast/Deploy.s.sol/143/run-latest.json)
+
+> **Note:** `WithdrawVerifier` exceeds the EIP-170 size limit (24,576 bytes) on some chains; deployment succeeded on Monad. For Ethereum mainnet you may need a size-optimized verifier or library split.
 
 ## User Flow
 
