@@ -41,8 +41,10 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
         emit RootRegistered(_genesisRoot);
     }
 
-    /// @notice Register a new Merkle root (only owner). Enables withdrawals that prove inclusion under this root.
-    function registerRoot(bytes32 root) external onlyOwner {
+    /// @notice Register a new Merkle root. Enables withdrawals that prove inclusion under this root.
+    ///         Permissionless so any user can register when claiming (no need for owner to run scripts).
+    ///         First claimer with a new root pays the gas; idempotent (reverts if root already known).
+    function registerRoot(bytes32 root) external {
         require(!isKnownRoot[root], "root already known");
         isKnownRoot[root] = true;
         emit RootRegistered(root);

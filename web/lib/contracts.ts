@@ -28,6 +28,7 @@ export function buildViemChain(config: ChainConfig): Chain {
 
 // ── ABI fragments ───────────────────────────────────────
 
+// Pool ABI + WithdrawVerifier custom errors (revert bubbles from verifier.verify to pool.withdraw)
 const POOL_ABI = parseAbi([
   "function deposit(bytes32 commitment) external",
   "function registerRoot(bytes32 root) external",
@@ -38,6 +39,12 @@ const POOL_ABI = parseAbi([
   "event Deposit(address indexed sender, bytes32 indexed commitment)",
   "event TransferIntent(bytes32 indexed root, bytes32 indexed nullifier, bytes32 indexed newCommitment)",
   "event Withdraw(address indexed recipient, bytes32 indexed nullifier)",
+  "error ProofLengthWrong()",
+  "error PublicInputsLengthWrong()",
+  "error SumcheckFailed()",
+  "error ShpleminiFailed()",
+  "error GeminiChallengeInSubgroup()",
+  "error ConsistencyCheckFailed()",
 ]);
 
 const ERC20_ABI = parseAbi([

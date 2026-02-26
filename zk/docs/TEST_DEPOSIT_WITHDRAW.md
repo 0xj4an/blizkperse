@@ -12,7 +12,7 @@ Guía para validar el flujo deposit → withdraw y qué datos son anónimos on-c
 |------|-----------|
 | 1. Deploy | `source .env && forge script script/Deploy.s.sol:DeployPool --rpc-url "$MONAD_RPC" --broadcast` |
 | 2. Actualizar pool | En `.env` (o en los scripts) pon el **nuevo** `POOL_ADDRESS` que devuelve el deploy (o los scripts usarán el default si no lo cambias; si redepliegas, el default en código es la pool anterior — mejor setear la nueva). |
-| 3. Registrar root | `node scripts/register_root.mjs` (usa el POOL_ADDRESS actual; registra el root del withdraw en la **nueva** pool). |
+| 3. Registrar root | Opcional: desde la **web**, el primer usuario que hace claim registra el root automáticamente (el contrato permite que cualquiera llame `registerRoot`). Para pruebas por CLI: `node scripts/register_root.mjs` si quieres pre-registrar un root. |
 | 4. Deposit | Listo: `PAYMENT_INDEX=0 node circuits/scripts/deposit_one.mjs` (con USDC y PRIVATE_KEY). |
 | 5. Withdraw | El contrato ya acepta 5 public inputs. Genera un proof Honk con `circuits/scripts/prove_withdraw.sh` (requiere `bb`) y luego `PROOF_FILE=circuits/proofs/withdraw.proof node circuits/scripts/withdraw_one.mjs`. Ver más abajo **“Cómo generar un proof Honk del circuito withdraw”**. |
 

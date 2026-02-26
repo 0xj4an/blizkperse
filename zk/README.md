@@ -2,6 +2,8 @@
 
 This example uses Foundry to deploy and test a verifier.
 
+**Withdraw verifier y front:** Para que el withdraw desde la web funcione, el verifier debe compilarse desde este repo con `circuits/scripts/compile_withdraw_verifier.sh` y el API debe usar los mismos flags (`bb prove --oracle_hash keccak`). Ver **[docs/BUILD_AND_DEPLOY.md](docs/BUILD_AND_DEPLOY.md)** para evitar errores tipo SumcheckFailed.
+
 ## Getting Started
 
 Want to get started in a pinch? Start your project in a free Github Codespace!

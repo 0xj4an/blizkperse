@@ -1,7 +1,11 @@
+/**
+ * Generate withdraw proof. Must use the SAME bb flags as zk/circuits/scripts/compile_withdraw_verifier.sh
+ * (bb prove --oracle_hash keccak). See zk/docs/BUILD_AND_DEPLOY.md.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { writeFile, readFile, unlink } from "fs/promises";
+import { writeFile, readFile, unlink, rm } from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
 
@@ -47,7 +51,8 @@ export async function POST(req: NextRequest) {
     const sessionId = randomBytes(8).toString("hex");
     const circuitDir = path.resolve(process.cwd(), "..", "zk", "circuits");
     const proverFile = path.join(circuitDir, "Prover.toml");
-    const proofFile = path.join(circuitDir, `proofs`, `proof_${sessionId}.proof`);
+    const proofDir = path.join(circuitDir, "proofs", `proof_${sessionId}.proof`);
+    const proofFile = path.join(proofDir, "proof");
 
     // Build Prover.toml content
     const indices = input.merkle_proof_indices.map((i: number) => String(i)).join(", ");
@@ -76,11 +81,15 @@ merkle_proof_siblings = [${siblings}]
       console.log("nargo execute stdout:", execOut);
       if (execErr) console.log("nargo execute stderr:", execErr);
 
-      const witnessFile = path.join(circuitDir, "target", `proof_${sessionId}.gz`);
+      const witnessFile = path.join(
+        circuitDir,
+        "target",
+        `proof_${sessionId}.gz`,
+      );
 
-      // Step 2: Generate proof with bb
+      // Step 2: Generate proof with bb (MUST match compile_withdraw_verifier.sh: same --oracle_hash keccak)
       const { stdout: proveOut, stderr: proveErr } = await execAsync(
-        `bb prove -b ./target/with_foundry.json -w ./target/proof_${sessionId}.gz -o ./proofs/proof_${sessionId}.proof`,
+        `bb prove -b ./target/with_foundry.json -w ./target/proof_${sessionId}.gz -o ./proofs/proof_${sessionId}.proof --oracle_hash keccak`,
         { cwd: circuitDir, timeout: 60000 }
       );
       console.log("bb prove stdout:", proveOut);
@@ -93,7 +102,7 @@ merkle_proof_siblings = [${siblings}]
       // Clean up temporary files
       await unlink(proverFile).catch(() => {});
       await unlink(witnessFile).catch(() => {});
-      await unlink(proofFile).catch(() => {});
+      await rm(proofDir, { recursive: true, force: true }).catch(() => {});
 
       return NextResponse.json({
         proof: proofHex,
@@ -101,8 +110,10 @@ merkle_proof_siblings = [${siblings}]
     } catch (err) {
       // Clean up on error
       await unlink(proverFile).catch(() => {});
-      await unlink(path.join(circuitDir, "target", `proof_${sessionId}.gz`)).catch(() => {});
-      await unlink(proofFile).catch(() => {});
+      await unlink(
+        path.join(circuitDir, "target", `proof_${sessionId}.gz`),
+      ).catch(() => {});
+      await rm(proofDir, { recursive: true, force: true }).catch(() => {});
       throw err;
     }
   } catch (error) {

@@ -86,6 +86,8 @@ export function ensureSchema() {
         created_at timestamptz DEFAULT now()
       )
     `;
+    // Ensure newer column exists even on older databases
+    await sql`ALTER TABLE notes ADD COLUMN IF NOT EXISTS subscriber_id text`;
 
     await sql`
       CREATE TABLE IF NOT EXISTS deposit_events_cache (
