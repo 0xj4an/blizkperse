@@ -202,6 +202,45 @@ PROOF_FILE=circuits/proofs/withdraw.proof node circuits/scripts/withdraw_one.mjs
 
 ---
 
+## Withdraw de 2 depósitos (después de registrar un segundo root)
+
+Si hiciste: **registerRoot(R1) → deposit → deposit → registerRoot(R2)** (dos roots registrados, R2 = árbol con 2 hojas), para retirar **cada una** de las 2 notas debes usar el **root R2** como `expected_merkle_root` y el **path de Merkle** correcto para cada nota.
+
+- **Nota 0** (primer depósito, `PAYMENT_INDEX=0`): pk_b=2, random=100. En el árbol de 2 hojas, hoja 0 tiene hermano hoja 1; índice = 0 (izquierda).
+- **Nota 1** (segundo depósito, `PAYMENT_INDEX=1`): pk_b=3, random=101. Hoja 1 tiene hermano hoja 0; índice = 1 (derecha).
+
+### Script que prepara los datos
+
+Desde `zk/circuits/`:
+
+```bash
+cd zk/circuits
+node scripts/prepare_withdraw_two_notes.mjs
+```
+
+El script imprime el **root R2** y dos bloques **WithdrawProver.toml** (uno para nota 0 y otro para nota 1) con nullifier, `expected_merkle_root = R2`, `merkle_proof_length = 1`, e indices/siblings correctos.
+
+### Pasos para retirar las 2 notas
+
+1. **Registrar R2** si aún no está: `ROOT=<R2> node zk/scripts/register_root.mjs`
+2. **Withdraw nota 0**: pega el bloque "Nota 0" en `WithdrawProver.toml` → `./scripts/prove_withdraw.sh` → `PROOF_FILE=proofs/withdraw.proof node scripts/withdraw_one.mjs` (con `B_PRIVATE_KEY`).
+3. **Withdraw nota 1**: pega el bloque "Nota 1" en `WithdrawProver.toml` → mismo flujo (prove_withdraw.sh + withdraw_one.mjs). Usa la clave del dueño de la nota 1 (C si fue A→C).
+
+Cada withdraw gasta un nullifier distinto.
+
+### Recuperar commitments y root desde la chain
+
+Si no sabes con qué datos se registró un root, puedes reconstruir el árbol desde los eventos **Deposit** on-chain y recalcular el root:
+
+```bash
+cd zk/circuits
+MONAD_RPC=https://rpc3.monad.xyz node scripts/commitments_and_root_from_chain.mjs
+```
+
+Opcional: `FROM_BLOCK`, `TO_BLOCK`, `POOL_ADDRESS`. El script imprime: (1) lista de commitments en orden cronológico, (2) el Merkle root calculado (Poseidon2, depth 10), (3) para cada hoja el path (indices + siblings) para usar en `WithdrawProver.toml`. Si el root que imprime coincide con uno ya registrado, puedes usar ese root y el path de la hoja que sea tu nota (necesitas además el nullifier/pk_b/random de esa nota).
+
+---
+
 ## Notas
 
 - **A** y **B** pueden ser la misma wallet para pruebas; para la demo “deposit con A, withdraw con B” usas dos claves distintas.

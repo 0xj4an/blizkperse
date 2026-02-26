@@ -41,7 +41,7 @@ function toBigInt(frOrBytes) {
 async function main() {
   const RPC = process.env.MONAD_RPC;
   const PK = process.env.PRIVATE_KEY;
-  const POOL = process.env.POOL_ADDRESS ?? "0x085BD9c0C568BE5093130E2359B00e46cb0800d1";
+  const POOL = process.env.POOL_ADDRESS ?? "0x1abee1e0205bb4e6d0b95a2c1f5072d9f3064778";
   const USDC = process.env.USDC_ADDRESS ?? "0x754704Bc059F8C67012fEd69BC8A327a5aafb603";
   const index = process.env.PAYMENT_INDEX;
 

@@ -1,7 +1,7 @@
 pragma solidity ^0.8.17;
 
 import "../contract/Starter.sol";
-import "../circuits/target/Verifier.sol";
+import "../contract/Verifier.sol";
 import "forge-std/console.sol";
 
 import "forge-std/Test.sol";
@@ -16,7 +16,7 @@ contract StarterTest is Test {
     function setUp() public {
         noirHelper = new NoirHelper();
         verifier = new HonkVerifier();
-        starter = new Starter(verifier);
+        starter = new Starter(IVerifier(address(verifier)));
     }
 
     function test_verifyProof() public {

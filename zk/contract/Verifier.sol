@@ -2782,8 +2782,6 @@ contract UltraVerifier is BaseUltraVerifier {
     }
 }
 
-// HonkVerifier (deposit verifier) - uses UltraVerifier
+// HonkVerifier (transfer intent) - uses UltraVerifier.
+// WithdrawVerifier está en contract/WithdrawVerifier.sol (generado por compile_withdraw_verifier.sh).
 contract HonkVerifier is UltraVerifier {}
-
-// WithdrawVerifier - uses UltraVerifier  
-contract WithdrawVerifier is UltraVerifier {}

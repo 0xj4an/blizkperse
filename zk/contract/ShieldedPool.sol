@@ -3,9 +3,10 @@ pragma solidity ^0.8.19;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IVerifier} from "./Verifier.sol";
 
-contract ShieldedPool is ReentrancyGuard {
+contract ShieldedPool is ReentrancyGuard, Ownable {
     // 1 USDC (6 decimals)
     uint256 public constant DENOMINATION = 1e6;
 
@@ -28,7 +29,9 @@ contract ShieldedPool is ReentrancyGuard {
     event TransferIntent(bytes32 indexed root, bytes32 indexed nullifier, bytes32 indexed newCommitment);
     event Withdraw(address indexed recipient, bytes32 indexed nullifier);
 
-    constructor(address _usdc, address _verifier, bytes32 _genesisRoot, address _withdrawVerifier) {
+    constructor(address _usdc, address _verifier, bytes32 _genesisRoot, address _withdrawVerifier)
+        Ownable(msg.sender)
+    {
         usdc = IERC20(_usdc);
         verifier = IVerifier(_verifier);
         withdrawVerifier = IVerifier(_withdrawVerifier);
@@ -38,10 +41,8 @@ contract ShieldedPool is ReentrancyGuard {
         emit RootRegistered(_genesisRoot);
     }
 
-    /// @notice MVP: adminless root registration.
-    /// Anyone can register a root; it doesn't move funds by itself.
-    /// For production you'd restrict this or derive roots onchain.
-    function registerRoot(bytes32 root) external {
+    /// @notice Register a new Merkle root (only owner). Enables withdrawals that prove inclusion under this root.
+    function registerRoot(bytes32 root) external onlyOwner {
         require(!isKnownRoot[root], "root already known");
         isKnownRoot[root] = true;
         emit RootRegistered(root);

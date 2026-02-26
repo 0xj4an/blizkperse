@@ -32,7 +32,7 @@ function getDefaultRoot() {
 async function main() {
   const RPC = process.env.MONAD_RPC;
   const PK = process.env.PRIVATE_KEY;
-  const POOL = process.env.POOL_ADDRESS ?? "0x085BD9c0C568BE5093130E2359B00e46cb0800d1";
+  const POOL = process.env.POOL_ADDRESS ?? "0x1aBee1E0205BB4E6d0b95a2C1F5072d9f3064778";
   let root = process.env.ROOT;
 
   if (!RPC || !PK) throw new Error("Set MONAD_RPC, PRIVATE_KEY");
