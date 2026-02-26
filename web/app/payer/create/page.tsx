@@ -96,6 +96,15 @@ export default function CreatePayoutPage() {
     setAmounts(next);
   };
 
+  const handleOneEach = () => {
+    if (selected.size === 0) return;
+    const next: Record<string, number> = {};
+    selected.forEach((id) => {
+      next[id] = 1;
+    });
+    setAmounts(next);
+  };
+
   const handleDeposit = async () => {
     setTxState("pending");
     setProgressMsg("Preparing deposit...");
@@ -267,9 +276,14 @@ export default function CreatePayoutPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button variant="outline" size="sm" onClick={handleEqualSplit}>
-                Equal Split
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleEqualSplit}>
+                  Equal Split
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleOneEach}>
+                  1 each
+                </Button>
+              </div>
             </div>
 
             <Card>
@@ -294,7 +308,10 @@ export default function CreatePayoutPage() {
                           onChange={(e) =>
                             setAmounts({
                               ...amounts,
-                              [id]: Number(e.target.value),
+                              [id]: Math.max(
+                                0,
+                                Math.floor(Number(e.target.value) || 0),
+                              ),
                             })
                           }
                           className="w-28 text-right"
@@ -315,6 +332,9 @@ export default function CreatePayoutPage() {
                 {totalAmount.toLocaleString()} {selectedToken.symbol}
               </span>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Only whole token amounts are supported. Values are rounded down to 1-token notes.
+            </p>
 
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep("select")} className="gap-2">

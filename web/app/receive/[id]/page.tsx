@@ -24,8 +24,14 @@ import {
 } from "@/lib/store";
 import { useParaWalletClient } from "@/lib/wallet";
 import { CHAINS, type SupportedChainId } from "@/lib/constants";
-import { generateProof, fieldToHex, poseidon2, computeEntry, type ProofInput } from "@/lib/zk";
-import { rootToHex } from "@/lib/merkle";
+import {
+  generateProof,
+  fieldToHex,
+  poseidon2,
+  computeEntry,
+  type ProofInput,
+} from "@/lib/zk";
+import { buildTreeFromEvents, rootToHex } from "@/lib/merkle";
 import { registerRoot } from "@/lib/contracts";
 
 const STEP_MESSAGES: Record<string, string> = {
@@ -112,25 +118,37 @@ export default function ClaimPage() {
 
       // Recompute nullifier and commitment with the circuit's Poseidon hash
       const nullifier = await poseidon2(randomBig, holderPk);
-      const commitment = await computeEntry(valueBig, holderPk, randomBig, nullifier);
+      const commitment = await computeEntry(
+        valueBig,
+        holderPk,
+        randomBig,
+        nullifier,
+      );
 
-      // Single-leaf merkle tree: root = poseidon(commitment, 0)
-      const root = await poseidon2(commitment, 0n);
+      // Build Merkle tree from on-chain deposits and find this note's path
+      const tree = await buildTreeFromEvents(noteChain);
+      const leafIndex = tree.indexOf(commitment);
+      if (leafIndex === -1) {
+        throw new Error(
+          "Note commitment not found in Merkle tree. The deposit may not be indexed yet.",
+        );
+      }
+      const { siblings, indices, root } = await tree.getProof(leafIndex);
 
       // Step 3: Generate ZK proof (withdraw circuit)
       setClaimStep("generating-proof");
       const recipientField = fieldToHex(BigInt(destinationAddress));
-      const zeroHex = fieldToHex(0n);
+      const merkleProofLength = String(siblings.length);
       const proofInput: ProofInput = {
         value: fieldToHex(valueBig),
         nullifier: fieldToHex(nullifier),
-        merkle_proof_length: "1",
+        merkle_proof_length: merkleProofLength,
         expected_merkle_root: fieldToHex(root),
         recipient: recipientField,
         pk_b: fieldToHex(holderPk),
         random: fieldToHex(randomBig),
-        merkle_proof_indices: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        merkle_proof_siblings: Array(10).fill(zeroHex),
+        merkle_proof_indices: indices,
+        merkle_proof_siblings: siblings.map((sibling) => fieldToHex(sibling)),
       };
       const proofResult = await generateProof(proofInput);
 

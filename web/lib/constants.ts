@@ -88,16 +88,16 @@ export const CHAINS: Record<SupportedChainId, ChainConfig> = {
     explorerName: "Monad Explorer",
     nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
     contracts: {
-      pool: "0x085BD9c0C568BE5093130E2359B00e46cb0800d1",
-      verifier: "0xf7b2eC9EC33e34431F7f184458aE18Fa418271E3",
-      withdrawVerifier: "0xA465f96F9a0541D7392c5A22bBA7bc5f23e88f7c",
+      pool: "0x1aBee1E0205BB4E6d0b95a2C1F5072d9f3064778",
+      verifier: "0x3D76FC7Ce515aB1d69A4e734354c6EC94c22CCb9",
+      withdrawVerifier: "0x6e4794166dE8Af43D1720f66bA39f561F2C0eD95",
       stablecoin: MONAD_USDC,
     },
     poolTokenDecimals: 6,
-    poolDenomination: 1_000_000n,
+    poolDenomination: BigInt(1_000_000),
     tokens: [MONAD_USDC_TOKEN, MONAD_USDT_TOKEN],
     defaultToken: MONAD_USDC_TOKEN,
-    deployBlock: BigInt(56_234_450),
+    deployBlock: BigInt(57_841_520),
     placeholder: false,
   },
   42220: {
@@ -115,7 +115,7 @@ export const CHAINS: Record<SupportedChainId, ChainConfig> = {
       stablecoin: CELO_USDm,
     },
     poolTokenDecimals: 18,
-    poolDenomination: 1_000_000_000_000_000_000n,
+    poolDenomination: BigInt(1_000_000_000_000_000_000),
     tokens: [
       // Circle & Tether
       CELO_USDC_TOKEN,
