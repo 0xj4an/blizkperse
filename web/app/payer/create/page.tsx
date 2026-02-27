@@ -57,7 +57,7 @@ export default function CreatePayoutPage() {
   const [progressMsg, setProgressMsg] = useState<string>();
   const { chain } = useChain();
   const [selectedToken, setSelectedToken] = useState<TokenConfig>(chain.defaultToken);
-  const { walletClient, isReady } = useParaWalletClient();
+  const { walletClient, address, isReady } = useParaWalletClient();
 
   const filtered = availableSubscribers.filter(
     (s) =>
@@ -118,6 +118,7 @@ export default function CreatePayoutPage() {
         token: selectedToken.symbol,
         walletClient: walletClient ?? undefined,
         chainConfig: chain,
+        ownerAddress: address ?? undefined,
         onProgress: (step, current, total) => {
           setProgressMsg(`${step} (${current}/${total})`);
         },

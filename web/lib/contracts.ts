@@ -4,6 +4,9 @@ import {
   createPublicClient,
   http,
   parseAbi,
+  decodeErrorResult,
+  BaseError,
+  ContractFunctionRevertedError,
   type WalletClient,
   type PublicClient,
   type Hash,
@@ -45,6 +48,7 @@ const POOL_ABI = parseAbi([
   "error ShpleminiFailed()",
   "error GeminiChallengeInSubgroup()",
   "error ConsistencyCheckFailed()",
+  "error Error(string)", // require("msg") in ShieldedPool.deposit
 ]);
 
 const ERC20_ABI = parseAbi([
@@ -99,6 +103,60 @@ export async function depositToPool(
   });
 }
 
+/** Simulate deposit to get the contract revert reason (RPC/wallet often don't return it on writeContract). */
+export async function getDepositRevertReason(
+  config: ChainConfig,
+  account: Hex,
+  commitment: Hex,
+): Promise<string | null> {
+  const client = getPublicClient(config);
+  try {
+    await client.simulateContract({
+      account,
+      address: config.contracts.pool,
+      abi: POOL_ABI,
+      functionName: "deposit",
+      args: [commitment],
+    });
+  } catch (err) {
+    const decoded = decodeRevertDataFromError(err);
+    if (decoded) return decoded;
+    if (err instanceof BaseError) {
+      const revertErr = err.walk((e) => e instanceof ContractFunctionRevertedError);
+      if (revertErr instanceof ContractFunctionRevertedError && revertErr.data?.args?.[0])
+        return String(revertErr.data.args[0]);
+    }
+  }
+  return null;
+}
+
+/** Extract and decode Error(string) from any error that might contain revert data (e.g. RPC returns hex in data). */
+export function decodeRevertDataFromError(err: unknown): string | null {
+  const hex = getRevertDataHex(err);
+  if (!hex || hex.length < 10) return null;
+  try {
+    const decoded = decodeErrorResult({ abi: POOL_ABI, data: hex as Hex });
+    if (decoded.errorName === "Error" && decoded.args?.[0]) return String(decoded.args[0]);
+  } catch {
+    // not our error shape
+  }
+  return null;
+}
+
+function getRevertDataHex(err: unknown): string | null {
+  if (!err || typeof err !== "object") return null;
+  const o = err as Record<string, unknown>;
+  if (typeof o.data === "string" && o.data.startsWith("0x")) return o.data;
+  if (o.cause && typeof o.cause === "object") {
+    const out = getRevertDataHex(o.cause);
+    if (out) return out;
+  }
+  if (typeof o.details === "string" && o.details.startsWith("0x")) return o.details;
+  const nested = o.error as Record<string, unknown> | undefined;
+  if (nested && typeof nested.data === "string" && nested.data.startsWith("0x")) return nested.data;
+  return null;
+}
+
 export async function registerRoot(
   walletClient: WalletClient,
   config: ChainConfig,
@@ -119,6 +177,8 @@ export async function withdrawFromPool(
   params: {
     proof: Hex;
     publicInputs: Hex[]; // [value, nullifier, merkleProofLength, expectedRoot, recipient]
+    /** Optional: use when wallet nonce is stale (nonce too low). Fetch with getTransactionCount(account, 'pending'). */
+    nonce?: number;
   },
 ): Promise<Hash> {
   return walletClient.writeContract({
@@ -127,6 +187,7 @@ export async function withdrawFromPool(
     functionName: "withdraw",
     args: [params.proof, params.publicInputs],
     chain: buildViemChain(config),
+    ...(params.nonce !== undefined && { nonce: params.nonce }),
   });
 }
 
@@ -145,7 +206,7 @@ export async function isRootKnown(
   }) as Promise<boolean>;
 }
 
-// ── Token balance helpers ────────────────────────────────
+// ── Token balance / allowance helpers ───────────────────
 
 export async function getTokenBalance(
   config: ChainConfig,
@@ -158,6 +219,20 @@ export async function getTokenBalance(
     abi: ERC20_ABI,
     functionName: "balanceOf",
     args: [account],
+  }) as Promise<bigint>;
+}
+
+/** Allowance of the pool's stablecoin from owner to the pool (for deposit pre-check). */
+export async function getPoolAllowance(
+  config: ChainConfig,
+  owner: Hex,
+): Promise<bigint> {
+  const client = getPublicClient(config);
+  return client.readContract({
+    address: config.contracts.stablecoin,
+    abi: ERC20_ABI,
+    functionName: "allowance",
+    args: [owner, config.contracts.pool],
   }) as Promise<bigint>;
 }
 

@@ -108,14 +108,15 @@ export const CHAINS: Record<SupportedChainId, ChainConfig> = {
     explorerUrl: "https://celoscan.io",
     explorerName: "CeloScan",
     nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
+    // Direcciones según deploy Celo: Tx1 HonkVerifier, Tx2 WithdrawVerifier, Tx3 ShieldedPool. Block 60249143.
     contracts: {
-      pool: ZERO_ADDR,
-      verifier: ZERO_ADDR,
-      withdrawVerifier: ZERO_ADDR,
-      stablecoin: CELO_USDm,
+      pool: "0xcE61001eb3Cd531784D2Cee9DDAbB17a3fc6B16A",
+      verifier: "0x085BD9c0C568BE5093130E2359B00e46cb0800d1",
+      withdrawVerifier: "0xfe231dd394Df5863B02BfA9CFA50f4877961d5b7",
+      stablecoin: CELO_USDC,
     },
-    poolTokenDecimals: 18,
-    poolDenomination: BigInt(1_000_000_000_000_000_000),
+    poolTokenDecimals: 6,
+    poolDenomination: BigInt(1_000_000),
     tokens: [
       // Circle & Tether
       CELO_USDC_TOKEN,
@@ -138,8 +139,8 @@ export const CHAINS: Record<SupportedChainId, ChainConfig> = {
       { symbol: "GHSm", name: "Mento Cedi", decimals: 18, address: CELO_GHSm },
     ],
     defaultToken: CELO_USDC_TOKEN,
-    deployBlock: BigInt(0),
-    placeholder: true,
+    deployBlock: BigInt(60_249_143),
+    placeholder: false,
   },
 };
 
