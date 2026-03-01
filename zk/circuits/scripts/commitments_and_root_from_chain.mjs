@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * Obtiene la lista de commitments de los eventos Deposit de la ShieldedPool (en orden)
- * y calcula el Merkle root con la misma lógica que el circuito (Poseidon2, depth 10).
+ * Fetches the list of commitments from ShieldedPool Deposit events (in order)
+ * and calculates the Merkle root using the same logic as the circuit (Poseidon2, depth 10).
  *
- * Uso (desde zk/circuits/):
+ * Usage (from zk/circuits/):
  *   MONAD_RPC=https://rpc3.monad.xyz node scripts/commitments_and_root_from_chain.mjs
  *
- * Opcional: POOL_ADDRESS, FROM_BLOCK, TO_BLOCK (default: latest),
+ * Optional: POOL_ADDRESS, FROM_BLOCK, TO_BLOCK (default: latest),
  *          CHUNK_SIZE, CHUNK_DELAY_MS, RATE_LIMIT_RETRY_MS.
  *
- * Alternativa 1 (por bloques): DEPOSIT_BLOCKS=56234450,56234500,56234800
- * Alternativa 2 (por tx hash, más fiable): pasa los tx hash de cada deposit y se usa getTransactionReceipt:
+ * Alternative 1 (by blocks): DEPOSIT_BLOCKS=56234450,56234500,56234800
+ * Alternative 2 (by tx hash, more reliable): pass tx hashes of each deposit, uses getTransactionReceipt:
  *   DEPOSIT_TXHASHES=0xb88a...,0xdbaa...,0x9d16... node scripts/commitments_and_root_from_chain.mjs
  *
- * Si tienes zk/.env con MONAD_RPC (ej. Infura), el script lo carga automáticamente.
+ * If you have zk/.env with MONAD_RPC (e.g. Infura), the script loads it automatically.
  */
 
 import { config } from "dotenv";
@@ -101,7 +101,7 @@ async function fetchDepositLogs(provider, poolAddress, fromBlock, toBlock) {
   });
 }
 
-/** Solo consulta los bloques indicados (una petición por bloque). Ideal si ya sabes dónde hubo deposits. */
+/** Only queries the specified blocks (one request per block). Ideal if you already know where deposits occurred. */
 async function fetchDepositLogsByBlocks(provider, poolAddress, blockNumbers) {
   const iface = new ethers.Interface(POOL_ABI);
   const depositTopic = iface.getEvent("Deposit").topicHash;
@@ -130,14 +130,14 @@ async function fetchDepositLogsByBlocks(provider, poolAddress, blockNumbers) {
     if (anyDeposit.length > 0) {
       const contracts = [...new Set(anyDeposit.map((l) => l.address))];
       console.warn("");
-      console.warn("Diagnóstico: en el bloque " + firstBlock + " hay " + anyDeposit.length + " evento(s) Deposit, pero de otro(s) contrato(s):");
+      console.warn("Diagnostic: block " + firstBlock + " has " + anyDeposit.length + " Deposit event(s), but from other contract(s):");
       contracts.forEach((c) => console.warn("  -", c));
-      console.warn("Pool que estás usando:", address);
-      console.warn("Comprueba que POOL_ADDRESS sea el contrato correcto (ej. la URL del block explorer).");
+      console.warn("Pool you are using:", address);
+      console.warn("Verify that POOL_ADDRESS is the correct contract (e.g. check the block explorer URL).");
     } else {
       console.warn("");
-      console.warn("Diagnóstico: en el bloque " + firstBlock + " la RPC no devolvió ningún log con la firma Deposit(address,bytes32).");
-      console.warn("Puede que la RPC esté desactualizada o sea otra red. Prueba con MONAD_RPC distinto (ej. Infura).");
+      console.warn("Diagnostic: block " + firstBlock + " returned no logs with the Deposit(address,bytes32) signature from the RPC.");
+      console.warn("The RPC may be outdated or on a different network. Try a different MONAD_RPC (e.g. Infura).");
     }
   }
   allLogs.sort((a, b) => {
@@ -150,7 +150,7 @@ async function fetchDepositLogsByBlocks(provider, poolAddress, blockNumbers) {
   });
 }
 
-/** Obtiene los Deposit por tx hash usando getTransactionReceipt (no depende de getLogs por bloque). */
+/** Fetches Deposits by tx hash using getTransactionReceipt (does not depend on getLogs by block). */
 async function fetchDepositLogsByTxHashes(provider, poolAddress, txHashes) {
   const iface = new ethers.Interface(POOL_ABI);
   const depositTopic = iface.getEvent("Deposit").topicHash;
@@ -161,7 +161,7 @@ async function fetchDepositLogsByTxHashes(provider, poolAddress, txHashes) {
     if (!txHash) continue;
     const receipt = await provider.getTransactionReceipt(txHash);
     if (!receipt) {
-      console.warn("Aviso: no se encontró receipt para tx", txHash);
+      console.warn("Warning: receipt not found for tx", txHash);
       continue;
     }
     for (const log of receipt.logs) {
@@ -268,30 +268,30 @@ async function main() {
   }
   const commitments = deposits.map((d) => d.commitment);
 
-  console.log("Deposits encontrados:", commitments.length);
+  console.log("Deposits found:", commitments.length);
   if (commitments.length === 0) {
-    console.log("No hay commitments. Ajusta FROM_BLOCK/TO_BLOCK o verifica que hubo deposits.");
+    console.log("No commitments found. Adjust FROM_BLOCK/TO_BLOCK or verify that deposits were made.");
     process.exit(0);
     return;
   }
 
   console.log("");
-  console.log("--- Commitments (orden cronológico) ---");
+  console.log("--- Commitments (chronological order) ---");
   commitments.forEach((c, i) => {
     console.log(`${i + 1}. ${toHex64(c)}  (block ${deposits[i].blockNumber})`);
   });
 
   console.log("");
-  console.log("Calculando Merkle root (Poseidon2, depth 10)...");
+  console.log("Computing Merkle root (Poseidon2, depth 10)...");
   const bb = await Barretenberg.new();
   const { root, proofs } = await buildMerkleRootAndProofs(bb, commitments);
   await bb.destroy();
 
   console.log("");
-  console.log("--- Merkle root calculado ---");
+  console.log("--- Computed Merkle root ---");
   console.log(toHex64(root));
   console.log("");
-  console.log("(Si este root está registrado en la pool, puedes usarlo como expected_merkle_root en WithdrawProver.toml)");
+  console.log("(If this root is registered in the pool, you can use it as expected_merkle_root in WithdrawProver.toml)");
   console.log("");
 
   const proofDepth = MAX_DEPTH;

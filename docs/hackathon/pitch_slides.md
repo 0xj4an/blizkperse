@@ -40,10 +40,10 @@ When you pay on-chain, you leak data:
 **Content**:
 - **Public Deposit**: Payer sends bulk funds (One Tx).
 - **Private Claim**: Recipient withdraws anonymously via **ZK Proofs**.
-- **Any Chain**: Deploy the same shielded pool on any EVM chain. Currently live on Monad, Celo next.
+- **Any Chain**: Deploy the same shielded pool on any EVM chain. Live on Monad and Celo.
 
 **Speaker Notes**:
-"We use ZK proofs to break the link between sender and receiver. The same contract and proof system works on any EVM chain. We started on Monad for its speed, and we're expanding to Celo and beyond."
+"We use ZK proofs to break the link between sender and receiver. The same contract and proof system works on any EVM chain. We're live on Monad and Celo, and expanding to more chains."
 
 ---
 
@@ -74,7 +74,7 @@ When you pay on-chain, you leak data:
 **The Experiment: Agentic Economy + x402**
 - **x402 Protocol**: AI agents pay for API access using shielded stablecoin transfers.
 - **Multi-Chain**: Same contracts, same proofs, every EVM chain.
-- **Status**: Live on Monad Mainnet. Celo deployment planned.
+- **Status**: Live on Monad and Celo Mainnet.
 
 **Speaker Notes**:
 "This is our big experiment. We aren't just building for humans. We are building the rail for AI Agents to pay each other privately using the x402 protocol. Confidential, autonomous, multi-chain payments."

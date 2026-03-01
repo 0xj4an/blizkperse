@@ -108,7 +108,7 @@ export const CHAINS: Record<SupportedChainId, ChainConfig> = {
     explorerUrl: "https://celoscan.io",
     explorerName: "CeloScan",
     nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
-    // Direcciones según deploy Celo: Tx1 HonkVerifier, Tx2 WithdrawVerifier, Tx3 ShieldedPool. Block 60249143.
+    // Celo deploy: Tx1 HonkVerifier, Tx2 WithdrawVerifier, Tx3 ShieldedPool. Block 60249143.
     contracts: {
       pool: "0xcE61001eb3Cd531784D2Cee9DDAbB17a3fc6B16A",
       verifier: "0x085BD9c0C568BE5093130E2359B00e46cb0800d1",

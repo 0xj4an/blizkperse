@@ -9,7 +9,7 @@ import {
 } from "react";
 import {
   CHAINS,
-  DEFAULT_CHAIN_ID,
+  CHAIN_IDS,
   type SupportedChainId,
   type ChainConfig,
 } from "./constants";
@@ -22,13 +22,71 @@ interface ChainContextValue {
 
 const ChainContext = createContext<ChainContextValue | null>(null);
 
+const CHAIN_COLORS: Record<string, string> = {
+  monad: "from-purple-500 to-purple-700",
+  celo: "from-yellow-400 to-yellow-600",
+};
+
+function ChainSelectScreen({
+  onSelect,
+}: {
+  onSelect: (id: SupportedChainId) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
+      <div className="mx-4 w-full max-w-md space-y-8 text-center">
+        <div className="space-y-2">
+          <h1 className="gradient-text text-3xl font-bold tracking-tight">
+            Welcome to Blizkperse
+          </h1>
+          <p className="text-muted-foreground">
+            Select a network to get started
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          {CHAIN_IDS.map((id) => {
+            const chain = CHAINS[id];
+            return (
+              <button
+                key={id}
+                onClick={() => onSelect(id)}
+                className="glass group flex w-full items-center gap-4 rounded-xl border border-border/50 p-4 text-left transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
+              >
+                <span
+                  className={`h-3 w-3 rounded-full bg-gradient-to-br ${CHAIN_COLORS[chain.slug]}`}
+                />
+                <div className="flex-1">
+                  <span className="text-sm font-medium text-foreground">
+                    {chain.name}
+                  </span>
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    {chain.tokens.length} tokens
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                  Select &rarr;
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ChainProvider({ children }: { children: ReactNode }) {
-  const [chainId, setChainIdRaw] = useState<SupportedChainId>(DEFAULT_CHAIN_ID);
+  const [chainId, setChainIdRaw] = useState<SupportedChainId | null>(null);
 
   const setChainId = useCallback((id: SupportedChainId) => {
     setChainIdRaw(id);
     document.documentElement.setAttribute("data-chain", CHAINS[id].slug);
   }, []);
+
+  if (chainId === null) {
+    return <ChainSelectScreen onSelect={setChainId} />;
+  }
 
   return (
     <ChainContext.Provider value={{ chainId, chain: CHAINS[chainId], setChainId }}>

@@ -1,5 +1,5 @@
 [profile.default]
-# Solo compilar contract/ (no circuits/target/ donde bb escribe Verifier.sol)
+# Only compile contract/ (not circuits/target/ where bb writes Verifier.sol)
 src = "contract"
 out = "out"
 libs = ["lib"]

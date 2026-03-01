@@ -1,13 +1,13 @@
 /**
- * Registra en la ShieldedPool el root que usa el circuito withdraw (expected_merkle_root).
- * Sin este root, withdraw() revertirá con "unknown root".
+ * Registers the withdraw circuit's expected_merkle_root in the ShieldedPool.
+ * Without this root, withdraw() will revert with "unknown root".
  *
- * Requiere: MONAD_RPC, PRIVATE_KEY (POOL_ADDRESS opcional; default: pool desplegada)
- * Opcional: ROOT=0x... (si no se pasa, se lee expected_merkle_root de WithdrawProver.toml)
+ * Requires: MONAD_RPC, PRIVATE_KEY (POOL_ADDRESS optional; defaults to deployed pool)
+ * Optional: ROOT=0x... (if not provided, reads expected_merkle_root from WithdrawProver.toml)
  *
- * Uso:
+ * Usage:
  *   node circuits/scripts/register_root.mjs
- *   node scripts/register_root.mjs   # desde repo root (runner)
+ *   node scripts/register_root.mjs   # from repo root (runner)
  */
 import fs from "fs";
 import path from "path";
@@ -32,7 +32,7 @@ function getDefaultRoot() {
 async function main() {
   const RPC = process.env.MONAD_RPC;
   const PK = process.env.PRIVATE_KEY;
-  const POOL = process.env.POOL_ADDRESS ?? "0x1aBee1E0205BB4E6d0b95a2C1F5072d9f3064778";
+  const POOL = process.env.POOL_ADDRESS ?? "0x8d44379c778Cb714B72FcaD80dcb5EC7c031343c";
   let root = process.env.ROOT;
 
   if (!RPC || !PK) throw new Error("Set MONAD_RPC, PRIVATE_KEY");
@@ -54,10 +54,10 @@ async function main() {
   } catch (e) {
     if (e.code === "TIMEOUT" || e.shortMessage?.includes("timeout") || e.message?.includes("detect network")) {
       throw new Error(
-        "No se pudo conectar al RPC. Revisa MONAD_RPC en .env:\n" +
-        "  - ¿La URL es correcta? (ej. Monad: https://rpc3.monad.xyz)\n" +
-        "  - ¿Tienes internet / la red está disponible?\n" +
-        "  - Prueba en otra terminal: curl -s -X POST -H 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' " + RPC
+        "Could not connect to RPC. Check MONAD_RPC in .env:\n" +
+        "  - Is the URL correct? (e.g. Monad: https://rpc3.monad.xyz)\n" +
+        "  - Do you have internet / is the network available?\n" +
+        "  - Test in another terminal: curl -s -X POST -H 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' " + RPC
       );
     }
     throw e;

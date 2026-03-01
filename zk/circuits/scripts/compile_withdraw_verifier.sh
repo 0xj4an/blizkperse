@@ -1,9 +1,9 @@
 #!/bin/bash
-# Compila el circuito withdraw y deja el Verifier listo para usar como WithdrawVerifier.
-# Uso: desde circuits/ → ./scripts/compile_withdraw_verifier.sh
-# Hace: guarda main.nr, usa withdraw.nr como main, nargo compile,
-#       genera Verifier.sol con bb, fingerprint, smoke test (proof+verify), luego restaura main.nr.
-# IMPORTANTE: El API (web/app/api/generate-proof) debe usar los MISMOS flags: bb prove --oracle_hash keccak.
+# Compiles the withdraw circuit and generates WithdrawVerifier.sol.
+# Usage: from circuits/ → ./scripts/compile_withdraw_verifier.sh
+# Steps: saves main.nr, uses withdraw.nr as main, nargo compile,
+#        generates Verifier.sol with bb, fingerprint, smoke test (proof+verify), then restores main.nr.
+# IMPORTANT: The API (web/app/api/generate-proof) must use the SAME flags: bb prove --oracle_hash keccak.
 set -e
 cd "$(dirname "$0")/.."
 BACKUP=src/main.nr.bak
@@ -15,7 +15,7 @@ nargo compile
 bb write_vk -b ./target/with_foundry.json -o ./target --oracle_hash keccak
 bb write_solidity_verifier -k ./target/vk -o ./target/Verifier.sol
 
-# Fingerprint: mismo build = mismo artefacto (evita desplegar verifier de otra compilación)
+# Fingerprint: same build = same artifact (prevents deploying verifier from a different compilation)
 if command -v shasum >/dev/null 2>&1; then
   FINGERPRINT=$(shasum -a 256 ./target/with_foundry.json | cut -d' ' -f1)
 else
@@ -26,7 +26,7 @@ mkdir -p ../contract
 echo "$FINGERPRINT" > ../contract/.verifier-build-id
 cp target/Verifier.sol ../contract/WithdrawVerifier.sol
 rm -f target/Verifier.sol
-echo "Verifier build ID: $FINGERPRINT (guardado en .verifier-build-id y contract/.verifier-build-id)"
+echo "Verifier build ID: $FINGERPRINT (saved in .verifier-build-id and contract/.verifier-build-id)"
 
 # Smoke test: proof + verify con el mismo flujo que el API (--oracle_hash keccak)
 if [ -f WithdrawProver.toml ]; then
@@ -48,4 +48,4 @@ else
 fi
 
 mv "$BACKUP" src/main.nr
-echo "Done. contract/WithdrawVerifier.sol generado. Redespliega el contrato y actualiza la pool con la nueva dirección si cambió."
+echo "Done. contract/WithdrawVerifier.sol generated. Redeploy the contract and update the pool with the new address if it changed."

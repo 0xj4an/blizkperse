@@ -4,13 +4,17 @@
 
 Blizkperse is a chain-agnostic payout platform that uses Zero-Knowledge proofs to make on-chain payments confidential. Organizers deposit tokens into a shielded pool; recipients claim them with ZK proofs so payment amounts stay hidden on-chain.
 
-## How it works
+---
 
-1.  **Recipients** login via **Social Login** (Para) and instantly get an Embedded Wallet.
-2.  **Recipients** "Subscribe" to a Payer (Organizer/DAO).
-3.  **Payers** select subscribers, input amounts of **any stablecoin**, and execute a **Bulk Payout** into a Shielded Pool.
-4.  **Recipients** claim funds using a **Zero-Knowledge Proof** — no link between sender and receiver.
-5.  **Agents**: API-ready for AI Agents and **x402** to trigger payouts autonomously.
+## How It Works
+
+1. **Login** — Recipients sign in via Social Login (Para) and instantly get an Embedded Wallet.
+2. **Subscribe** — Recipients subscribe to a Payer (Organizer/DAO).
+3. **Deposit** — Payers select subscribers, set amounts of any stablecoin, and execute a Bulk Payout into a Shielded Pool.
+4. **Claim** — Recipients claim funds using a Zero-Knowledge Proof — no link between sender and receiver.
+5. **Agents** — API-ready for AI Agents and x402 to trigger payouts autonomously.
+
+---
 
 ## Architecture
 
@@ -56,202 +60,130 @@ graph TB
     style ZK fill:#1a1a1a,stroke:#888,color:#e2e8f0
 ```
 
+---
+
 ## Supported Chains
 
-| Chain | ID | Status | Stablecoin | Explorer |
-|---|---|---|---|---|
-| **Monad** | 143 | Live | USDC | [monadexplorer.com](https://monadexplorer.com) |
-| **Celo** | 42220 | Planned | cUSD | [celoscan.io](https://celoscan.io) |
+| Chain | ID | Status | Pool | USDC | Explorer |
+| --- | --- | --- | --- | --- | --- |
+| **Monad** | 143 | Live | [`0x8d44…343c`](https://monadexplorer.com/address/0x8d44379c778Cb714B72FcaD80dcb5EC7c031343c) | `0x7547…F603` | [monadexplorer.com](https://monadexplorer.com) |
+| **Celo** | 42220 | Live | [`0xcE61…B16A`](https://celoscan.io/address/0xcE61001eb3Cd531784D2Cee9DDAbB17a3fc6B16A) | `0xcebA…18C` | [celoscan.io](https://celoscan.io) |
 
-### Deployed Contracts (Monad Mainnet)
+> Full contract addresses and verifier details in the [Technical Spec](docs/technical_spec.md#4-smart-contracts) and [ZK README](zk/README.md#deployed-contracts).
 
-| Contract | Address |
-|---|---|
-| **HonkVerifier** | `0x3D76FC7Ce515aB1d69A4e734354c6EC94c22CCb9` |
-| **WithdrawVerifier** | `0x6e4794166dE8Af43D1720f66bA39f561F2C0eD95` |
-| **ShieldedPool** | `0x1aBee1E0205BB4E6d0b95a2C1F5072d9f3064778` |
-| **USDC** | `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` |
-
-- **RPC**: `https://rpc3.monad.xyz`
-- **Chain ID**: 143
-- **Block**: 57,841,520
-- **Deployment artifact**: [`zk/broadcast/Deploy.s.sol/143/run-latest.json`](zk/broadcast/Deploy.s.sol/143/run-latest.json)
-
-> **Note:** `WithdrawVerifier` exceeds the EIP-170 size limit (24,576 bytes) on some chains; deployment succeeded on Monad. For Ethereum mainnet you may need a size-optimized verifier or library split.
-
-## User Flow
-
-```mermaid
-flowchart LR
-    subgraph Onboarding
-        A([User Visits App]) --> B[Social Login<br/>via Para]
-        B --> C[Embedded Wallet<br/>Created]
-        C --> D{Choose Role}
-    end
-
-    subgraph Organizer["Organizer Flow"]
-        D -- Organize --> E[Create<br/>Organization]
-        E --> F[View<br/>Subscribers]
-        F --> G[Select Recipients<br/>& Set Amounts]
-        G --> H[Deposit to<br/>ShieldedPool]
-    end
-
-    subgraph Subscriber["Subscriber Flow"]
-        D -- Receive --> I[Browse<br/>Organizations]
-        I --> J[Subscribe<br/>to Org]
-        J --> K[View Claimable<br/>Payments]
-        K --> L[Claim via<br/>ZK Proof]
-    end
-
-    H -.->|Funds Available| K
-
-    style Onboarding fill:#1a1a1a,stroke:#888,color:#e2e8f0
-    style Organizer fill:#1a1a1a,stroke:#666,color:#e2e8f0
-    style Subscriber fill:#1a1a1a,stroke:#666,color:#e2e8f0
-```
-
-## ZK Payment Flow
-
-```mermaid
-sequenceDiagram
-    participant O as Organizer
-    participant App as Frontend
-    participant S as PostgreSQL
-    participant P as ShieldedPool
-    participant V as HonkVerifier
-    participant R as Recipient
-
-    Note over O,R: --- DEPOSIT PHASE ---
-    O->>App: Select recipients & amounts
-    App->>App: Compute commitments<br/>C = Poseidon(amount, pubKey, random)
-    O->>P: approve(token) + deposit(commitment)
-    P->>P: Pull tokens, store commitment
-    P-->>App: Deposit event
-    App->>S: Record payout (status: deposited)
-
-    Note over O,R: --- CLAIM PHASE ---
-    R->>App: Click "Claim"
-    App->>App: Fetch Merkle path
-    App->>App: Generate ZK proof (Noir circuit)
-    R->>P: withdraw(proof, root, nullifier)
-    P->>V: Verify ZK proof
-    V-->>P: Valid
-    P->>P: Check nullifier (no double-spend)
-    P->>R: Transfer tokens
-    App->>S: Update payment (status: claimed)
-```
-
-## Database Schema
-
-```mermaid
-erDiagram
-    ORGANIZERS {
-        uuid id PK
-        text name
-        text owner_address
-        numeric total_distributed
-        int subscriber_count
-        timestamptz created_at
-    }
-
-    SUBSCRIBERS {
-        uuid id PK
-        text address UK
-        text name
-        text email
-        timestamptz created_at
-    }
-
-    SUBSCRIPTIONS {
-        uuid id PK
-        uuid organizer_id FK
-        uuid subscriber_id FK
-        enum status "active | pending"
-        timestamptz created_at
-    }
-
-    PAYOUTS {
-        uuid id PK
-        uuid organizer_id FK
-        numeric total_amount
-        enum status "pending | deposited | distributed | claimed"
-        text tx_hash
-        timestamptz created_at
-    }
-
-    PAYMENTS {
-        uuid id PK
-        uuid payout_id FK
-        uuid organizer_id FK
-        uuid subscriber_id FK
-        numeric amount
-        enum status "claimable | claimed | expired"
-        timestamptz claimed_at
-        text tx_hash
-        timestamptz created_at
-    }
-
-    ORGANIZERS ||--o{ SUBSCRIPTIONS : "has"
-    SUBSCRIBERS ||--o{ SUBSCRIPTIONS : "joins"
-    ORGANIZERS ||--o{ PAYOUTS : "creates"
-    PAYOUTS ||--o{ PAYMENTS : "contains"
-    SUBSCRIBERS ||--o{ PAYMENTS : "receives"
-```
+---
 
 ## Tech Stack
 
--   **Chains**: Monad (143), Celo (42220) — any EVM chain supported
--   **Contracts**: Foundry (Solidity) + Noir ZK Circuits
--   **Frontend**: Next.js 16 (App Router, Webpack) + Tailwind CSS v4
--   **Auth**: Para SDK (Social Login + Embedded Wallets)
--   **Infrastructure**: Railway (PostgreSQL + Next.js Hosting)
--   **Payments**: Any ERC-20 stablecoin (defaults to USDC)
--   **Theming**: Chain-adaptive — neutral default, colors activate per selected chain
+| Layer | Technology |
+| --- | --- |
+| **Blockchain** | Any EVM chain — Monad (143), Celo (42220) |
+| **Contracts** | Foundry (Solidity) + Noir ZK Circuits |
+| **Frontend** | Next.js 16 (App Router, Webpack) + Tailwind CSS v4 |
+| **Auth** | Para SDK — Social Login + Embedded Wallets |
+| **UI** | shadcn/ui (new-york style, Radix primitives) |
+| **Database** | PostgreSQL (Railway) |
+| **Payments** | Any ERC-20 stablecoin (defaults to USDC) |
+| **Theming** | Chain-adaptive — neutral default, colors activate per chain |
+
+---
+
+## Project Structure
+
+```text
+blizkperse/
+├── web/                    # Next.js frontend
+│   ├── app/                # App Router pages (landing, payer, receive)
+│   ├── components/         # Header, auth guard, chain selector, UI
+│   ├── lib/                # Constants, contracts, merkle, ZK, store, DB
+│   └── public/circuits/    # Compiled circuit artifact (circuit.json)
+├── zk/                     # ZK circuits + Solidity contracts
+│   ├── circuits/           # Noir circuits (main.nr, withdraw.nr) + scripts
+│   ├── contract/           # Generated verifier contracts
+│   ├── src/                # ShieldedPool.sol
+│   ├── script/             # Foundry deploy scripts
+│   └── docs/               # Build, deploy, and testing guides
+├── sql/                    # Database schema
+└── docs/                   # Architecture, integration, pitch, brand
+```
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 20+
+- [Foundry](https://book.getfoundry.sh) (`forge`, `cast`, `anvil`)
+- [Nargo](https://noir-lang.org/docs/getting_started/noir_installation) (Noir compiler)
+- [Barretenberg](https://github.com/AztecProtocol/aztec-packages/tree/master/barretenberg/bbup) (`bb` CLI)
+- PostgreSQL (local or Railway)
+
+### Quick Start
+
+```bash
+# 1. Clone and install frontend
+cd web && npm install
+
+# 2. Install contract dependencies
+cd ../zk && forge install
+
+# 3. Configure environment
+cp ../web/.env.example ../web/.env.local
+# Fill in NEXT_PUBLIC_PARA_API_KEY and DATABASE_URL
+
+# 4. Start dev server (--webpack required for WASM compatibility)
+cd ../web && npm run dev -- --webpack
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+### Deploy to Railway
+
+1. **Create project** — [railway.app](https://railway.app) > New Project > Deploy from GitHub
+2. **Add PostgreSQL** — Click "New" > "Database" > "PostgreSQL"
+3. **Set env vars** — Add `NEXT_PUBLIC_PARA_API_KEY` (Railway auto-injects `DATABASE_URL`)
+4. **Deploy** — Push to GitHub; Railway builds and deploys automatically
+
+---
 
 ## Documentation
 
-### Architecture & Integration
-| Doc | Description |
-|---|---|
-| [Technical Spec](docs/technical_spec.md) | Full architecture, ZK flows, DB schema, deployment |
-| [Integration Guide](docs/integration_guide.md) | Frontend <-> ZK <-> Contract wiring, proof generation |
+Every doc in the project, organized by area.
+
+### Architecture & Frontend
+
+| File | Description |
+| --- | --- |
+| [`docs/technical_spec.md`](docs/technical_spec.md) | Full architecture, contract interfaces, DB schema, deployment |
+| [`docs/integration_guide.md`](docs/integration_guide.md) | Frontend <-> ZK <-> Contract wiring, proof generation flow |
+| [`web/README.md`](web/README.md) | Next.js app setup, env vars, project structure, Railway deploy |
+| [`sql/schema.sql`](sql/schema.sql) | PostgreSQL database schema (tables, RLS policies) |
 
 ### ZK Circuits & Contracts
-| Doc | Description |
-|---|---|
-| [Circuits README](zk/README.md) | Noir + Foundry setup, verifier generation |
-| [Deposit/Withdraw Demo](zk/docs/DEMO_DEPOSIT_WITHDRAW.md) | Step-by-step demo: compile, deploy, deposit, withdraw |
-| [Deposit/Withdraw Testing](zk/docs/TEST_DEPOSIT_WITHDRAW.md) | On-chain validation and anonymity verification |
 
-### Pitch & Brand
-| Doc | Description |
-|---|---|
-| [Pitch Deck](docs/pitch_deck.md) | Pitch narrative, GTM strategy, vision |
-| [Pitch Slides](docs/pitch_slides.md) | Slide structure with speaker notes |
-| [Brand Kit](docs/brand_kit.md) | Color palette, typography, design rules |
+| File | Description |
+| --- | --- |
+| [`zk/README.md`](zk/README.md) | Noir + Foundry setup, verifier generation, deployed contract addresses |
+| [`zk/docs/BUILD_AND_DEPLOY.md`](zk/docs/BUILD_AND_DEPLOY.md) | Verifier compilation, deployment checklist, avoiding SumcheckFailed |
+| [`zk/docs/DEMO_DEPOSIT_WITHDRAW.md`](zk/docs/DEMO_DEPOSIT_WITHDRAW.md) | Step-by-step CLI demo: compile, deploy, deposit, withdraw |
+| [`zk/docs/TEST_DEPOSIT_WITHDRAW.md`](zk/docs/TEST_DEPOSIT_WITHDRAW.md) | On-chain anonymity validation, proof generation, testing guide |
 
-## Getting Started (Local)
+### Brand & Pitch
 
-### Prerequisites
--   Node.js 18+
--   Foundry (`forge`)
--   npm
--   PostgreSQL (local or Railway dev DB)
+| File | Description |
+| --- | --- |
+| [`docs/brand_kit.md`](docs/brand_kit.md) | Color palette (oklch), typography, chain-adaptive theming rules |
 
-### Installation
+### Hackathon
 
-1.  Clone repo
-2.  `cd web && npm install`
-3.  `cd zk && forge install`
-4.  Copy `web/.env.example` -> `web/.env.local` and fill in `DATABASE_URL`
-5.  Run `psql $DATABASE_URL < sql/schema.sql` to set up tables
-6.  `cd web && npm run dev -- --webpack`
+| File | Description |
+| --- | --- |
+| [`docs/hackathon/`](docs/hackathon/) | Pitch deck, slides, submission form, HTML presentations |
 
-## Deploy to Railway
+---
 
-1.  **Create project** — [railway.app](https://railway.app) -> New Project -> Deploy from GitHub
-2.  **Add PostgreSQL** — Click "New" -> "Database" -> "PostgreSQL"
-3.  **Link the DB** — Railway auto-injects `DATABASE_URL` into your app service
-4.  **Run schema** — Connect to the DB (Railway -> Data tab -> Query) and paste [sql/schema.sql](sql/schema.sql)
-5.  **Set env vars** — Add `NEXT_PUBLIC_PARA_API_KEY` in the app service variables
-6.  **Deploy** — Push to GitHub; Railway builds and deploys automatically
+## Team
+
+- [**0xj4an**](https://github.com/0xj4an) — Frontend, Documentation, Product
+- [**ArturVargas**](https://github.com/ArturVargas) — ZK Circuits, Contracts, Deploy Scripts

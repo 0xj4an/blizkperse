@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Runner: ejecuta circuits/scripts/withdraw_one.mjs desde la raíz del repo.
- * Uso: PROOF_FILE=proofs/withdraw.proof node scripts/withdraw_one.mjs
- *      (PROOF_FILE puede ser proofs/withdraw.proof o circuits/proofs/withdraw.proof)
+ * Runner: executes circuits/scripts/withdraw_one.mjs from the repo root.
+ * Usage: PROOF_FILE=proofs/withdraw.proof node scripts/withdraw_one.mjs
+ *        (PROOF_FILE can be proofs/withdraw.proof or circuits/proofs/withdraw.proof)
  */
 import { spawn } from "child_process";
 import path from "path";

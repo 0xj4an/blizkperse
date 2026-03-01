@@ -17,7 +17,7 @@ We block reverse-engineering by making the payment amount and recipient private.
 *   **Public Deposit**: The network sees a bulk deposit from the Payer.
 *   **Private Claim**: The recipient withdraws funds using a **Zero-Knowledge Proof**. No link between the sender and the receiver's wallet.
 *   **Subscription Model**: Users sub to an Organizer, enabling the payout flow without doxing their main address.
-*   **Chain-Agnostic**: Same shielded pool contract and proof system on every EVM chain. Currently live on Monad, with Celo next.
+*   **Chain-Agnostic**: Same shielded pool contract and proof system on every EVM chain. Live on Monad and Celo.
 
 ## 4. Use Cases
 *   **Payroll Privacy**: Pay teams without exposing salary structures.

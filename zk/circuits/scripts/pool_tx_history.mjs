@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Lee los eventos del contrato ShieldedPool desde la RPC y muestra el flujo
- * de transacciones en orden (Deposit, Withdraw, registerRoot, TransferIntent).
+ * Reads ShieldedPool contract events from the RPC and displays the transaction
+ * flow in order (Deposit, Withdraw, registerRoot, TransferIntent).
  *
- * Uso (desde zk/circuits/):
+ * Usage (from zk/circuits/):
  *   MONAD_RPC=https://rpc3.monad.xyz node scripts/pool_tx_history.mjs
  *
- * Opcional: POOL_ADDRESS, FROM_BLOCK (default: 56234450), TO_BLOCK (default: latest).
- * Para evitar "Block range too large" o rate limit: usa un rango corto, ej. FROM_BLOCK=<último-500> TO_BLOCK=latest.
+ * Optional: POOL_ADDRESS, FROM_BLOCK (default: 56234450), TO_BLOCK (default: latest).
+ * To avoid "Block range too large" or rate limit: use a short range, e.g. FROM_BLOCK=<latest-500> TO_BLOCK=latest.
  */
 
 import { ethers } from "ethers";
@@ -49,7 +49,7 @@ async function main() {
 
   const logs = allLogs;
 
-  // Ordenar por blockNumber y logIndex
+  // Sort by blockNumber and logIndex
   logs.sort((a, b) => {
     if (a.blockNumber !== b.blockNumber) return Number(a.blockNumber - b.blockNumber);
     return a.index - b.index;
@@ -69,13 +69,13 @@ async function main() {
         args: parsed.args,
       });
     } catch (_) {
-      // evento desconocido
+      // unknown event
     }
   }
 
   console.log("Pool:", POOL);
   console.log("RPC:", RPC);
-  console.log("Total eventos:", entries.length);
+  console.log("Total events:", entries.length);
   console.log("");
 
   let nDeposit = 0;
@@ -97,11 +97,11 @@ async function main() {
         break;
       case "Deposit":
         nDeposit++;
-        line += `Deposit — 1 USDC enviado por ${addrShort(e.args.sender)}, commitment = ${rootShort(e.args.commitment)}`;
+        line += `Deposit — 1 USDC sent by ${addrShort(e.args.sender)}, commitment = ${rootShort(e.args.commitment)}`;
         break;
       case "Withdraw":
         nWithdraw++;
-        line += `Withdraw — 1 USDC enviado a ${addrShort(e.args.recipient)}, nullifier = ${rootShort(e.args.nullifier)}`;
+        line += `Withdraw — 1 USDC sent to ${addrShort(e.args.recipient)}, nullifier = ${rootShort(e.args.nullifier)}`;
         break;
       case "TransferIntent":
         nIntent++;
@@ -114,7 +114,7 @@ async function main() {
   }
 
   console.log("");
-  console.log("Resumen: registerRoot =", nRoot, "| Deposit =", nDeposit, "| Withdraw =", nWithdraw, "| TransferIntent =", nIntent);
+  console.log("Summary: registerRoot =", nRoot, "| Deposit =", nDeposit, "| Withdraw =", nWithdraw, "| TransferIntent =", nIntent);
 }
 
 main().catch((e) => {

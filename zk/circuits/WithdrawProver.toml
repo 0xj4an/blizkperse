@@ -1,12 +1,12 @@
-# Public (orden: value, nullifier, merkle_proof_length, expected_merkle_root, recipient)
-# Para PAYMENT_INDEX=0 (pk_b=2, random=100) — árbol de 1 hoja (primer deposit en la pool nueva).
+# Public (order: value, nullifier, merkle_proof_length, expected_merkle_root, recipient)
+# For PAYMENT_INDEX=0 (pk_b=2, random=100) — 1-leaf tree (first deposit in the new pool).
 value = "0x1"
 nullifier = "0x2f2db3ebc29365d92b4c3c567ec37494c011331eedf2eb88972d6a5aee08d400"
 merkle_proof_length = 10
 expected_merkle_root = "0x0a62791fbdee39736adb8d9cfe0c34e5f6749e4d1eb0b89cc23941b228ca4414"
 recipient = "0x000000000000000000000000635BB386312470490Dd5864258bcb7Ab505bF42d"
 
-# Private: nota PAYMENT_INDEX=0 → pk_b=2, random=100
+# Private: note PAYMENT_INDEX=0 → pk_b=2, random=100
 pk_b = "0x2"
 random = "0x64"
 merkle_proof_indices = [0,0,0,0,0,0,0,0,0,0]

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Verifica qué (pk_b, random) generan cada commitment on-chain.
- * Uso: node scripts/verify_commitment_params.mjs
- * Requiere: commitments en el orden que quieras probar (edita ONCHAIN_COMMITMENTS abajo).
+ * Verifies which (pk_b, random) generate each on-chain commitment.
+ * Usage: node scripts/verify_commitment_params.mjs
+ * Requires: commitments in the order you want to test (edit ONCHAIN_COMMITMENTS below).
  */
 import { Barretenberg, Fr } from "@aztec/bb.js";
 
@@ -15,7 +15,7 @@ function toHex64(n) {
   return "0x" + n.toString(16).padStart(64, "0");
 }
 
-// Los 3 commitments on-chain (orden: 1º, 2º, 3º deposit)
+// The 3 on-chain commitments (order: 1st, 2nd, 3rd deposit)
 const ONCHAIN_COMMITMENTS = [
   0x2f9862ec8acc10f0f10b02fafa2ff2d9a2d379f88a0755b598519dcd85baec0an,
   0x270d55aab8dea22d68274c85215ad18bb4afbc71344b3bdd5163d59085739ef2n,
@@ -34,7 +34,7 @@ async function main() {
     return await poseidon2(a, b);
   };
 
-  // Probar varios (pk_b, random) para encontrar cuál genera cada commitment on-chain
+  // Try various (pk_b, random) to find which generates each on-chain commitment
   const targets = [
     { leafIndex: 1, hex: "0x270d55aab8dea22d68274c85215ad18bb4afbc71344b3bdd5163d59085739ef2" },
     { leafIndex: 2, hex: "0x1976b263f57728d48060e51ae7a91ae7db37c614c645486a00e04414b5263550" },
@@ -42,7 +42,7 @@ async function main() {
   const pkOptions = [2n, 3n];
   const randomRange = [100n, 101n, 102n, 99n, 103n, 104n];
 
-  console.log("Buscando (pk_b, random) que generen los commitments de hoja 1 y 2...\n");
+  console.log("Searching for (pk_b, random) that generate the commitments for leaf 1 and 2...\n");
   for (const t of targets) {
     const target = ONCHAIN_COMMITMENTS[t.leafIndex];
     let found = null;
@@ -58,18 +58,18 @@ async function main() {
       if (found) break;
     }
     if (found) {
-      console.log(`Hoja ${t.leafIndex} (${t.hex}): pk_b=${found.pk_b}, random=${found.random}`);
+      console.log(`Leaf ${t.leafIndex} (${t.hex}): pk_b=${found.pk_b}, random=${found.random}`);
       console.log(`  nullifier = ${toHex64(found.nullifier)}`);
-      console.log(`  → Pega en WithdrawProver.toml para retirar esa nota.`);
+      console.log(`  → Paste into WithdrawProver.toml to withdraw that note.`);
     } else {
-      console.log(`Hoja ${t.leafIndex}: no se encontró (pk_b, random) en el rango probado. Prueba más valores.`);
+      console.log(`Leaf ${t.leafIndex}: no (pk_b, random) found in the tested range. Try more values.`);
     }
     console.log("");
   }
 
   await bb.destroy();
-  console.log("Si no hay coincidencia: los depósitos 2 y 3 se hicieron con otros (pk_b, random),");
-  console.log("p. ej. desde el frontend. Necesitas holder_pk y randomness de esa nota (DB o flujo receive).");
+  console.log("If there is no match: deposits 2 and 3 were made with different (pk_b, random),");
+  console.log("e.g. from the frontend. You need the holder_pk and randomness of that note (DB or receive flow).");
 }
 
 main().catch((e) => {

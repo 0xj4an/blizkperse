@@ -156,8 +156,6 @@ export default function ClaimPage() {
       }
       const { siblings, indices, root } = await tree.getProof(leafIndex);
 
-      console.log("Merkle root usado en el proof:", fieldToHex(root));
-
       // Step 3: Generate ZK proof (withdraw circuit)
       // recipient = where to send the 1 USDC; can be any address (e.g. connected wallet).
       // pk_b = note owner (from note data); must match for nullifier/commitment.
@@ -175,7 +173,6 @@ export default function ClaimPage() {
         merkle_proof_indices: indices,
         merkle_proof_siblings: siblings.map((sibling) => fieldToHex(sibling)),
       };
-      console.log("Proof input:", JSON.stringify(proofInput, null, 2));
       const proofResult = await generateProof(proofInput);
 
       // Step 4: Register root on-chain (may already exist)

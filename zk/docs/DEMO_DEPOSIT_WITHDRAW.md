@@ -1,47 +1,47 @@
-# Demo: Deposit (wallet A) y Withdraw (wallet B)
+# Demo: Deposit (wallet A) and Withdraw (wallet B)
 
-Lista de pasos y comandos para compilar circuitos, desplegar contratos y ejecutar una demo: **wallet A** deposita 1 USDC (creando una nota para B); **wallet B** retira ese 1 USDC a su dirección.
+List of steps and commands to compile circuits, deploy contracts, and run a demo: **wallet A** deposits 1 USDC (creating a note for B); **wallet B** withdraws that 1 USDC to its address.
 
 ---
 
-## Requisitos previos
+## Prerequisites
 
-- **Node.js** (para los scripts `.mjs`)
+- **Node.js** (for the `.mjs` scripts)
 - **Forge** (Foundry)
-- **Nargo** (Noir), p. ej. `noirup`
-- **Barretenberg** (`bb`), p. ej. vía [bbup](https://github.com/AztecProtocol/aztec-packages/tree/master/barretenberg/bbup)
-- **Wallet A:** con USDC y MON (gas) en Monad
-- **Wallet B:** con MON (gas); no necesita USDC (recibirá 1 USDC en el withdraw)
+- **Nargo** (Noir), e.g. `noirup`
+- **Barretenberg** (`bb`), e.g. via [bbup](https://github.com/AztecProtocol/aztec-packages/tree/master/barretenberg/bbup)
+- **Wallet A:** with USDC and MON (gas) on Monad
+- **Wallet B:** with MON (gas); does not need USDC (will receive 1 USDC on withdraw)
 
 ---
 
-## 1. Variables de entorno
+## 1. Environment variables
 
-Crea o edita `.env` en la raíz del repo:
+Create or edit `.env` in the repo root:
 
 ```bash
 # Deploy (Forge)
-PRIVATE_KEY=          # Clave del deployer (p. ej. la de A para simplificar)
+PRIVATE_KEY=          # Deployer key (e.g. wallet A's key for simplicity)
 USDC_ADDRESS=0x754704Bc059F8C67012fEd69BC8A327a5aafb603  # Monad USDC (6 decimals)
 MONAD_RPC=https://rpc3.monad.xyz
 
-# Tras el deploy, rellenar con la nueva pool
-POOL_ADDRESS=         # Se rellena después del paso 3
+# After deploy, fill in the new pool
+POOL_ADDRESS=         # Filled in after step 3
 ```
 
-Para la demo usaremos:
-- **Wallet A:** la que tenga USDC; hará el deposit (puede ser la misma que `PRIVATE_KEY` del deploy).
-- **Wallet B:** la que hará el withdraw (debe ser la “dueña” de la nota: en el demo, la nota se crea para B con `pk_b=2`; B conoce los datos de la nota y genera el proof).
+For the demo we will use:
+- **Wallet A:** the one with USDC; it will make the deposit (can be the same as the deploy `PRIVATE_KEY`).
+- **Wallet B:** the one that will make the withdraw (must be the "owner" of the note: in the demo, the note is created for B with `pk_b=2`; B knows the note data and generates the proof).
 
 ---
 
-## 2. Compilar circuitos
+## 2. Compile circuits
 
-Desde la **raíz del repo** (o `circuits/` según indique cada comando).
+From the **repo root** (or `circuits/` as indicated by each command).
 
-### 2.1 Circuito principal (transfer)
+### 2.1 Main circuit (transfer)
 
-El verifier del transfer ya está en `contract/Verifier.sol`. Si cambiaste `main.nr`, compila:
+The transfer verifier is already in `contract/Verifier.sol`. If you changed `main.nr`, compile:
 
 ```bash
 cd circuits
@@ -49,9 +49,9 @@ nargo compile
 cd ..
 ```
 
-### 2.2 Circuito withdraw (verifier ya integrado)
+### 2.2 Withdraw circuit (verifier already integrated)
 
-El verifier del withdraw está integrado en `contract/Verifier.sol`. Solo necesitas compilar el circuito withdraw si vas a **generar un proof** más adelante:
+The withdraw verifier is integrated in `contract/Verifier.sol`. You only need to compile the withdraw circuit if you are going to **generate a proof** later:
 
 ```bash
 cd circuits
@@ -59,81 +59,81 @@ cd circuits
 cd ..
 ```
 
-(Si solo haces deposit y no withdraw en esta demo, puedes saltar esto hasta el paso 6.)
+(If you are only doing deposit and not withdraw in this demo, you can skip this until step 6.)
 
 ---
 
-## 3. Deploy de contratos
+## 3. Deploy contracts
 
-Desde la **raíz del repo**:
+From the **repo root**:
 
 ```bash
 source .env
 forge script script/Deploy.s.sol:DeployPool --rpc-url "$MONAD_RPC" --broadcast
 ```
 
-Anota la dirección de la **ShieldedPool** que imprima el script (o en `broadcast/.../run-latest.json`). Es la que usarás como `POOL_ADDRESS`.
+Note the **ShieldedPool** address printed by the script (or in `broadcast/.../run-latest.json`). This is the one you will use as `POOL_ADDRESS`.
 
 ---
 
-## 4. Configurar POOL_ADDRESS
+## 4. Configure POOL_ADDRESS
 
-En tu `.env` (o exportando en la sesión):
+In your `.env` (or by exporting in the session):
 
 ```bash
-export POOL_ADDRESS=0x...   # La dirección de la pool del paso 3
+export POOL_ADDRESS=0x...   # The pool address from step 3
 ```
 
-O edita `.env` y pon `POOL_ADDRESS=0x...`.
+Or edit `.env` and set `POOL_ADDRESS=0x...`.
 
 ---
 
-## 5. Registrar el root del withdraw
+## 5. Register the withdraw root
 
-El withdraw exige que el `expected_merkle_root` esté registrado en la pool. Los scripts usan el root de `circuits/WithdrawProver.toml` por defecto.
+The withdraw requires that `expected_merkle_root` is registered in the pool. The scripts use the root from `circuits/WithdrawProver.toml` by default.
 
-Desde la **raíz del repo** (con `MONAD_RPC`, `PRIVATE_KEY`, `POOL_ADDRESS` en el entorno):
+From the **repo root** (with `MONAD_RPC`, `PRIVATE_KEY`, `POOL_ADDRESS` in the environment):
 
 ```bash
 source .env
 node scripts/register_root.mjs
 ```
 
-Debe imprimir algo como `Root registered ✅`.
+It should print something like `Root registered ✅`.
 
 ---
 
-## 6. Demo – Deposit con wallet A
+## 6. Demo -- Deposit with wallet A
 
-**Wallet A** deposita 1 USDC y crea una nota cuyo “dueño” es B (en el demo, `pk_b=2` para el primer pago).
+**Wallet A** deposits 1 USDC and creates a note whose "owner" is B (in the demo, `pk_b=2` for the first payment).
 
-Configura la sesión con la clave de **A** y la pool:
+Configure the session with **A**'s key and the pool:
 
 ```bash
 source .env
-export PRIVATE_KEY=0x...    # Clave privada de la wallet A (con USDC)
-export POOL_ADDRESS=0x...   # La pool desplegada
+export PRIVATE_KEY=0x...    # Wallet A's private key (with USDC)
+export POOL_ADDRESS=0x...   # The deployed pool
 ```
 
-Un solo depósito (nota para B, índice 0):
+A single deposit (note for B, index 0):
 
 ```bash
 PAYMENT_INDEX=0 node circuits/scripts/deposit_one.mjs
 ```
 
-Debe aparecer algo como: `Payment 1 (A→B), commitment: 0x...` y `deposit done ✅`.
+You should see something like: `Payment 1 (A→B), commitment: 0x...` and `deposit done ✅`.
 
-Comprueba en el explorador que la tx de `deposit` la firma la wallet A y que la pool tiene 1 USDC más.
+Verify in the explorer that the `deposit` tx is signed by wallet A and that the pool has 1 more USDC.
 
 ---
 
-## 7. Demo – Withdraw con wallet B
+## 7. Demo -- Withdraw with wallet B
 
-**Wallet B** es la dueña de la nota (pk_b=2, random=100 para PAYMENT_INDEX=0). B genera el proof y envía la tx de withdraw; el 1 USDC va a la address que se ponga como `recipient` (p. ej. la propia B).
+**Wallet B** is the owner of the note (pk_b=2, random=100 for PAYMENT_INDEX=0). B generates the proof and sends the withdraw tx; the 1 USDC goes to the address set as `recipient` (e.g. B itself).
 
-### 7.1 Generar el proof Honk (con datos de la nota de B)
+### 7.1 Generate the Honk proof (with B's note data)
 
-Los valores por defecto de `WithdrawProver.toml` corresponden a esa nota (pk_b=2, random=100). Desde `circuits/`:
+The default values in `WithdrawProver.toml` correspond to that note (pk_b=2, random=100). From `circuits/`:
 
 ```bash
 cd circuits
@@ -141,108 +141,108 @@ cd circuits
 cd ..
 ```
 
-Requisitos: `nargo` y `bb` instalados. El script deja el proof en hex en `circuits/proofs/withdraw.proof`.
+Requirements: `nargo` and `bb` installed. The script outputs the hex proof at `circuits/proofs/withdraw.proof`.
 
-Si quieres que el **recipient** sea la wallet B, edita `circuits/WithdrawProver.toml` y pon en `recipient` la address de B en formato bytes32 (0x + 40 hex de la address rellenada a 64 caracteres), por ejemplo:
+If you want the **recipient** to be wallet B, edit `circuits/WithdrawProver.toml` and set `recipient` to B's address in bytes32 format (0x + 40 hex characters of the address padded to 64 characters), for example:
 
 ```toml
-recipient = "0x000000000000000000000000<20_bytes_de_la_wallet_B>"
+recipient = "0x000000000000000000000000<20_bytes_of_wallet_B>"
 ```
 
-Vuelve a ejecutar `./scripts/prove_withdraw.sh` tras cambiar `recipient`.
+Run `./scripts/prove_withdraw.sh` again after changing `recipient`.
 
-### 7.2 Enviar el withdraw con wallet B
+### 7.2 Send the withdraw with wallet B
 
-Configura la sesión con la clave de **B** (y la misma pool). El script usa **B_PRIVATE_KEY** si está definida; si no, usa PRIVATE_KEY:
+Configure the session with **B**'s key (and the same pool). The script uses **B_PRIVATE_KEY** if defined; otherwise it uses PRIVATE_KEY:
 
 ```bash
 source .env
-export B_PRIVATE_KEY=0x...  # Clave privada de la wallet B
-export POOL_ADDRESS=0x...   # La misma pool
+export B_PRIVATE_KEY=0x...  # Wallet B's private key
+export POOL_ADDRESS=0x...   # The same pool
 ```
 
-Ejecuta el script de withdraw (desde la raíz del repo):
+Run the withdraw script (from the repo root):
 
 ```bash
 PROOF_FILE=circuits/proofs/withdraw.proof node circuits/scripts/withdraw_one.mjs
 ```
 
-Debe imprimir `withdraw tx: 0x...` y `Withdraw done ✅`. La pool envía 1 USDC al `recipient` configurado en el proof (p. ej. la wallet B).
+It should print `withdraw tx: 0x...` and `Withdraw done ✅`. The pool sends 1 USDC to the `recipient` configured in the proof (e.g. wallet B).
 
 ---
 
-## Resumen de comandos (copy-paste)
+## Command summary (copy-paste)
 
-Asumiendo que ya tienes `.env` con `MONAD_RPC`, `USDC_ADDRESS`, `PRIVATE_KEY` (deployer), y que tras el deploy guardas la pool en `POOL_ADDRESS`:
+Assuming you already have `.env` with `MONAD_RPC`, `USDC_ADDRESS`, `PRIVATE_KEY` (deployer), and that after deploy you save the pool in `POOL_ADDRESS`:
 
 ```bash
-# 1) Compilar circuito withdraw (para poder generar proof)
+# 1) Compile withdraw circuit (to be able to generate proof)
 cd circuits && ./scripts/compile_withdraw_verifier.sh && cd ..
 
 # 2) Deploy
 source .env
 forge script script/Deploy.s.sol:DeployPool --rpc-url "$MONAD_RPC" --broadcast
-# Anotar POOL_ADDRESS y ponerla en .env
+# Note the POOL_ADDRESS and add it to .env
 
-# 3) Registrar root
-export POOL_ADDRESS=0x...   # la nueva pool
+# 3) Register root
+export POOL_ADDRESS=0x...   # the new pool
 node scripts/register_root.mjs
 
-# 4) Deposit con wallet A
-export PRIVATE_KEY=0x...    # clave de A (con USDC)
+# 4) Deposit with wallet A
+export PRIVATE_KEY=0x...    # A's key (with USDC)
 PAYMENT_INDEX=0 node circuits/scripts/deposit_one.mjs
 
-# 5) Generar proof (recipient en WithdrawProver.toml = B si quieres que B reciba)
+# 5) Generate proof (recipient in WithdrawProver.toml = B if you want B to receive)
 cd circuits && ./scripts/prove_withdraw.sh && cd ..
 
-# 6) Withdraw con wallet B
-export B_PRIVATE_KEY=0x...  # clave de B (el script usa B_PRIVATE_KEY o PRIVATE_KEY)
+# 6) Withdraw with wallet B
+export B_PRIVATE_KEY=0x...  # B's key (the script uses B_PRIVATE_KEY or PRIVATE_KEY)
 PROOF_FILE=circuits/proofs/withdraw.proof node circuits/scripts/withdraw_one.mjs
 ```
 
 ---
 
-## Withdraw de 2 depósitos (después de registrar un segundo root)
+## Withdraw of 2 deposits (after registering a second root)
 
-Si hiciste: **registerRoot(R1) → deposit → deposit → registerRoot(R2)** (dos roots registrados, R2 = árbol con 2 hojas), para retirar **cada una** de las 2 notas debes usar el **root R2** como `expected_merkle_root` y el **path de Merkle** correcto para cada nota.
+If you did: **registerRoot(R1) → deposit → deposit → registerRoot(R2)** (two roots registered, R2 = tree with 2 leaves), to withdraw **each** of the 2 notes you must use **root R2** as `expected_merkle_root` and the correct **Merkle path** for each note.
 
-- **Nota 0** (primer depósito, `PAYMENT_INDEX=0`): pk_b=2, random=100. En el árbol de 2 hojas, hoja 0 tiene hermano hoja 1; índice = 0 (izquierda).
-- **Nota 1** (segundo depósito, `PAYMENT_INDEX=1`): pk_b=3, random=101. Hoja 1 tiene hermano hoja 0; índice = 1 (derecha).
+- **Note 0** (first deposit, `PAYMENT_INDEX=0`): pk_b=2, random=100. In the 2-leaf tree, leaf 0 has sibling leaf 1; index = 0 (left).
+- **Note 1** (second deposit, `PAYMENT_INDEX=1`): pk_b=3, random=101. Leaf 1 has sibling leaf 0; index = 1 (right).
 
-### Script que prepara los datos
+### Script that prepares the data
 
-Desde `zk/circuits/`:
+From `zk/circuits/`:
 
 ```bash
 cd zk/circuits
 node scripts/prepare_withdraw_two_notes.mjs
 ```
 
-El script imprime el **root R2** y dos bloques **WithdrawProver.toml** (uno para nota 0 y otro para nota 1) con nullifier, `expected_merkle_root = R2`, `merkle_proof_length = 1`, e indices/siblings correctos.
+The script prints the **root R2** and two **WithdrawProver.toml** blocks (one for note 0 and one for note 1) with nullifier, `expected_merkle_root = R2`, `merkle_proof_length = 1`, and correct indices/siblings.
 
-### Pasos para retirar las 2 notas
+### Steps to withdraw the 2 notes
 
-1. **Registrar R2** si aún no está: `ROOT=<R2> node zk/scripts/register_root.mjs`
-2. **Withdraw nota 0**: pega el bloque "Nota 0" en `WithdrawProver.toml` → `./scripts/prove_withdraw.sh` → `PROOF_FILE=proofs/withdraw.proof node scripts/withdraw_one.mjs` (con `B_PRIVATE_KEY`).
-3. **Withdraw nota 1**: pega el bloque "Nota 1" en `WithdrawProver.toml` → mismo flujo (prove_withdraw.sh + withdraw_one.mjs). Usa la clave del dueño de la nota 1 (C si fue A→C).
+1. **Register R2** if not already done: `ROOT=<R2> node zk/scripts/register_root.mjs`
+2. **Withdraw note 0**: paste the "Note 0" block into `WithdrawProver.toml` → `./scripts/prove_withdraw.sh` → `PROOF_FILE=proofs/withdraw.proof node scripts/withdraw_one.mjs` (with `B_PRIVATE_KEY`).
+3. **Withdraw note 1**: paste the "Note 1" block into `WithdrawProver.toml` → same flow (prove_withdraw.sh + withdraw_one.mjs). Use the key of note 1's owner (C if it was A→C).
 
-Cada withdraw gasta un nullifier distinto.
+Each withdraw spends a different nullifier.
 
-### Recuperar commitments y root desde la chain
+### Retrieve commitments and root from chain
 
-Si no sabes con qué datos se registró un root, puedes reconstruir el árbol desde los eventos **Deposit** on-chain y recalcular el root:
+If you don't know what data a root was registered with, you can reconstruct the tree from on-chain **Deposit** events and recalculate the root:
 
 ```bash
 cd zk/circuits
 MONAD_RPC=https://rpc3.monad.xyz node scripts/commitments_and_root_from_chain.mjs
 ```
 
-Opcional: `FROM_BLOCK`, `TO_BLOCK`, `POOL_ADDRESS`. El script imprime: (1) lista de commitments en orden cronológico, (2) el Merkle root calculado (Poseidon2, depth 10), (3) para cada hoja el path (indices + siblings) para usar en `WithdrawProver.toml`. Si el root que imprime coincide con uno ya registrado, puedes usar ese root y el path de la hoja que sea tu nota (necesitas además el nullifier/pk_b/random de esa nota).
+Optional: `FROM_BLOCK`, `TO_BLOCK`, `POOL_ADDRESS`. The script prints: (1) list of commitments in chronological order, (2) the calculated Merkle root (Poseidon2, depth 10), (3) for each leaf the path (indices + siblings) to use in `WithdrawProver.toml`. If the printed root matches one already registered, you can use that root and the path of the leaf that is your note (you also need the nullifier/pk_b/random of that note).
 
 ---
 
-## Notas
+## Notes
 
-- **A** y **B** pueden ser la misma wallet para pruebas; para la demo “deposit con A, withdraw con B” usas dos claves distintas.
-- El **recipient** del withdraw es público on-chain; **quién tenía la nota** (B en este caso) queda oculto tras la prueba ZK.
-- Si `prove_withdraw.sh` falla por la ruta del witness, revisa la salida de `nargo execute -p WithdrawProver` y ajusta `WITNESS_PATH` dentro del script.
+- **A** and **B** can be the same wallet for testing; for the "deposit with A, withdraw with B" demo you use two different keys.
+- The withdraw **recipient** is public on-chain; **who held the note** (B in this case) remains hidden behind the ZK proof.
+- If `prove_withdraw.sh` fails due to the witness path, check the output of `nargo execute -p WithdrawProver` and adjust `WITNESS_PATH` inside the script.

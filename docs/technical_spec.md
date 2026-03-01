@@ -7,7 +7,7 @@
 
 ## 1. Technology Stack
 
-- **Blockchain**: Multi-chain EVM. Currently live on Monad (Chain 143), with Celo (42220) planned.
+- **Blockchain**: Multi-chain EVM. Live on Monad (Chain 143) and Celo (42220).
 - **Token Strategy**: Architecture supports any ERC-20 stablecoin. Defaults to USDC.
 - **Frontend**: Next.js 16 (App Router, Webpack), Tailwind CSS v4, Framer Motion.
 - **UI Components**: shadcn/ui (new-york style, Radix primitives).
@@ -142,15 +142,18 @@ RLS is enabled on all tables. For the demo, public read/write policies are appli
 ## 4. Smart Contracts
 
 ### Monad Mainnet (Chain 143)
-- **HonkVerifier**: `0xf7b2eC9EC33e34431F7f184458aE18Fa418271E3`
-- **WithdrawVerifier**: `0xA465f96F9a0541D7392c5A22bBA7bc5f23e88f7c`
-- **ShieldedPool**: `0x085BD9c0C568BE5093130E2359B00e46cb0800d1`
+- **HonkVerifier**: `0x6b11b3eB54Bbda485D616150A4C85E8629e1A552`
+- **WithdrawVerifier**: `0x4d900D53514140755fe842eb3e0d53b12BBcCD24`
+- **ShieldedPool**: `0x8d44379c778Cb714B72FcaD80dcb5EC7c031343c`
 - **USDC**: `0x754704Bc059F8C67012fEd69BC8A327a5aafb603`
-- **Deployer**: `0xc696DDc31486D5d8b87254d3AA2985F6d0906b3a`
-- **Deployment artifact**: `zk/deployments/monad-mainnet/run-latest.json`
+- **Deploy Block**: 58,002,970
 
 ### Celo Mainnet (Chain 42220)
-Contracts not yet deployed. Placeholder addresses in the chain registry.
+- **HonkVerifier**: `0x085BD9c0C568BE5093130E2359B00e46cb0800d1`
+- **WithdrawVerifier**: `0xfe231dd394Df5863B02BfA9CFA50f4877961d5b7`
+- **ShieldedPool**: `0xcE61001eb3Cd531784D2Cee9DDAbB17a3fc6B16A`
+- **USDC**: `0xcebA9300f2b948710d2653dD7B07f33A8B32118C`
+- **Deploy Block**: 60,249,143
 
 ### `ShieldedPool.sol`
 Manages the Merkle Tree and ZK proof verification.
@@ -237,7 +240,6 @@ web/
     store.ts            # Reactive store (useSyncExternalStore + PostgreSQL)
     db.ts               # PostgreSQL client
     database.types.ts   # TypeScript types for DB tables
-    mock-data.ts        # Demo mock data
 ```
 
 ### Reactive Store Pattern
@@ -281,7 +283,7 @@ DATABASE_URL=                    # PostgreSQL connection string (Railway auto-in
 - **Chain ID**: `42220`
 - **Currency**: `CELO`
 - **Explorer**: `https://celoscan.io`
-- **cUSD**: `0x765DE816845861e75A25fCA122bb6898B8B1282a` (18 decimals)
+- **USDC**: `0xcebA9300f2b948710d2653dD7B07f33A8B32118C` (6 decimals)
 
 ---
 

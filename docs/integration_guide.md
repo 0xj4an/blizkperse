@@ -8,11 +8,15 @@ This guide details how to integrate the **Next.js Frontend** with the **Shielded
 
 *   **Chain Registry**: All chain configs, contract addresses, and token definitions live in `web/lib/constants.ts` as the `CHAINS` record.
 *   **Contract Addresses (Monad Mainnet — Chain 143)**:
-    *   `ShieldedPool`: `0x085BD9c0C568BE5093130E2359B00e46cb0800d1`
-    *   `HonkVerifier`: `0xf7b2eC9EC33e34431F7f184458aE18Fa418271E3`
-    *   `WithdrawVerifier`: `0xA465f96F9a0541D7392c5A22bBA7bc5f23e88f7c`
+    *   `ShieldedPool`: `0x8d44379c778Cb714B72FcaD80dcb5EC7c031343c`
+    *   `HonkVerifier`: `0x6b11b3eB54Bbda485D616150A4C85E8629e1A552`
+    *   `WithdrawVerifier`: `0x4d900D53514140755fe842eb3e0d53b12BBcCD24`
     *   `USDC`: `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` (6 decimals)
-*   **Celo Mainnet (Chain 42220)**: Contracts not yet deployed (placeholder addresses).
+*   **Contract Addresses (Celo Mainnet — Chain 42220)**:
+    *   `ShieldedPool`: `0xcE61001eb3Cd531784D2Cee9DDAbB17a3fc6B16A`
+    *   `HonkVerifier`: `0x085BD9c0C568BE5093130E2359B00e46cb0800d1`
+    *   `WithdrawVerifier`: `0xfe231dd394Df5863B02BfA9CFA50f4877961d5b7`
+    *   `USDC`: `0xcebA9300f2b948710d2653dD7B07f33A8B32118C` (6 decimals)
 *   **Circuit Artifact**: `web/public/circuits/circuit.json` (compiled from `zk/circuits/`)
 *   **ABI**: Generate using `forge build` inside `zk/`.
 *   **Deployment Artifact**: `zk/deployments/monad-mainnet/run-latest.json`
@@ -46,7 +50,7 @@ We generate proofs in the browser using `@noir-lang/noir_js` and `@aztec/bb.js`.
 ### A. Dependencies
 ```bash
 cd web
-npm install @noir-lang/noir_js@1.0.0-beta.15 @aztec/bb.js@0.82.2
+npm install @noir-lang/noir_js@1.0.0-beta.0 @aztec/bb.js@0.63.1
 ```
 
 ### B. Compile Circuit (Artifact Generation)
@@ -61,14 +65,13 @@ The `generateProof()` function in `web/lib/zk.ts` handles circuit initialization
 import { generateProof, fieldToHex, type ProofInput } from "@/lib/zk";
 
 const proofInput: ProofInput = {
-  new_commitment: "0x" + "0".repeat(64),
-  nullifier_in: noteData.nullifier,
-  merkle_proof_length: String(indices.length),
+  value: fieldToHex(valueBig),
+  nullifier: fieldToHex(nullifier),
+  merkle_proof_length: String(siblings.length),
   expected_merkle_root: fieldToHex(root),
-  value: noteData.value,
-  pk_b: noteData.holder_pk,
-  random: noteData.randomness,
-  from: noteData.holder_pk,
+  recipient: recipientAddress,
+  pk_b: fieldToHex(holderPk),
+  random: fieldToHex(randomBig),
   merkle_proof_indices: indices,
   merkle_proof_siblings: siblings.map((s: bigint) => fieldToHex(s)),
 };

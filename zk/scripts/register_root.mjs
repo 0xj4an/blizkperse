@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Runner: ejecuta circuits/scripts/register_root.mjs desde la raíz del repo.
- * Uso: node scripts/register_root.mjs
+ * Runner: executes circuits/scripts/register_root.mjs from the repo root.
+ * Usage: node scripts/register_root.mjs
  */
 import { spawn } from "child_process";
 import path from "path";

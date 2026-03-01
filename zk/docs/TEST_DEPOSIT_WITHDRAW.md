@@ -1,245 +1,245 @@
-# Probar Deposit y Withdraw (validar anonimato)
+# Testing Deposit and Withdraw (validate anonymity)
 
-Guía para validar el flujo deposit → withdraw y qué datos son anónimos on-chain.
+Guide to validate the deposit → withdraw flow and which data is anonymous on-chain.
 
 ---
 
-## ¿Está todo listo para deploy? (Deposit + Withdraw)
+## Is everything ready for deploy? (Deposit + Withdraw)
 
-**Sí.** Tras el deploy:
+**Yes.** After deploy:
 
-| Paso | Qué hacer |
+| Step | What to do |
 |------|-----------|
 | 1. Deploy | `source .env && forge script script/Deploy.s.sol:DeployPool --rpc-url "$MONAD_RPC" --broadcast` |
-| 2. Actualizar pool | En `.env` (o en los scripts) pon el **nuevo** `POOL_ADDRESS` que devuelve el deploy (o los scripts usarán el default si no lo cambias; si redepliegas, el default en código es la pool anterior — mejor setear la nueva). |
-| 3. Registrar root | Opcional: desde la **web**, el primer usuario que hace claim registra el root automáticamente (el contrato permite que cualquiera llame `registerRoot`). Para pruebas por CLI: `node scripts/register_root.mjs` si quieres pre-registrar un root. |
-| 4. Deposit | Listo: `PAYMENT_INDEX=0 node circuits/scripts/deposit_one.mjs` (con USDC y PRIVATE_KEY). |
-| 5. Withdraw | El contrato ya acepta 5 public inputs. Genera un proof Honk con `circuits/scripts/prove_withdraw.sh` (requiere `bb`) y luego `PROOF_FILE=circuits/proofs/withdraw.proof node circuits/scripts/withdraw_one.mjs`. Ver más abajo **“Cómo generar un proof Honk del circuito withdraw”**. |
+| 2. Update pool | In `.env` (or in the scripts) set the **new** `POOL_ADDRESS` returned by the deploy (or the scripts will use the default if you don't change it; if you redeploy, the default in code is the previous pool -- better to set the new one). |
+| 3. Register root | Optional: from the **web**, the first user who claims automatically registers the root (the contract allows anyone to call `registerRoot`). For CLI testing: `node scripts/register_root.mjs` if you want to pre-register a root. |
+| 4. Deposit | Ready: `PAYMENT_INDEX=0 node circuits/scripts/deposit_one.mjs` (with USDC and PRIVATE_KEY). |
+| 5. Withdraw | The contract already accepts 5 public inputs. Generate a Honk proof with `circuits/scripts/prove_withdraw.sh` (requires `bb`) and then `PROOF_FILE=circuits/proofs/withdraw.proof node circuits/scripts/withdraw_one.mjs`. See below **"How to generate a Honk proof for the withdraw circuit"**. |
 
-Si es la **primera vez** que deploys (o si redepliegas), la pool nueva empieza vacía (sin depósitos previos). Tendrás que hacer al menos un deposit en esa pool antes de poder hacer withdraw de una nota.
+If this is the **first time** you deploy (or if you redeploy), the new pool starts empty (no previous deposits). You will need to make at least one deposit in that pool before you can withdraw a note.
 
 ---
 
-## Cómo explicar: Register Root y Withdraw
+## How to explain: Register Root and Withdraw
 
 ### Register Root
 
-**Qué es:** La pool mantiene una lista de **roots de Merkle** que considera válidos. Un root es el hash raíz de un árbol de Merkle cuyas hojas son los commitments de las notas (depósitos).
+**What it is:** The pool maintains a list of **Merkle roots** that it considers valid. A root is the root hash of a Merkle tree whose leaves are the note commitments (deposits).
 
-**Para qué sirve:** Cuando alguien hace **withdraw**, el circuito ZK demuestra “tengo una nota que está en un árbol con este root”. El contrato solo acepta la prueba si ese root está **registrado**. Así la pool sabe que el root corresponde a un estado del árbol que ella reconoce (p. ej. uno computado off-chain o por un indexer).
+**What it's for:** When someone does a **withdraw**, the ZK circuit proves "I have a note that is in a tree with this root". The contract only accepts the proof if that root is **registered**. This way the pool knows that the root corresponds to a tree state it recognizes (e.g. one computed off-chain or by an indexer).
 
-**Quién registra:** En este MVP, **cualquiera** puede llamar `registerRoot(root)`. No mueve fondos; solo añade el root a la whitelist. Para producción se restringiría (solo indexer, solo admin, o roots derivados on-chain).
+**Who registers:** In this MVP, **anyone** can call `registerRoot(root)`. It does not move funds; it only adds the root to the whitelist. For production this would be restricted (only indexer, only admin, or roots derived on-chain).
 
-**Resumen en una frase:** “Register root = decirle a la pool: este hash de estado del árbol de notas es válido; las pruebas de withdraw que usen este root serán aceptadas.”
+**One-sentence summary:** "Register root = telling the pool: this note tree state hash is valid; withdraw proofs that use this root will be accepted."
 
 ---
 
 ### Withdraw
 
-**Qué es:** Sacar **1 USDC** de la pool y enviarlo a una **address pública** (recipient). Quien retira demuestra con una **prueba ZK** que posee una nota válida (conoce los secretos y la nota está en el árbol con un root registrado), sin revelar qué nota es ni quién era el dueño.
+**What it is:** Withdrawing **1 USDC** from the pool and sending it to a **public address** (recipient). The withdrawer proves with a **ZK proof** that they own a valid note (they know the secrets and the note is in the tree with a registered root), without revealing which note it is or who the owner was.
 
-**Flujo en corto:**
-1. El usuario tiene una “nota” (derecho a 1 USDC) con nullifier N y que está en un árbol con root R.
-2. Genera una prueba ZK que demuestra: “conozco una nota con valor 1, nullifier N, incluida en un árbol con root R, y quiero enviar el USDC a la address X”.
-3. Llama `pool.withdraw(proof, publicInputs)`. Los public inputs son: valor, nullifier, longitud del path Merkle, root esperado, recipient.
-4. La pool comprueba la prueba con el WithdrawVerifier, que el root R esté registrado, que el nullifier no se haya gastado y que el valor sea 1; luego marca N como gastado y envía 1 USDC a X.
+**Flow in short:**
+1. The user has a "note" (right to 1 USDC) with nullifier N and that is in a tree with root R.
+2. They generate a ZK proof that demonstrates: "I know a note with value 1, nullifier N, included in a tree with root R, and I want to send the USDC to address X".
+3. They call `pool.withdraw(proof, publicInputs)`. The public inputs are: value, nullifier, Merkle path length, expected root, recipient.
+4. The pool verifies the proof with the WithdrawVerifier, checks that root R is registered, that the nullifier has not been spent, and that the value is 1; then it marks N as spent and sends 1 USDC to X.
 
-**Qué es público y qué es privado:**
-- **Público (on-chain):** el **recipient** (quién recibe el USDC), el **nullifier** (para no doble gastar) y el root usado.
-- **Privado:** **quién tenía la nota** (quién generó la prueba). Un observador no puede ligar el withdraw a un depósito ni a una identidad concreta.
+**What is public and what is private:**
+- **Public (on-chain):** the **recipient** (who receives the USDC), the **nullifier** (to prevent double spending) and the root used.
+- **Private:** **who held the note** (who generated the proof). An observer cannot link the withdraw to a deposit or to a specific identity.
 
-**Resumen en una frase:** “Withdraw = demostrar con ZK que tienes una nota válida y retirar 1 USDC a la address que elijas; quien tenía la nota sigue siendo anónimo.”
+**One-sentence summary:** "Withdraw = prove with ZK that you have a valid note and withdraw 1 USDC to the address of your choice; who held the note remains anonymous."
 
 ---
 
-## Los 5 public inputs y cómo funciona el withdraw
+## The 5 public inputs and how withdraw works
 
-### Por qué 5 inputs
+### Why 5 inputs
 
-En el circuito **withdraw** (Noir) hay exactamente **5 valores públicos**: son los que el circuito “expone” y que el contrato en Solidity debe recibir para comprobar la prueba y ejecutar el retiro. Esos 5 son los **public inputs** del withdraw.
+In the **withdraw** circuit (Noir) there are exactly **5 public values**: these are the values the circuit "exposes" and that the Solidity contract must receive to verify the proof and execute the withdrawal. These 5 are the **public inputs** of the withdraw.
 
-| # | Public input | Qué es | Para qué sirve on-chain |
+| # | Public input | What it is | What it's for on-chain |
 |---|----------------|--------|--------------------------|
-| 0 | **value** | Valor de la nota (1 USDC) | La pool exige `value == 1`; solo retiros de 1 USDC. |
-| 1 | **nullifier** | Hash que identifica el gasto de esa nota | Se guarda en `nullifiers`; no se puede usar dos veces (evita doble gasto). |
-| 2 | **merkle_proof_length** | Longitud del path de la prueba Merkle | El circuito lo usa para verificar inclusión; el contrato no lo usa aparte de pasarlo al verifier. |
-| 3 | **expected_merkle_root** | Root del árbol donde está la nota | La pool comprueba que esté en `isKnownRoot`; si no está registrado, rechaza. |
-| 4 | **recipient** | Address que recibe el USDC (como Field/bytes32) | La pool hace `transfer(recipient, 1 USDC)`; es quien cobra. |
+| 0 | **value** | Note value (1 USDC) | The pool requires `value == 1`; only 1 USDC withdrawals. |
+| 1 | **nullifier** | Hash that identifies the spending of that note | Stored in `nullifiers`; cannot be used twice (prevents double spending). |
+| 2 | **merkle_proof_length** | Length of the Merkle proof path | The circuit uses it to verify inclusion; the contract does not use it apart from passing it to the verifier. |
+| 3 | **expected_merkle_root** | Root of the tree where the note is | The pool checks that it is in `isKnownRoot`; if not registered, it rejects. |
+| 4 | **recipient** | Address that receives the USDC (as Field/bytes32) | The pool does `transfer(recipient, 1 USDC)`; this is who gets paid. |
 
-El **orden** tiene que ser exactamente ese: es el que define el circuito y el que usa `ShieldedPool.withdraw(proof, publicInputs)`.
+The **order** must be exactly that: it is what the circuit defines and what `ShieldedPool.withdraw(proof, publicInputs)` uses.
 
-### Dónde salen los 5
+### Where the 5 come from
 
-- Los fijas **tú** (o tu app) cuando generas la prueba:
+- **You** (or your app) set them when generating the proof:
   - **value** = 1.
-  - **nullifier** = derivado de la nota (p. ej. Poseidon(random, pk_b)); lo calculas con los mismos datos que el circuito.
-  - **merkle_proof_length** = longitud del path que usas en el árbol (p. ej. 1 en el demo).
-  - **expected_merkle_root** = root del árbol en el que demuestras que está tu nota (debe estar registrado con `registerRoot`).
-  - **recipient** = address destino en formato bytes32 (20 bytes de address + padding).
-- El **circuito** comprueba internamente que esos valores son coherentes con los inputs privados (pk_b, random, merkle path, etc.) y genera una **prueba ZK** atada a esos 5 públicos.
-- El **contrato** recibe los mismos 5 como `publicInputs` y:
-  1. Comprueba `value == 1`, `isKnownRoot[root]`, `!nullifiers[nullifier]`.
-  2. Llama a `withdrawVerifier.verify(proof, publicInputs)`.
-  3. Si la verificación pasa, marca el nullifier como gastado y envía 1 USDC a `recipient`.
+  - **nullifier** = derived from the note (e.g. Poseidon(random, pk_b)); you calculate it with the same data as the circuit.
+  - **merkle_proof_length** = length of the path you use in the tree (e.g. 1 in the demo).
+  - **expected_merkle_root** = root of the tree in which you prove your note exists (must be registered with `registerRoot`).
+  - **recipient** = destination address in bytes32 format (20 bytes of address + padding).
+- The **circuit** internally verifies that those values are consistent with the private inputs (pk_b, random, merkle path, etc.) and generates a **ZK proof** tied to those 5 public values.
+- The **contract** receives the same 5 as `publicInputs` and:
+  1. Checks `value == 1`, `isKnownRoot[root]`, `!nullifiers[nullifier]`.
+  2. Calls `withdrawVerifier.verify(proof, publicInputs)`.
+  3. If verification passes, marks the nullifier as spent and sends 1 USDC to `recipient`.
 
-### El detalle de “5” en el verifier (20 vs 21)
+### The "5" detail in the verifier (20 vs 21)
 
-El verifier Honk en Solidity no trabaja solo con “5”, sino con un **tamaño total** que incluye los public inputs más unos datos internos del protocolo (pairing):
+The Honk verifier in Solidity does not work with just "5", but with a **total size** that includes the public inputs plus some internal protocol data (pairing):
 
-- **En el circuito:** hay 5 public inputs.
-- **En el verifier (Honk):** la verification key tiene un campo `publicInputsSize`. En nuestro código:
-  - **20** = 4 public inputs “reales” + 16 (pairing). Lo usa el verifier del **transfer**.
-  - **21** = 5 public inputs “reales” + 16 (pairing). Lo usa el verifier del **withdraw**.
+- **In the circuit:** there are 5 public inputs.
+- **In the verifier (Honk):** the verification key has a `publicInputsSize` field. In our code:
+  - **20** = 4 "real" public inputs + 16 (pairing). Used by the **transfer** verifier.
+  - **21** = 5 "real" public inputs + 16 (pairing). Used by the **withdraw** verifier.
 
-Por eso en `Verifier.sol`:
+That is why in `Verifier.sol`:
 
-- `HonkVerificationKey` tiene `publicInputsSize: 20` → el verifier del transfer espera **4** public inputs.
-- `WithdrawVerificationKey` pone `publicInputsSize: 21` → el verifier del withdraw espera **5** public inputs.
+- `HonkVerificationKey` has `publicInputsSize: 20` → the transfer verifier expects **4** public inputs.
+- `WithdrawVerificationKey` sets `publicInputsSize: 21` → the withdraw verifier expects **5** public inputs.
 
-La constante `WITHDRAW_NUMBER_OF_PUBLIC_INPUTS = 5` es la que se usa en el constructor del `WithdrawVerifier` para que el transcript y las comprobaciones internas usen “5” como número de public inputs.
+The constant `WITHDRAW_NUMBER_OF_PUBLIC_INPUTS = 5` is the one used in the `WithdrawVerifier` constructor so that the transcript and internal checks use "5" as the number of public inputs.
 
-### Flujo completo en pocas líneas
+### Complete flow in a few lines
 
-1. **Off-chain:** Tienes una nota (value=1, pk_b, random, nullifier, y su commitment en un árbol con root R). Construyes los 5 public inputs (value, nullifier, merkle_proof_length, R, recipient) y los inputs privados (pk_b, random, path Merkle). Ejecutas el prover del circuito withdraw → obtienes **proof**.
-2. **On-chain:** Llamas `pool.withdraw(proof, [value, nullifier, merkle_proof_length, expected_merkle_root, recipient])`.
-3. **Contrato:** Comprueba value, root registrado y nullifier no gastado; llama `withdrawVerifier.verify(proof, publicInputs)`; si OK, marca nullifier y envía 1 USDC a `recipient`.
+1. **Off-chain:** You have a note (value=1, pk_b, random, nullifier, and its commitment in a tree with root R). You build the 5 public inputs (value, nullifier, merkle_proof_length, R, recipient) and the private inputs (pk_b, random, Merkle path). You run the withdraw circuit prover → you get the **proof**.
+2. **On-chain:** You call `pool.withdraw(proof, [value, nullifier, merkle_proof_length, expected_merkle_root, recipient])`.
+3. **Contract:** Checks value, registered root, and unspent nullifier; calls `withdrawVerifier.verify(proof, publicInputs)`; if OK, marks nullifier and sends 1 USDC to `recipient`.
 
-Así, los **5 inputs** son el “acuerdo” entre el circuito, la prueba y el contrato: mismos 5, en el mismo orden, para que el withdraw funcione y sea verificable on-chain.
+Thus, the **5 inputs** are the "agreement" between the circuit, the proof, and the contract: same 5, in the same order, so that the withdraw works and is verifiable on-chain.
 
 ---
 
-## Qué queda privado y qué público (deposit vs withdraw)
+## What stays private and what is public (deposit vs withdraw)
 
 ### Deposit
 
-En el **deposit** no hay circuito on-chain: solo se envía un **commitment** (hash de la nota). Todo lo que compone la nota se queda en tu cliente.
+In the **deposit** there is no on-chain circuit: only a **commitment** (note hash) is sent. Everything that makes up the note stays in your client.
 
-| Dato | ¿Público o privado? | Dónde |
+| Data | Public or private? | Where |
 |------|---------------------|--------|
-| **msg.sender** (quién hace el depósito) | Público | On-chain en la tx |
-| **commitment** | Público pero opaco | On-chain; es un hash, no revela el contenido |
-| **value** (1 USDC) | Privado | Solo en tu app; forma parte del commitment |
-| **pk_b** (destinatario de la nota, p. ej. B=2, C=3) | Privado | Solo en tu app; quien pueda gastar la nota no se ve |
-| **random** | Privado | Solo en tu app; aleatoriedad de la nota |
-| **nullifier** (derivado de random + pk_b) | Privado | Solo en tu app; lo usarás después en el withdraw |
+| **msg.sender** (who makes the deposit) | Public | On-chain in the tx |
+| **commitment** | Public but opaque | On-chain; it is a hash, does not reveal the contents |
+| **value** (1 USDC) | Private | Only in your app; part of the commitment |
+| **pk_b** (note recipient, e.g. B=2, C=3) | Private | Only in your app; who can spend the note is not visible |
+| **random** | Private | Only in your app; note randomness |
+| **nullifier** (derived from random + pk_b) | Private | Only in your app; you will use it later in the withdraw |
 
-Resumen: **privados** = value, pk_b, random, nullifier (toda la “nota” salvo el commitment). **Públicos** = quien deposita y el commitment (el commitment no revela a quién va la nota).
+Summary: **private** = value, pk_b, random, nullifier (the entire "note" except the commitment). **Public** = who deposits and the commitment (the commitment does not reveal who the note is for).
 
 ---
 
 ### Withdraw
 
-En el **withdraw** el circuito tiene **public inputs** (los 5 que recibe el contrato) e **inputs privados** (solo entran en la prueba ZK, no on-chain).
+In the **withdraw** the circuit has **public inputs** (the 5 that the contract receives) and **private inputs** (only enter the ZK proof, not on-chain).
 
-| Dato | ¿Público o privado? | Dónde |
+| Data | Public or private? | Where |
 |------|---------------------|--------|
-| **value** | Público | Public input 0 |
-| **nullifier** | Público | Public input 1 (para no doble gastar) |
-| **merkle_proof_length** | Público | Public input 2 |
-| **expected_merkle_root** | Público | Public input 3 |
-| **recipient** | Público | Public input 4 (quién recibe el USDC) |
-| **pk_b** (identidad del dueño de la nota) | Privado | Solo en la prueba; no on-chain |
-| **random** | Privado | Solo en la prueba; no on-chain |
-| **merkle_proof_indices** | Privado | Solo en la prueba; path en el árbol |
-| **merkle_proof_siblings** | Privado | Solo en la prueba; path en el árbol |
+| **value** | Public | Public input 0 |
+| **nullifier** | Public | Public input 1 (to prevent double spending) |
+| **merkle_proof_length** | Public | Public input 2 |
+| **expected_merkle_root** | Public | Public input 3 |
+| **recipient** | Public | Public input 4 (who receives the USDC) |
+| **pk_b** (identity of the note owner) | Private | Only in the proof; not on-chain |
+| **random** | Private | Only in the proof; not on-chain |
+| **merkle_proof_indices** | Private | Only in the proof; path in the tree |
+| **merkle_proof_siblings** | Private | Only in the proof; path in the tree |
 
-Resumen: **privados** = pk_b, random, merkle_proof_indices, merkle_proof_siblings (quién era el dueño de la nota y cómo está en el árbol). **Públicos** = los 5 inputs que recibe el contrato; entre ellos, el que más importa para privacidad es que **recipient** es público (se ve a quién se envía el USDC) y **quién tenía la nota** (pk_b) queda privado.
+Summary: **private** = pk_b, random, merkle_proof_indices, merkle_proof_siblings (who owned the note and how it sits in the tree). **Public** = the 5 inputs the contract receives; among them, the most important for privacy is that **recipient** is public (you can see who receives the USDC) and **who held the note** (pk_b) remains private.
 
 ---
 
-## ¿Puedo hacer withdraw con una wallet “limpia” y que el pago siga siendo privado?
+## Can I withdraw with a "clean" wallet and keep the payment private?
 
-Sí. La idea es:
+Yes. The idea is:
 
-1. **Tienes la nota** (conoces pk_b, random, el path Merkle, etc.) y generas la prueba off-chain.
-2. **Envías la tx de withdraw** desde una **wallet que no tenga historial ligado a ti** (wallet nueva o dedicada). Esa wallet es el **msg.sender** de la tx; on-chain solo se ve “esta address envió una tx de withdraw”.
-3. Pones como **recipient** (quién recibe el 1 USDC) la address que quieras: puede ser esa misma wallet limpia, otra nueva, o un exchange, etc.
+1. **You have the note** (you know pk_b, random, the Merkle path, etc.) and generate the proof off-chain.
+2. **You send the withdraw tx** from a **wallet with no history linked to you** (new or dedicated wallet). That wallet is the **msg.sender** of the tx; on-chain you can only see "this address sent a withdraw tx".
+3. You set as **recipient** (who receives the 1 USDC) whatever address you want: it can be that same clean wallet, another new one, or an exchange, etc.
 
-**Qué ve un observador on-chain:**  
-“La address X (msg.sender) llamó a `withdraw` y 1 USDC fue a la address Y (recipient).”  
-**Qué no ve:**  
-Quién era el dueño de la nota (pk_b), de qué depósito venía, ni ninguna relación con tu identidad “real”. No hay vínculo on-chain entre el depósito original y este withdraw.
+**What an on-chain observer sees:**
+"Address X (msg.sender) called `withdraw` and 1 USDC went to address Y (recipient)."
+**What they don't see:**
+Who owned the note (pk_b), which deposit it came from, or any connection to your "real" identity. There is no on-chain link between the original deposit and this withdraw.
 
-**Matices:**
+**Nuances:**
 
-- **recipient es público.** Si retiras a una address asociada a ti (tu wallet principal, un CEX con KYC), se verá que ese address recibió 1 USDC; lo que no se ve es quién tenía la nota. Para más privacidad, retira a una address que no relacione contigo.
-- **msg.sender (quien envía la tx)** también es público. Si usas una wallet limpia solo para enviar esta tx, ese wallet queda “asociado” a este withdraw. Si quieres desacoplar más, puedes usar un **relayer**: otra persona o servicio que envíe la tx por ti (ellos son msg.sender) y el **recipient** sea tu wallet; así quien cobra no es quien firma la tx.
+- **recipient is public.** If you withdraw to an address associated with you (your main wallet, a CEX with KYC), it will be visible that this address received 1 USDC; what is not visible is who held the note. For more privacy, withdraw to an address not linked to you.
+- **msg.sender (who sends the tx)** is also public. If you use a clean wallet only to send this tx, that wallet becomes "associated" with this withdraw. If you want further decoupling, you can use a **relayer**: another person or service that sends the tx for you (they are msg.sender) and the **recipient** is your wallet; this way who gets paid is not who signs the tx.
 
-En resumen: **sí, puedes ir a la pool a hacer withdraw con la nota y con una wallet sin historial ligado a ti, y el pago se mantiene privado** en el sentido de que no se puede ligar el retiro al depósito ni al dueño de la nota; solo conviene cuidar a qué address pones como recipient y, si quieres más capas, usar relayer para que quien firma la tx no sea quien recibe el USDC.
+In summary: **yes, you can go to the pool and withdraw with the note using a wallet with no history linked to you, and the payment remains private** in the sense that the withdrawal cannot be linked to the deposit or to the note owner; you just need to be careful about which address you set as recipient and, if you want additional layers, use a relayer so that who signs the tx is not who receives the USDC.
 
-Hoy el **WithdrawVerifier** en `Verifier.sol` usa la misma verification key que el transfer (circuito principal). Esa key está hecha para **4 public inputs**; el circuito withdraw tiene **5** (value, nullifier, merkle_proof_length, expected_merkle_root, recipient). Por eso la llamada a `withdraw()` falla en el verifier. Para que el withdraw funcione de punta a punta hace falta lo siguiente.
+The **WithdrawVerifier** is now deployed with the correct verification key for **5 public inputs** on both Monad and Celo. The following describes the architecture for reference.
 
-### 1. Verification key real del withdraw (5 public inputs)
+### 1. Real withdraw verification key (5 public inputs)
 
-- Compilar el **circuito withdraw** con el backend que genera el verifier Honk:
+- Compile the **withdraw circuit** with the backend that generates the Honk verifier:
   ```bash
   cd circuits && ./scripts/compile_withdraw_verifier.sh
   ```
-- En el `Verifier.sol` generado (o en `WithdrawVerifier.sol`) vendrá una **verification key** distinta a la del transfer (con `publicInputsSize` = 21, es decir 5 + 16 pairing points).
-- **Integrar esa key en `Verifier.sol`:**
-  - Añadir una constante para withdraw, p. ej. `WITHDRAW_NUMBER_OF_PUBLIC_INPUTS = 5` (o 21 si el backend usa el total).
-  - Crear una librería **WithdrawVerificationKey** que cargue la key generada para el circuito withdraw (copiando los valores del `Verifier.sol` que salga de compilar withdraw).
-  - Hacer que el contrato **WithdrawVerifier** herede de `BaseZKHonkVerifier(N, LOG_N, 5)` (o el valor que use la base) y en `loadVerificationKey()` devuelva `WithdrawVerificationKey.loadVerificationKey()` en lugar de `HonkVerificationKey.loadVerificationKey()`.
-- Redesplegar la pool (o solo el WithdrawVerifier si la pool ya apunta a una dirección que vayas a reemplazar).
+- In the generated `Verifier.sol` (or in `WithdrawVerifier.sol`) there will be a **verification key** different from the transfer's (with `publicInputsSize` = 21, i.e. 5 + 16 pairing points).
+- **Integrate that key into `Verifier.sol`:**
+  - Add a constant for withdraw, e.g. `WITHDRAW_NUMBER_OF_PUBLIC_INPUTS = 5` (or 21 if the backend uses the total).
+  - Create a **WithdrawVerificationKey** library that loads the key generated for the withdraw circuit (copying the values from the `Verifier.sol` output of compiling withdraw).
+  - Make the **WithdrawVerifier** contract inherit from `BaseZKHonkVerifier(N, LOG_N, 5)` (or the value the base uses) and in `loadVerificationKey()` return `WithdrawVerificationKey.loadVerificationKey()` instead of `HonkVerificationKey.loadVerificationKey()`.
+- Redeploy the pool (or only the WithdrawVerifier if the pool already points to an address you will replace).
 
-### 2. Proof en formato Honk
+### 2. Proof in Honk format
 
-- El proof debe ser el que produce el **prover Honk** para el circuito withdraw (mismo backend que el verifier).
-- Formato esperado por el contrato: **507 field elements** de 32 bytes cada uno (mismo layout que el verifier del transfer).
-- Si tu pipeline de pruebas genera el proof con otro formato, hace falta un paso que lo convierta al formato Honk que espera el Solidity verifier.
+- The proof must be the one produced by the **Honk prover** for the withdraw circuit (same backend as the verifier).
+- Format expected by the contract: **507 field elements** of 32 bytes each (same layout as the transfer verifier).
+- If your proof pipeline generates the proof in a different format, a conversion step is needed to convert it to the Honk format expected by the Solidity verifier.
 
-### 3. Condiciones on-chain (ya cubiertas si hiciste los pasos)
+### 3. On-chain conditions (already covered if you followed the steps)
 
-- **Root registrado:** el `expected_merkle_root` que usa la prueba debe estar registrado en la pool (`registerRoot`), como ya hiciste con `register_root.mjs`.
-- **WithdrawVerifier desplegado:** la pool debe tener configurado `withdrawVerifier != address(0)` (en tu deploy ya está).
-- **Nullifier no gastado:** el nullifier de la nota no puede haberse usado antes en otro withdraw.
-- **USDC en la pool:** la pool debe tener al menos 1 USDC (p. ej. de un depósito previo).
+- **Registered root:** the `expected_merkle_root` used by the proof must be registered in the pool (`registerRoot`), as you already did with `register_root.mjs`.
+- **WithdrawVerifier deployed:** the pool must have `withdrawVerifier != address(0)` configured (already done in your deploy).
+- **Unspent nullifier:** the note's nullifier cannot have been used before in another withdraw.
+- **USDC in the pool:** the pool must have at least 1 USDC (e.g. from a previous deposit).
 
-### Resumen
+### Summary
 
-| Requisito | Estado típico |
+| Requirement | Typical status |
 |-----------|----------------|
-| Verification key withdraw (5 inputs) en Verifier.sol | Pendiente: compilar withdraw e integrar WithdrawVerificationKey |
-| Proof Honk del circuito withdraw | Pendiente: generar con el prover correcto |
-| Root registrado | Hecho con `register_root.mjs` |
-| WithdrawVerifier desplegado | Hecho en tu deploy |
-| Pool con USDC | Tras al menos un deposit |
+| Withdraw verification key (5 inputs) in Verifier.sol | Done: WithdrawVerifier deployed on Monad and Celo |
+| Honk proof from the withdraw circuit | Done: `prove_withdraw.sh` generates valid proofs |
+| Registered root | Done with `register_root.mjs` (or auto-registered by frontend on first claim) |
+| WithdrawVerifier deployed | Done: Monad `0x4d900D53514140755fe842eb3e0d53b12BBcCD24`, Celo `0xfe231dd394Df5863B02BfA9CFA50f4877961d5b7` |
+| Pool with USDC | After at least one deposit |
 
-Cuando la key del withdraw esté integrada y tengas un proof válido en formato Honk, `withdraw_one.mjs` podrá llamar a `pool.withdraw(proof, publicInputs)` y la tx debería completarse.
+With the deployed WithdrawVerifier and a valid Honk proof, `withdraw_one.mjs` calls `pool.withdraw(proof, publicInputs)` and the tx completes successfully.
 
 ---
 
-## Variables de entorno
+## Environment variables
 
-En `.env` o exportadas:
+In `.env` or exported:
 
 ```bash
 export MONAD_RPC="https://rpc3.monad.xyz"
 export PRIVATE_KEY="0x..."
-export POOL_ADDRESS="0x085BD9c0C568BE5093130E2359B00e46cb0800d1"   # ShieldedPool on Monad Mainnet
+export POOL_ADDRESS="0x8d44379c778Cb714B72FcaD80dcb5EC7c031343c"   # ShieldedPool on Monad Mainnet
 export USDC_ADDRESS="0x754704Bc059F8C67012fEd69BC8A327a5aafb603"  # USDC on Monad (6 decimals)
 ```
 
 ---
 
-## 1. Probar Deposit
+## 1. Testing Deposit
 
-### Qué es anónimo en deposit
+### What is anonymous in deposit
 
-- **Visible on-chain:** `msg.sender` (quién envía el 1 USDC y hace el `deposit`).
-- **Privado (solo en la nota):** el **destinatario de la nota** (pk_b). Quién puede gastar esa nota más adelante no se ve en chain; solo el commitment.
+- **Visible on-chain:** `msg.sender` (who sends the 1 USDC and calls `deposit`).
+- **Private (only in the note):** the **note recipient** (pk_b). Who can spend that note later is not visible on chain; only the commitment.
 
-### Pasos
+### Steps
 
-1. Asegúrate de tener al menos 1 USDC en la wallet que usa `PRIVATE_KEY`.
+1. Make sure you have at least 1 USDC in the wallet that uses `PRIVATE_KEY`.
 
-2. Un solo depósito (pago A→B para índice 0):
+2. A single deposit (payment A→B for index 0):
 
    ```bash
    PAYMENT_INDEX=0 node circuits/scripts/deposit_one.mjs
    ```
 
-   Para más depósitos demo (A→B, A→C, …):
+   For more demo deposits (A→B, A→C, ...):
 
    ```bash
    PAYMENT_INDEX=1 node circuits/scripts/deposit_one.mjs   # A→C
@@ -247,62 +247,62 @@ export USDC_ADDRESS="0x754704Bc059F8C67012fEd69BC8A327a5aafb603"  # USDC on Mona
    # ...
    ```
 
-3. Comprobar on-chain:
-   - En el explorador: la tx de `deposit` muestra tu address como `from`.
-   - El commitment es un `bytes32` opaco; no revela el destinatario de la nota (B/C).
+3. Verify on-chain:
+   - In the explorer: the `deposit` tx shows your address as `from`.
+   - The commitment is an opaque `bytes32`; it does not reveal the note recipient (B/C).
 
-Con esto validas: **deposit funciona y el dueño de la nota (destinatario) sigue siendo anónimo.**
+With this you validate: **deposit works and the note owner (recipient) remains anonymous.**
 
 ---
 
-## 2. Probar Withdraw
+## 2. Testing Withdraw
 
-### Qué es anónimo en withdraw
+### What is anonymous in withdraw
 
-- **Visible on-chain:** el **recipient** (address que recibe el 1 USDC) y el **nullifier** (para no doble gastar).
-- **Privado:** **quién tenía la nota** (quién conoce pk_b/random y generó la prueba). El proof ZK demuestra “tengo una nota válida” sin revelar qué nota ni qué identidad.
+- **Visible on-chain:** the **recipient** (address that receives the 1 USDC) and the **nullifier** (to prevent double spending).
+- **Private:** **who held the note** (who knows pk_b/random and generated the proof). The ZK proof demonstrates "I have a valid note" without revealing which note or which identity.
 
-### Prerrequisitos
+### Prerequisites
 
-- Pool desplegada **con** `WithdrawVerifier` (como en tu deploy).
-- El **root** que usa el circuito withdraw debe estar registrado en la pool (ver paso 2.1).
-- Proof del circuito withdraw en formato Honk (mismo que el verifier on-chain).
+- Pool deployed **with** `WithdrawVerifier` (as in your deploy).
+- The **root** used by the withdraw circuit must be registered in the pool (see step 2.1).
+- Proof from the withdraw circuit in Honk format (same as the on-chain verifier).
 
-**Nota:** Hoy el `WithdrawVerifier` en `Verifier.sol` usa la misma verification key que el transfer (4 public inputs). El circuito withdraw tiene **5** public inputs. Hasta integrar la verification key real del withdraw (5 inputs), la llamada a `withdraw()` fallará en el verifier. Los pasos siguientes sirven para dejar el flujo listo y probar cuando esa key esté integrada.
+**Note:** The `WithdrawVerifier` is deployed with the correct verification key for 5 public inputs on both Monad and Celo. The following steps work end-to-end.
 
-### 2.1 Registrar el root
+### 2.1 Register the root
 
-El withdraw prueba inclusión en un Merkle tree; el root debe estar registrado:
+The withdraw proves inclusion in a Merkle tree; the root must be registered:
 
 ```bash
 node circuits/scripts/register_root.mjs
 ```
 
-Usa por defecto el `expected_merkle_root` de `circuits/WithdrawProver.toml`. Si usas otro root, pásalo con `ROOT=0x... node circuits/scripts/register_root.mjs`.
+Uses by default the `expected_merkle_root` from `circuits/WithdrawProver.toml`. If you use a different root, pass it with `ROOT=0x... node circuits/scripts/register_root.mjs`.
 
-### 2.2 Cómo generar un proof Honk del circuito withdraw
+### 2.2 How to generate a Honk proof for the withdraw circuit
 
-El verifier on-chain espera un proof en **formato Barretenberg/Honk**: mismo que genera la herramienta `bb` (Barretenberg CLI).
+The on-chain verifier expects a proof in **Barretenberg/Honk format**: the same format generated by the `bb` (Barretenberg CLI) tool.
 
-**Script que automatiza los pasos:** desde `circuits/` puedes ejecutar `./scripts/prove_withdraw.sh`. Requiere `nargo` y `bb` instalados. Si el witness o el artefacto tienen otro nombre en tu instalación, edita las rutas en el script. Si todo va bien, el proof en hex queda en `circuits/proofs/withdraw.proof`.
+**Script that automates the steps:** from `circuits/` you can run `./scripts/prove_withdraw.sh`. Requires `nargo` and `bb` installed. If the witness or artifact has a different name in your installation, edit the paths in the script. If everything goes well, the hex proof ends up in `circuits/proofs/withdraw.proof`.
 
-**Pasos manuales (por si el script falla o quieres ajustar):**
+**Manual steps (in case the script fails or you want to customize):**
 
-#### Requisitos
+#### Requirements
 
-- **Noir:** `nargo` instalado (`noirup`).
-- **Barretenberg:** CLI `bb` instalado (`bbup`, ver [README](https://github.com/AztecProtocol/aztec-packages/tree/master/barretenberg/bbup)).
-- En `circuits/`, el circuito **withdraw** debe compilarse como programa principal (mismo que para el verifier).
+- **Noir:** `nargo` installed (`noirup`).
+- **Barretenberg:** `bb` CLI installed (`bbup`, see [README](https://github.com/AztecProtocol/aztec-packages/tree/master/barretenberg/bbup)).
+- In `circuits/`, the **withdraw** circuit must be compiled as the main program (same as for the verifier).
 
-#### Pasos (resumen)
+#### Steps (summary)
 
-1. **Compilar el circuito withdraw** (como en el verifier):
+1. **Compile the withdraw circuit** (same as for the verifier):
    ```bash
    cd circuits && ./scripts/compile_withdraw_verifier.sh
    ```
-   Eso deja en `target/` el artefacto (p. ej. `with_foundry.json`) y restaura `main.nr`. Para probar necesitas de nuevo el circuito withdraw como main.
+   This leaves the artifact in `target/` (e.g. `with_foundry.json`) and restores `main.nr`. For testing you need the withdraw circuit as main again.
 
-2. **Dejar withdraw como main y generar witness:**
+2. **Set withdraw as main and generate witness:**
    ```bash
    cd circuits
    cp src/main.nr src/main.nr.bak
@@ -310,46 +310,46 @@ El verifier on-chain espera un proof en **formato Barretenberg/Honk**: mismo que
    nargo compile
    nargo execute -p WithdrawProver
    ```
-   `WithdrawProver.toml` debe tener los 5 public inputs y los privados (pk_b, random, merkle path). El witness se escribe en `target/` (nombre según tu Nargo.toml, p. ej. asociado a `WithdrawProver`).
+   `WithdrawProver.toml` must have the 5 public inputs and the private ones (pk_b, random, merkle path). The witness is written to `target/` (name according to your Nargo.toml, e.g. associated with `WithdrawProver`).
 
-3. **Generar el proof con Barretenberg:**
+3. **Generate the proof with Barretenberg:**
    ```bash
    bb prove -b ./target/with_foundry.json -w ./target/WithdrawProver -o ./target --oracle_hash keccak
    ```
-   (Ajusta `-w` si el witness tiene otro nombre/ruta; en algunos setups el artefacto o el witness tienen otro nombre.)
+   (Adjust `-w` if the witness has a different name/path; in some setups the artifact or witness has a different name.)
 
-   `bb` escribe en `-o` (p. ej. `./target`) dos ficheros en **binario**: `proof` y `public_inputs`. El proof son 507 field elements × 32 bytes = 16 224 bytes.
+   `bb` writes to `-o` (e.g. `./target`) two files in **binary**: `proof` and `public_inputs`. The proof is 507 field elements x 32 bytes = 16,224 bytes.
 
-4. **Convertir el proof a hex** para `withdraw_one.mjs` (que espera un fichero con proof en hex, tipo `0x...`):
+4. **Convert the proof to hex** for `withdraw_one.mjs` (which expects a file with the proof in hex, like `0x...`):
    ```bash
-   # Desde circuits/
+   # From circuits/
    node -e "
    const fs = require('fs');
    const p = fs.readFileSync('./target/proof');
    fs.mkdirSync('./proofs', { recursive: true });
    fs.writeFileSync('./proofs/withdraw.proof', '0x' + p.toString('hex'));
-   console.log('Proof hex escrito en proofs/withdraw.proof,', p.length, 'bytes');
+   console.log('Proof hex written to proofs/withdraw.proof,', p.length, 'bytes');
    "
    ```
 
-5. **Llamar al withdraw on-chain:**
+5. **Call withdraw on-chain:**
    ```bash
    PROOF_FILE=circuits/proofs/withdraw.proof node circuits/scripts/withdraw_one.mjs
    ```
-   (O desde la raíz del repo, con `PROOF_FILE` apuntando a ese fichero.)
+   (Or from the repo root, with `PROOF_FILE` pointing to that file.)
 
-Si en tu instalación el nombre del artefacto o del witness es distinto (p. ej. otro nombre que `with_foundry` o `WithdrawProver`), cambia `-b` y `-w` según lo que genere `nargo compile` y `nargo execute`. El verifier Solidity que tienes es Honk; si usas otra versión de `bb` que genere otro formato, puede que tengas que usar la variante exacta que generó ese contrato (p. ej. `bb prove_ultra_honk` si aplica).
+If in your installation the artifact or witness name is different (e.g. a name other than `with_foundry` or `WithdrawProver`), change `-b` and `-w` according to what `nargo compile` and `nargo execute` generate. The Solidity verifier you have is Honk; if you use a different version of `bb` that generates a different format, you may need to use the exact variant that generated that contract (e.g. `bb prove_ultra_honk` if applicable).
 
-### 2.3 Llamar withdraw on-chain
+### 2.3 Call withdraw on-chain
 
-Con proof y public inputs listos:
+With proof and public inputs ready:
 
 ```bash
-# Proof en hex (0x + 64*507 caracteres)
+# Proof in hex (0x + 64*507 characters)
 PROOF_FILE=circuits/proofs/withdraw.proof node circuits/scripts/withdraw_one.mjs
 ```
 
-O pasando los 5 public inputs a mano (orden: value, nullifier, merkle_proof_length, expected_merkle_root, recipient):
+Or passing the 5 public inputs manually (order: value, nullifier, merkle_proof_length, expected_merkle_root, recipient):
 
 ```bash
 WITHDRAW_VALUE=0x1 \
@@ -361,17 +361,17 @@ PROOF_FILE=circuits/proofs/withdraw.proof \
 node circuits/scripts/withdraw_one.mjs
 ```
 
-`RECIPIENT` es el address como bytes32 (20 bytes de address + padding a 32).
+`RECIPIENT` is the address as bytes32 (20 bytes of address + padding to 32).
 
-Cuando el verifier del withdraw acepte 5 public inputs, esta llamada enviará 1 USDC a `recipient` y marcará el nullifier como gastado.
+When the withdraw verifier accepts 5 public inputs, this call will send 1 USDC to `recipient` and mark the nullifier as spent.
 
 ---
 
-## Resumen anonimato
+## Anonymity summary
 
-| Acción   | Visible on-chain                         | Privado / anónimo                          |
+| Action   | Visible on-chain                         | Private / anonymous                          |
 |----------|------------------------------------------|--------------------------------------------|
-| Deposit  | Quién deposita (msg.sender)              | Destinatario de la nota (quién puede gastar) |
-| Withdraw | A qué address se envía (recipient), nullifier | Quién tenía la nota (quién generó el proof)   |
+| Deposit  | Who deposits (msg.sender)              | Note recipient (who can spend) |
+| Withdraw | Which address receives (recipient), nullifier | Who held the note (who generated the proof)   |
 
-Así validas que el deposit y el withdraw funcionan y qué parte del flujo sigue siendo anónima.
+This validates that deposit and withdraw work and which part of the flow remains anonymous.
