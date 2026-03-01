@@ -264,7 +264,7 @@ const DEPOSIT_EVENT = {
   ],
 };
 
-/** Max block range per getLogs call — Monad rejects >= 1000 blocks */
+/** Max block range per getLogs call. Monad rejects >= 1000 blocks */
 const MAX_BLOCK_RANGE = BigInt(999);
 
 export async function getDepositEvents(

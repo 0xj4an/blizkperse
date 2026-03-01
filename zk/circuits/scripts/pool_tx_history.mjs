@@ -93,19 +93,19 @@ async function main() {
     switch (e.name) {
       case "RootRegistered":
         nRoot++;
-        line += `registerRoot — root = ${rootShort(e.args.root)}`;
+        line += `registerRoot - root = ${rootShort(e.args.root)}`;
         break;
       case "Deposit":
         nDeposit++;
-        line += `Deposit — 1 USDC sent by ${addrShort(e.args.sender)}, commitment = ${rootShort(e.args.commitment)}`;
+        line += `Deposit - 1 USDC sent by ${addrShort(e.args.sender)}, commitment = ${rootShort(e.args.commitment)}`;
         break;
       case "Withdraw":
         nWithdraw++;
-        line += `Withdraw — 1 USDC sent to ${addrShort(e.args.recipient)}, nullifier = ${rootShort(e.args.nullifier)}`;
+        line += `Withdraw - 1 USDC sent to ${addrShort(e.args.recipient)}, nullifier = ${rootShort(e.args.nullifier)}`;
         break;
       case "TransferIntent":
         nIntent++;
-        line += `TransferIntent — root = ${rootShort(e.args.expectedRoot)}, nullifier = ${rootShort(e.args.nullifierIn)}, newCommitment = ${rootShort(e.args.newCommitment)}`;
+        line += `TransferIntent - root = ${rootShort(e.args.expectedRoot)}, nullifier = ${rootShort(e.args.nullifierIn)}, newCommitment = ${rootShort(e.args.newCommitment)}`;
         break;
       default:
         line += e.name;

@@ -253,9 +253,9 @@ The app uses `useSyncExternalStore` to maintain a local cache that syncs with Po
 - **Monad theme**: Purple palette (`oklch(0.65 0.25 285)`) activated via `html[data-chain="monad"]`.
 - **Celo theme**: Yellow/deep-purple palette (Celo brand `#fcff52` + `#1e002b`) via `html[data-chain="celo"]`.
 - **Neutral default**: Pure grayscale, zero chroma.
-- **Custom utilities**: `.glass` (glassmorphism), `.glow-purple` (hover glow), `.gradient-text`.
+- **Custom utilities**: `.glass` (glassmorphism), `.glow-primary` (hover glow), `.gradient-text`.
 - **Dark mode**: Always-on via `className="dark"` on `<html>`.
-- **Logo**: Inline SVG with shield stroke using `currentColor` — adapts to active chain.
+- **Logo**: Inline SVG with shield stroke using `currentColor` that adapts to active chain.
 - **Transitions**: `transition-colors duration-500` for smooth theme switching.
 
 ---

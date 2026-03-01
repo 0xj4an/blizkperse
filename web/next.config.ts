@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
         worker_threads: false,
       };
     }
-    // Suppress Farcaster warnings (optional peer deps of Para SDK — not a miniapp)
+    // Suppress Farcaster warnings (optional peer deps of Para SDK, not a miniapp)
     config.resolve.alias = {
       ...config.resolve.alias,
       "@farcaster/miniapp-sdk": false,

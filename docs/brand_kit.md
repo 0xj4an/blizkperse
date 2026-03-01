@@ -53,7 +53,7 @@ Based on the [Celo Brand Kit](https://celo.org/brand-kit).
 -   **Buttons**: `bg-primary text-primary-foreground` with rounded corners.
 -   **Cards**: `bg-card` with `border-border`.
 -   **Theme switching**: Colors transition with `duration-500` for smooth effect.
--   **Custom utilities**: `.glass` (glassmorphism), `.glow-purple` (glow shadow), `.gradient-text` (purple gradient text).
+-   **Custom utilities**: `.glass` (glassmorphism), `.glow-primary` (glow shadow), `.gradient-text` (theme gradient text).
 
 ## Typography
 

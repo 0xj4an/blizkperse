@@ -52,10 +52,10 @@ export function Header() {
                   fill="none"
                   opacity="0.7"
                 />
-                <circle cx="26" cy="24" r="5" stroke="white" strokeWidth="1.8" fill="none" />
-                <line x1="26" y1="29" x2="26" y2="35" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+                <circle cx="26" cy="24" r="5" stroke="currentColor" strokeWidth="1.8" fill="none" opacity="0.9" />
+                <line x1="26" y1="29" x2="26" y2="35" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" opacity="0.9" />
               </g>
-              <text x="62" y="38" fontFamily="'Geist', 'Inter', ui-monospace, monospace" fontSize="28" fontWeight="700" fill="white" letterSpacing="-0.01em" opacity="0.9">blizkperse</text>
+              <text x="62" y="38" fontFamily="'Geist', 'Inter', ui-monospace, monospace" fontSize="28" fontWeight="700" fill="currentColor" letterSpacing="-0.01em" opacity="0.9">blizkperse</text>
             </svg>
           </Link>
 

@@ -6,7 +6,7 @@ Next.js 16 frontend for the Blizkperse private payments platform.
 
 - **Framework**: Next.js 16 (App Router, Webpack)
 - **Styling**: Tailwind CSS v4, shadcn/ui (new-york style)
-- **Auth**: Para SDK (`@getpara/react-sdk`) — social login + embedded wallets
+- **Auth**: Para SDK (`@getpara/react-sdk`) for social login + embedded wallets
 - **ZK**: `@noir-lang/noir_js` + `@aztec/bb.js` for in-browser proof generation
 - **Database**: PostgreSQL via `postgres` npm package
 

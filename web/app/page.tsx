@@ -187,21 +187,21 @@ export default function LandingPage() {
                   transfer(0x7a3b...9f2e → 0x4d1c...8b3a)
                 </div>
                 <div>
-                  amount: <span className="text-red-400">8,500.00 USDC</span>
+                  amount: <span className="text-destructive">8,500.00 USDC</span>
                 </div>
                 <div className="my-3 border-t border-foreground/5" />
                 <div className="text-muted-foreground">
                   transfer(0x7a3b...9f2e → 0x2e5f...1c7d)
                 </div>
                 <div>
-                  amount: <span className="text-red-400">12,200.00 USDC</span>
+                  amount: <span className="text-destructive">12,200.00 USDC</span>
                 </div>
                 <div className="my-3 border-t border-foreground/5" />
                 <div className="text-muted-foreground">
                   transfer(0x7a3b...9f2e → 0x9b8a...4e6f)
                 </div>
                 <div>
-                  amount: <span className="text-red-400">6,750.00 USDC</span>
+                  amount: <span className="text-destructive">6,750.00 USDC</span>
                 </div>
               </div>
             </motion.div>

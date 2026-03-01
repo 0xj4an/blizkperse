@@ -45,11 +45,11 @@ export interface ChainConfig {
 const MONAD_USDC = "0x754704Bc059F8C67012fEd69BC8A327a5aafb603" as const;
 const MONAD_USDT = "0xe7cd86e13AC4309349F30B3435a9d337750fC82D" as const;
 
-// Celo (42220) — Circle & Tether
+// Celo (42220) - Circle & Tether
 const CELO_USDC = "0xcebA9300f2b948710d2653dD7B07f33A8B32118C" as const;
 const CELO_USDT = "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e" as const;
 
-// Celo (42220) — Mento stablecoins (rebranded 2025)
+// Celo (42220) - Mento stablecoins (rebranded 2025)
 const CELO_USDm = "0x765DE816845861e75A25fCA122bb6898B8B1282a" as const;
 const CELO_EURm = "0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73" as const;
 const CELO_BRLm = "0xe8537a3d056DA446677B9E9d6c5dB704EaAb4787" as const;

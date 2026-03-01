@@ -99,6 +99,6 @@ After deploying, update:
 
 ## Documentation
 
-- [Build & Deploy Guide](docs/BUILD_AND_DEPLOY.md) — Avoiding SumcheckFailed, deployment checklist
-- [Deposit/Withdraw Demo](docs/DEMO_DEPOSIT_WITHDRAW.md) — Step-by-step CLI demo
-- [Testing Guide](docs/TEST_DEPOSIT_WITHDRAW.md) — Anonymity validation, proof generation
+- [Build & Deploy Guide](docs/BUILD_AND_DEPLOY.md) - Avoiding SumcheckFailed, deployment checklist
+- [Deposit/Withdraw Demo](docs/DEMO_DEPOSIT_WITHDRAW.md) - Step-by-step CLI demo
+- [Testing Guide](docs/TEST_DEPOSIT_WITHDRAW.md) - Anonymity validation, proof generation

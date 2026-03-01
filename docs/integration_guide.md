@@ -7,12 +7,12 @@ This guide details how to integrate the **Next.js Frontend** with the **Shielded
 ## 1. Resources Checklist
 
 *   **Chain Registry**: All chain configs, contract addresses, and token definitions live in `web/lib/constants.ts` as the `CHAINS` record.
-*   **Contract Addresses (Monad Mainnet — Chain 143)**:
+*   **Contract Addresses (Monad Mainnet, Chain 143)**:
     *   `ShieldedPool`: `0x8d44379c778Cb714B72FcaD80dcb5EC7c031343c`
     *   `HonkVerifier`: `0x6b11b3eB54Bbda485D616150A4C85E8629e1A552`
     *   `WithdrawVerifier`: `0x4d900D53514140755fe842eb3e0d53b12BBcCD24`
     *   `USDC`: `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` (6 decimals)
-*   **Contract Addresses (Celo Mainnet — Chain 42220)**:
+*   **Contract Addresses (Celo Mainnet, Chain 42220)**:
     *   `ShieldedPool`: `0xcE61001eb3Cd531784D2Cee9DDAbB17a3fc6B16A`
     *   `HonkVerifier`: `0x085BD9c0C568BE5093130E2359B00e46cb0800d1`
     *   `WithdrawVerifier`: `0xfe231dd394Df5863B02BfA9CFA50f4877961d5b7`

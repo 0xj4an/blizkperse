@@ -22,10 +22,25 @@ interface ChainContextValue {
 
 const ChainContext = createContext<ChainContextValue | null>(null);
 
-const CHAIN_COLORS: Record<string, string> = {
-  monad: "from-purple-500 to-purple-700",
-  celo: "from-yellow-400 to-yellow-600",
+const CHAIN_DOT: Record<string, string> = {
+  monad: "bg-purple-500",
+  celo: "bg-yellow-400",
 };
+
+// prettier-ignore
+const ASCII_ART = `
+██████╗ ██╗     ██╗███████╗██╗  ██╗
+██╔══██╗██║     ██║╚══███╔╝██║ ██╔╝
+██████╔╝██║     ██║  ███╔╝ █████╔╝
+██╔══██╗██║     ██║ ███╔╝  ██╔═██╗
+██████╔╝███████╗██║███████╗██║  ██╗
+╚═════╝ ╚══════╝╚═╝╚══════╝╚═╝  ╚═╝
+██████╗ ███████╗██████╗ ███████╗███████╗
+██╔══██╗██╔════╝██╔══██╗██╔════╝██╔════╝
+██████╔╝█████╗  ██████╔╝███████╗█████╗
+██╔═══╝ ██╔══╝  ██╔══██╗╚════██║██╔══╝
+██║     ███████╗██║  ██║███████║███████╗
+╚═╝     ╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝`;
 
 function ChainSelectScreen({
   onSelect,
@@ -34,10 +49,16 @@ function ChainSelectScreen({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
-      <div className="mx-4 w-full max-w-md space-y-8 text-center">
-        <div className="space-y-2">
-          <h1 className="gradient-text text-3xl font-bold tracking-tight">
-            Welcome to Blizkperse
+      <div className="mx-4 w-full max-w-lg space-y-8 text-center">
+        <div className="space-y-4">
+          <pre
+            className="hidden select-none overflow-hidden text-center font-mono text-[0.45rem] leading-[1.1] text-foreground/70 sm:block sm:text-[0.55rem] md:text-xs"
+            aria-hidden="true"
+          >
+            {ASCII_ART}
+          </pre>
+          <h1 className="text-3xl font-extrabold tracking-tight text-foreground sm:hidden">
+            BLIZKPERSE
           </h1>
           <p className="text-muted-foreground">
             Select a network to get started
@@ -51,12 +72,12 @@ function ChainSelectScreen({
               <button
                 key={id}
                 onClick={() => onSelect(id)}
-                className="glass group flex w-full items-center gap-4 rounded-xl border border-border/50 p-4 text-left transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
+                className="glass group flex w-full items-center gap-4 rounded-xl border border-border/50 p-4 text-left transition-all hover:border-foreground/30 hover:shadow-lg"
               >
                 <span
-                  className={`h-3 w-3 rounded-full bg-gradient-to-br ${CHAIN_COLORS[chain.slug]}`}
+                  className={`h-3 w-3 rounded-full ${CHAIN_DOT[chain.slug]}`}
                 />
-                <span className="text-sm font-medium text-foreground">
+                <span className="flex-1 text-sm font-medium text-foreground">
                   {chain.name}
                 </span>
                 <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">

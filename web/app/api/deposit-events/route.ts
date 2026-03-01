@@ -113,7 +113,7 @@ export async function GET(req: NextRequest) {
 
   const latest = await client.getBlockNumber();
 
-  // Get cached cursor — where we left off scanning
+  // Get cached cursor (where we left off scanning)
   const [cursorRow] = await sql`
     SELECT last_block FROM scan_cursor WHERE chain_id = ${chainId}
   `;

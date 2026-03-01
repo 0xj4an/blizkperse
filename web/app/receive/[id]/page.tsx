@@ -199,7 +199,7 @@ export default function ClaimPage() {
       const msg = raw.includes("User rejected")
         ? "Transaction cancelled"
         : raw.includes("SumcheckFailed") || raw.includes("0x9fc3a218")
-          ? "Proof verification failed (SumcheckFailed). The deployed WithdrawVerifier may not match the circuit used by this app—recompile and redeploy the verifier from the same zk/circuits build used by /api/generate-proof."
+          ? "Proof verification failed (SumcheckFailed). The deployed WithdrawVerifier may not match the circuit used by this app. Recompile and redeploy the verifier from the same zk/circuits build used by /api/generate-proof."
           : raw;
       toast.error(msg);
     }
