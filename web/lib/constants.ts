@@ -145,4 +145,4 @@ export const CHAINS: Record<SupportedChainId, ChainConfig> = {
 };
 
 export const DEFAULT_CHAIN_ID: SupportedChainId = 42220;
-export const CHAIN_IDS = Object.keys(CHAINS).map(Number) as SupportedChainId[];
+export const CHAIN_IDS: SupportedChainId[] = [42220, 143];

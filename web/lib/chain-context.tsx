@@ -56,14 +56,9 @@ function ChainSelectScreen({
                 <span
                   className={`h-3 w-3 rounded-full bg-gradient-to-br ${CHAIN_COLORS[chain.slug]}`}
                 />
-                <div className="flex-1">
-                  <span className="text-sm font-medium text-foreground">
-                    {chain.name}
-                  </span>
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {chain.tokens.length} tokens
-                  </span>
-                </div>
+                <span className="text-sm font-medium text-foreground">
+                  {chain.name}
+                </span>
                 <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
                   Select &rarr;
                 </span>

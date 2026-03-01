@@ -269,11 +269,23 @@ export default function CreatePayoutPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {chain.tokens.map((t) => (
-                      <SelectItem key={t.symbol} value={t.symbol}>
-                        {t.symbol}
-                      </SelectItem>
-                    ))}
+                    {chain.tokens.map((t) => {
+                      const supported = t.symbol === "USDC";
+                      return (
+                        <SelectItem
+                          key={t.symbol}
+                          value={t.symbol}
+                          disabled={!supported}
+                        >
+                          {t.symbol}
+                          {!supported && (
+                            <span className="ml-2 text-[10px] text-muted-foreground">
+                              Soon
+                            </span>
+                          )}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>
