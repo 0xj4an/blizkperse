@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useAccount, useModal, useLogout } from "@getpara/react-sdk";
+import { useAccount, useModal, useLogout, useExportPrivateKey } from "@getpara/react-sdk";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ChainSelector } from "@/components/chain-selector";
-import { LogIn, ChevronDown, LayoutDashboard, HandCoins, LogOut, Copy, Check } from "lucide-react";
+import { LogIn, ChevronDown, LayoutDashboard, HandCoins, LogOut, Copy, Check, KeyRound } from "lucide-react";
 import { useState } from "react";
 import { useChain } from "@/lib/chain-context";
 
@@ -24,6 +24,7 @@ export function Header() {
   const { isConnected, embedded } = useAccount();
   const { openModal } = useModal();
   const { logout } = useLogout();
+  const { mutate: exportPrivateKey, isPending: isExporting } = useExportPrivateKey();
   useChain();
   const [copied, setCopied] = useState(false);
 
@@ -115,6 +116,14 @@ export function Header() {
                     </DropdownMenuItem>
                   </Link>
                   <DropdownMenuSeparator className="md:hidden" />
+                  <DropdownMenuItem
+                    onClick={() => exportPrivateKey({ walletId: embedded?.wallets?.[0]?.id })}
+                    disabled={isExporting}
+                  >
+                    <KeyRound className="mr-2 h-4 w-4" />
+                    {isExporting ? "Exporting..." : "Export Private Key"}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => logout()}
                     className="text-destructive focus:text-destructive"
