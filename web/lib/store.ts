@@ -1,13 +1,17 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { WalletClient, Hex } from "viem";
+import { BaseError, ContractFunctionRevertedError, type WalletClient, type Hex } from "viem";
 import type { ChainConfig } from "./constants";
 import {
   approvePoolToken,
   depositToPool,
+  getDepositRevertReason,
+  decodeRevertDataFromError,
   withdrawFromPool,
   getPublicClient,
+  getTokenBalance,
+  getPoolAllowance,
 } from "./contracts";
 import {
   createNote,
@@ -178,7 +182,7 @@ export function hydrateStore() {
       id: r.id as string,
       organizerId: r.organizer_id as string,
       totalAmount: Number(r.total_amount),
-      token: (r.token as string) ?? "MON",
+      token: (r.token as string) ?? "USDC",
       status: r.status as Payout["status"],
       createdAt: r.created_at as string,
       txHash: (r.tx_hash as string) ?? undefined,
@@ -352,6 +356,8 @@ export async function createPayout(params: {
   token?: string;
   walletClient?: WalletClient;
   chainConfig: ChainConfig;
+  /** If provided, we check balance before deposit and throw a clear error if insufficient. */
+  ownerAddress?: Hex;
   onProgress?: (step: string, current: number, total: number) => void;
 }): Promise<Payout> {
   const token = params.token ?? params.chainConfig.defaultToken.symbol;
@@ -368,19 +374,58 @@ export async function createPayout(params: {
   // ── On-chain deposit flow ──────────────────────────────
   if (params.walletClient) {
     const publicClient = getPublicClient(params.chainConfig);
+    const config = params.chainConfig;
+    const required = BigInt(totalNotes) * config.poolDenomination;
 
-    // Step 1: Batch approve total amount
-    params.onProgress?.("Approving token", 0, totalNotes);
-    const approveTx = await approvePoolToken(
-      params.walletClient,
-      params.chainConfig,
-      BigInt(totalNotes) * params.chainConfig.poolDenomination,
-    );
-    await publicClient.waitForTransactionReceipt({ hash: approveTx });
+    if (params.ownerAddress) {
+      const balance = await getTokenBalance(config, params.ownerAddress, config.defaultToken);
+      if (balance < required) {
+        const symbol = config.defaultToken.symbol;
+        const perNote = Number(config.poolDenomination) / Math.pow(10, config.defaultToken.decimals);
+        throw new Error(
+          `Insufficient ${symbol} balance on ${config.name}. You need at least ${totalNotes} ${symbol} (${perNote} ${symbol} per note).`
+        );
+      }
+    }
+
+    // Step 1: Approve only if current allowance is insufficient
+    const requiredAllowance = BigInt(totalNotes) * config.poolDenomination;
+    const CELO_CHAIN_ID = 42220;
+    let lastTxHash: Hex | null = null;
+    if (params.ownerAddress) {
+      const currentAllowance = await getPoolAllowance(config, params.ownerAddress);
+      if (currentAllowance < requiredAllowance) {
+        params.onProgress?.("Approving token", 0, totalNotes);
+        if (config.id === CELO_CHAIN_ID) {
+          const resetTx = await approvePoolToken(params.walletClient, params.chainConfig, 0n);
+          await publicClient.waitForTransactionReceipt({ hash: resetTx });
+        }
+        const approveTx = await approvePoolToken(
+          params.walletClient,
+          params.chainConfig,
+          requiredAllowance,
+        );
+        await publicClient.waitForTransactionReceipt({ hash: approveTx });
+        lastTxHash = approveTx;
+      }
+    } else {
+      params.onProgress?.("Approving token", 0, totalNotes);
+      if (config.id === CELO_CHAIN_ID) {
+        const resetTx = await approvePoolToken(params.walletClient, params.chainConfig, 0n);
+        await publicClient.waitForTransactionReceipt({ hash: resetTx });
+      }
+      const approveTx = await approvePoolToken(
+        params.walletClient,
+        params.chainConfig,
+        requiredAllowance,
+      );
+      await publicClient.waitForTransactionReceipt({ hash: approveTx });
+      lastTxHash = approveTx;
+    }
+    const approveTxHash = lastTxHash;
 
     // Step 2: Deposit notes one by one
     let noteIndex = 0;
-    let lastTxHash = approveTx;
 
     for (const recipient of params.recipients) {
       const sub = getSubscriberById(recipient.subscriberId);
@@ -397,15 +442,48 @@ export async function createPayout(params: {
         const note = await createNote(1n, pk_b, randomness);
         const commitment = bigintToBytes32(note.commitment) as Hex;
 
-        const depositTx = await depositToPool(params.walletClient, params.chainConfig, commitment);
+        let depositTx: Hex;
+        try {
+          depositTx = await depositToPool(params.walletClient, config, commitment);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          let contractReason: string | null = decodeRevertDataFromError(err);
+          if (!contractReason && err instanceof BaseError) {
+            const revertErr = err.walk((e) => e instanceof ContractFunctionRevertedError);
+            if (revertErr instanceof ContractFunctionRevertedError && revertErr.data?.args?.[0]) {
+              contractReason = String(revertErr.data.args[0]);
+            }
+          }
+          if (!contractReason && params.ownerAddress) {
+            contractReason = await getDepositRevertReason(config, params.ownerAddress, commitment);
+          }
+          if (contractReason || msg.includes("revert") || msg.includes("unknown reason")) {
+            const poolAddr = config.contracts.pool;
+            const reasonLine = contractReason ? `Contract revert: "${contractReason}". ` : "";
+            let detail = `Pool: ${poolAddr}. ${reasonLine}`;
+            if (params.ownerAddress && !contractReason) {
+              const allowance = await getPoolAllowance(config, params.ownerAddress);
+              const need = requiredAllowance;
+              detail += `Your allowance: ${allowance.toString()} (need ${need.toString()}). ${allowance < need ? "Approve more to the pool address above." : "Revert reason could not be decoded. Likely: 'transferFrom failed' (check balance, try approve 0 then approve amount) or 'commitment already used' (duplicate note)."}`;
+            } else if (params.ownerAddress && contractReason === "transferFrom failed") {
+              const balance = await getTokenBalance(config, params.ownerAddress, config.defaultToken);
+              detail += `Your ${config.defaultToken.symbol} balance: ${balance.toString()}. The pool pulls exactly 1 ${config.defaultToken.symbol} per deposit; ensure you have enough and the token is not paused. Try approve(pool, 0) then approve(pool, amount) if you had a previous approval.`;
+            } else if (params.ownerAddress && contractReason === "commitment already used") {
+              detail += "This note was already deposited (e.g. duplicate or previous run). Create a new payout.";
+            }
+            throw new Error(`Deposit failed on ${config.name}. ${detail}`);
+          }
+          throw err;
+        }
         await publicClient.waitForTransactionReceipt({ hash: depositTx });
         lastTxHash = depositTx;
 
-        // Store note data for recipient to later claim
+        // Store note data for recipient to later claim (chain_id = chain where deposit was sent)
         await api("/api/notes", {
           method: "POST",
           body: JSON.stringify({
             subscriber_id: recipient.subscriberId,
+            chain_id: config.id,
             commitment: bigintToBytes32(note.commitment),
             value: bigintToBytes32(note.value),
             holder_pk: bigintToBytes32(note.holder),
@@ -416,7 +494,7 @@ export async function createPayout(params: {
       }
     }
 
-    txHash = lastTxHash;
+    txHash = (lastTxHash ?? approveTxHash) ?? "";
   } else {
     // Fallback: mock tx hash when no wallet connected
     txHash = mockTxHash();
@@ -507,11 +585,22 @@ export async function claimPayment(
   // ── On-chain withdraw flow ─────────────────────────────
   if (walletClient && proofResult && chainConfig) {
     const publicClient = getPublicClient(chainConfig);
+    const pi = proofResult.publicInputs;
+    const account = walletClient.account?.address;
+    const nonce =
+      account
+        ? await publicClient.getTransactionCount({ address: account, blockTag: "pending" })
+        : undefined;
     const withdrawTx = await withdrawFromPool(walletClient, chainConfig, {
-      expectedRoot: proofResult.publicInputs.expectedRoot,
-      nullifierIn: proofResult.publicInputs.nullifierIn,
-      merkleProofLength: proofResult.publicInputs.merkleProofLength,
       proof: proofResult.proof,
+      publicInputs: [
+        pi.value,
+        pi.nullifier,
+        `0x${pi.merkleProofLength.toString(16).padStart(64, "0")}` as Hex,
+        pi.expectedRoot,
+        pi.recipient,
+      ],
+      ...(nonce !== undefined && { nonce }),
     });
     await publicClient.waitForTransactionReceipt({ hash: withdrawTx });
     txHash = withdrawTx;

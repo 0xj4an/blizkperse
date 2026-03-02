@@ -1,7 +1,6 @@
 "use client";
 
 import { poseidon2, bigintToBytes32 } from "./zk";
-import { getDepositEvents } from "./contracts";
 import type { ChainConfig } from "./constants";
 import type { Hex } from "viem";
 
@@ -106,18 +105,26 @@ export class MerkleTree {
 
 /**
  * Builds a merkle tree from on-chain Deposit events.
- * This is the MVP indexing approach - no subgraph needed.
+ * Uses server-side API for parallel event scanning (RPC block range limits).
  */
 export async function buildTreeFromEvents(
   config: ChainConfig,
-  fromBlock?: bigint,
 ): Promise<MerkleTree> {
-  const events = await getDepositEvents(config, fromBlock);
+  if (config.placeholder) {
+    throw new Error(`Contracts not deployed on ${config.name} yet`);
+  }
+
+  const res = await fetch(`/api/deposit-events?chain_id=${config.id}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error ?? `Failed to fetch deposit events (${res.status})`);
+  }
+
+  const events: { commitment: string }[] = await res.json();
   const tree = new MerkleTree(MAX_DEPTH);
 
   for (const event of events) {
-    const commitment = BigInt(event.args.commitment as string);
-    tree.insert(commitment);
+    tree.insert(BigInt(event.commitment));
   }
 
   return tree;

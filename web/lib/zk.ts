@@ -13,14 +13,15 @@ export interface NoteData {
 }
 
 export interface ProofInput {
-  new_commitment: string;
-  nullifier_in: string;
+  // Public inputs (must match withdraw circuit order)
+  value: string;
+  nullifier: string;
   merkle_proof_length: string;
   expected_merkle_root: string;
-  value: string;
+  recipient: string;
+  // Private inputs
   pk_b: string;
   random: string;
-  from: string;
   merkle_proof_indices: number[];
   merkle_proof_siblings: string[];
 }
@@ -28,35 +29,20 @@ export interface ProofInput {
 export interface ProofResult {
   proof: Hex;
   publicInputs: {
-    newCommitment: Hex;
-    nullifierIn: Hex;
+    value: Hex;
+    nullifier: Hex;
     merkleProofLength: number;
     expectedRoot: Hex;
+    recipient: Hex;
   };
 }
 
-// ── Lazy WASM initialization ────────────────────────────
-// Barretenberg is heavy (~30MB WASM). Lazy-load and cache as singleton.
-
-let bbInstance: any = null;
-let FrClass: any = null;
-
-async function getBb() {
-  if (bbInstance) return { bb: bbInstance, Fr: FrClass };
-
-  const { Barretenberg, Fr } = await import("@aztec/bb.js");
-  bbInstance = await Barretenberg.new();
-  FrClass = Fr;
-
-  return { bb: bbInstance, Fr: FrClass };
-}
-
-// ── Poseidon2 hash (matches circuit) ────────────────────
+// ── Poseidon hash (matches circuit's poseidon::bn254::hash_2) ──
+// poseidon-lite is a pure-JS BN254 Poseidon implementation (browser-safe, no native deps).
 
 export async function poseidon2(a: bigint, b: bigint): Promise<bigint> {
-  const { bb, Fr } = await getBb();
-  const result = await bb.poseidon2Hash([new Fr(a), new Fr(b)]);
-  return BigInt(result.toString());
+  const { poseidon2: poseidonHash } = await import("poseidon-lite");
+  return poseidonHash([a, b]);
 }
 
 // ── Commitment computation (matches main.nr) ───────────
@@ -128,43 +114,33 @@ export function generateRandomField(): bigint {
 
 // ── Proof generation ────────────────────────────────────
 // This is SLOW (~10-30 seconds). Always show a loading state.
+// Uses server-side nargo prove for compatibility with deployed verifier.
 
 export async function generateProof(
   input: ProofInput
 ): Promise<ProofResult> {
-  const [{ Noir }, { UltraHonkBackend, Barretenberg }] = await Promise.all([
-    import("@noir-lang/noir_js"),
-    import("@aztec/bb.js"),
-  ]);
+  // Call server-side proof generation API
+  const response = await fetch("/api/generate-proof", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
 
-  // Fetch circuit artifact from public directory
-  const circuitResponse = await fetch("/circuits/circuit.json");
-  const circuit = await circuitResponse.json();
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(error.error || `Proof generation failed: ${response.status}`);
+  }
 
-  // Create instances
-  const bb = await Barretenberg.new();
-  const backend = new UltraHonkBackend(circuit.bytecode, bb);
-  const noir = new Noir(circuit);
-
-  // Generate witness then proof
-  const { witness } = await noir.execute(input);
-  const proof = await backend.generateProof(witness);
-
-  // Clean up
-  await bb.destroy();
-
-  // Convert proof to hex
-  const proofHex = `0x${Array.from(new Uint8Array(proof.proof))
-    .map((b: number) => b.toString(16).padStart(2, "0"))
-    .join("")}` as Hex;
+  const { proof } = await response.json();
 
   return {
-    proof: proofHex,
+    proof: proof as Hex,
     publicInputs: {
-      newCommitment: bigintToBytes32(BigInt(input.new_commitment)),
-      nullifierIn: bigintToBytes32(BigInt(input.nullifier_in)),
+      value: bigintToBytes32(BigInt(input.value)),
+      nullifier: bigintToBytes32(BigInt(input.nullifier)),
       merkleProofLength: Number(input.merkle_proof_length),
       expectedRoot: bigintToBytes32(BigInt(input.expected_merkle_root)),
+      recipient: bigintToBytes32(BigInt(input.recipient)),
     },
   };
 }

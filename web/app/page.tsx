@@ -187,21 +187,21 @@ export default function LandingPage() {
                   transfer(0x7a3b...9f2e → 0x4d1c...8b3a)
                 </div>
                 <div>
-                  amount: <span className="text-red-400">8,500.00 tokens</span>
+                  amount: <span className="text-destructive">8,500.00 USDC</span>
                 </div>
                 <div className="my-3 border-t border-foreground/5" />
                 <div className="text-muted-foreground">
                   transfer(0x7a3b...9f2e → 0x2e5f...1c7d)
                 </div>
                 <div>
-                  amount: <span className="text-red-400">12,200.00 tokens</span>
+                  amount: <span className="text-destructive">12,200.00 USDC</span>
                 </div>
                 <div className="my-3 border-t border-foreground/5" />
                 <div className="text-muted-foreground">
                   transfer(0x7a3b...9f2e → 0x9b8a...4e6f)
                 </div>
                 <div>
-                  amount: <span className="text-red-400">6,750.00 tokens</span>
+                  amount: <span className="text-destructive">6,750.00 USDC</span>
                 </div>
               </div>
             </motion.div>
@@ -355,7 +355,7 @@ export default function LandingPage() {
                 },
                 {
                   title: "Rewards & airdrops",
-                  text: "Send tokens without letting recipients compare amounts.",
+                  text: "Send stablecoins without letting recipients compare amounts.",
                 },
                 {
                   title: "DAO treasury",
@@ -468,7 +468,7 @@ export default function LandingPage() {
             custom={2}
             className="mb-8 text-muted-foreground"
           >
-            Start distributing tokens with zero-knowledge privacy.
+            Start distributing stablecoins with zero-knowledge privacy.
             <br />
             No setup fees. No KYC for recipients.
           </motion.p>

@@ -1,25 +1,39 @@
 # Blizkperse - Technical Specification
 
-> **Core Concept**: ZK-private payout distribution platform on Monad. Organizers deposit tokens into an escrow, subscribers claim them with zero-knowledge proofs so payment amounts stay hidden on-chain.
-> **Use Case**: Starting with hackathon grants, scaling to payroll, bounties, and social payments.
+> **Core Concept**: Chain-agnostic ZK-private payout distribution platform. Organizers deposit tokens into a shielded pool, subscribers claim them with zero-knowledge proofs so payment amounts stay hidden on-chain.
+> **Use Case**: Payroll privacy, grants, bounties, DAO treasury distributions, and x402 agent payments.
 
 ---
 
 ## 1. Technology Stack
 
-- **Blockchain**: Monad Mainnet (Chain ID 143).
-- **Token Strategy**: Architecture supports any ERC-20. MVP defaults to USDm.
-- **Frontend**: Next.js 16 (App Router, Turbopack), Tailwind CSS v4, Framer Motion.
+- **Blockchain**: Multi-chain EVM. Live on Monad (Chain 143) and Celo (42220).
+- **Token Strategy**: Architecture supports any ERC-20 stablecoin. Defaults to USDC.
+- **Frontend**: Next.js 16 (App Router, Webpack), Tailwind CSS v4, Framer Motion.
 - **UI Components**: shadcn/ui (new-york style, Radix primitives).
 - **Auth & Wallets**: Para SDK (`@getpara/react-sdk`) for social login + embedded wallets.
 - **Database**: PostgreSQL via `postgres` npm package (hosted on Railway).
 - **Smart Contracts**: Foundry (Solidity).
 - **ZK Circuits**: Noir (Aztec).
-- **Design Philosophy**: Agent-ready. The system should be composable so AI agents can trigger payouts programmatically.
+- **Design Philosophy**: Chain-agnostic, agent-ready. The system is composable so AI agents can trigger payouts programmatically via x402.
 
 ---
 
 ## 2. Architecture Overview
+
+### Multi-Chain Support
+The app uses a `ChainProvider` React context that holds the active chain. All contract functions, wallet hooks, and theme colors derive from the selected chain.
+
+```
+ChainProvider (localStorage-persisted)
+  +-- data-chain attr on <html> -> CSS variable swap (per-chain theming)
+  +-- useChain() -> { chainId, chain: ChainConfig, setChainId }
+  +-- contracts.ts functions take ChainConfig param
+  +-- wallet.ts reads chain from useChain()
+  +-- header.tsx shows ChainSelector dropdown
+```
+
+**Supported chains** are defined in `web/lib/constants.ts` as a `CHAINS` registry keyed by chain ID. Adding a new chain requires only adding an entry to this registry and a CSS theme block.
 
 ### Actors
 1. **Organizer**: Creates an organization, manages subscribers, deposits tokens and creates private commitments for recipients.
@@ -44,21 +58,22 @@
 
 #### D. Payout (Deposit & Commit)
 1. Organizer selects subscribers and sets amounts (manual or equal split).
-2. Frontend fetches `zk_public_key` for each recipient.
+2. Organizer selects token from the active chain's token list.
 3. Frontend computes commitments: `Hash(amount, public_key, randomness)`.
-4. Organizer calls `Escrow.deposit(commitments[])`.
+4. Organizer calls `ShieldedPool.deposit(commitment)` on the active chain.
    - Contract pulls tokens.
    - Contract inserts commitments into Merkle Tree.
 5. Payout and individual payment records are stored in the database.
 
 #### E. Claim (Prove & Withdraw)
 1. Subscriber sees "Claimable" payment in their dashboard.
-2. Frontend downloads Merkle path and generates a ZK proof.
-3. Subscriber calls `Escrow.withdraw(proof, nullifier, amount)`.
-   - Contract verifies proof.
+2. Frontend builds Merkle tree from on-chain Deposit events.
+3. Frontend generates a ZK proof using the Noir circuit.
+4. Subscriber calls `ShieldedPool.withdraw(proof, nullifier)`.
+   - Contract verifies proof via HonkVerifier.
    - Contract checks nullifier (double-spend protection).
-   - Contract transfers tokens to `msg.sender`.
-4. Payment status updated to `claimed` in the database.
+   - Contract transfers tokens to recipient.
+5. Payment status updated to `claimed` in the database.
 
 ---
 
@@ -124,44 +139,47 @@ RLS is enabled on all tables. For the demo, public read/write policies are appli
 
 ---
 
-## 4. Smart Contracts (Deployed on Monad Mainnet)
+## 4. Smart Contracts
 
-### Deployed Addresses
-- **HonkVerifier**: `0xf7b2eC9EC33e34431F7f184458aE18Fa418271E3`
-- **WithdrawVerifier**: `0xA465f96F9a0541D7392c5A22bBA7bc5f23e88f7c`
-- **ShieldedPool**: `0x085BD9c0C568BE5093130E2359B00e46cb0800d1`
+### Monad Mainnet (Chain 143)
+- **HonkVerifier**: `0x6b11b3eB54Bbda485D616150A4C85E8629e1A552`
+- **WithdrawVerifier**: `0x4d900D53514140755fe842eb3e0d53b12BBcCD24`
+- **ShieldedPool**: `0x8d44379c778Cb714B72FcaD80dcb5EC7c031343c`
 - **USDC**: `0x754704Bc059F8C67012fEd69BC8A327a5aafb603`
-- **Deployer**: `0xc696DDc31486D5d8b87254d3AA2985F6d0906b3a`
-- **Deployment artifact**: `zk/deployments/monad-mainnet/run-latest.json`
+- **Deploy Block**: 58,002,970
 
-### `BlizkperseEscrow.sol`
+### Celo Mainnet (Chain 42220)
+- **HonkVerifier**: `0x085BD9c0C568BE5093130E2359B00e46cb0800d1`
+- **WithdrawVerifier**: `0xfe231dd394Df5863B02BfA9CFA50f4877961d5b7`
+- **ShieldedPool**: `0xcE61001eb3Cd531784D2Cee9DDAbB17a3fc6B16A`
+- **USDC**: `0xcebA9300f2b948710d2653dD7B07f33A8B32118C`
+- **Deploy Block**: 60,249,143
+
+### `ShieldedPool.sol`
 Manages the Merkle Tree and ZK proof verification.
 
 ```solidity
-contract BlizkperseEscrow {
+contract ShieldedPool {
     IVerifier public verifier;
-    IERC20 public usdm;
+    IERC20 public token;
     mapping(uint256 => bool) public nullifiers;
     MerkleTree public tree;
 
-    function deposit(bytes32[] commitments, uint256 totalAmount) external {
-        usdm.transferFrom(msg.sender, address(this), totalAmount);
-        for (bytes32 c : commitments) {
-            tree.insert(c);
-        }
+    function deposit(bytes32 commitment) external {
+        token.transferFrom(msg.sender, address(this), DENOMINATION);
+        tree.insert(commitment);
     }
 
     function withdraw(
         bytes proof,
         bytes32 root,
-        bytes32 nullifier,
-        uint256 amount
+        bytes32 nullifier
     ) external {
         require(!nullifiers[nullifier], "Double spend");
-        require(verifier.verify(proof, root, nullifier, amount), "Invalid Proof");
+        require(verifier.verify(proof, root, nullifier), "Invalid Proof");
 
         nullifiers[nullifier] = true;
-        usdm.transfer(msg.sender, amount);
+        token.transfer(msg.sender, DENOMINATION);
     }
 }
 ```
@@ -173,13 +191,13 @@ contract BlizkperseEscrow {
 Circuit source: [`zk/`](../zk/)
 
 ### `withdraw.nr` (The Claim Circuit)
-- **Public Inputs**: `root`, `nullifier`, `amount`, `recipient` (bound to msg.sender).
-- **Private Inputs**: `secret_key`, `path_indices`, `path_siblings`, `randomness`.
+- **Public Inputs**: `root`, `nullifier`, `new_commitment`.
+- **Private Inputs**: `value`, `pk_b`, `random`, `merkle_proof_siblings`, `merkle_proof_indices`.
 - **Logic**:
-  1. Reconstruct `commitment = Hash(amount, public_key, randomness)`.
+  1. Reconstruct `commitment = Poseidon2(Poseidon2(value, pk_b), Poseidon2(random, nullifier))`.
   2. Verify `commitment` exists in Merkle Tree at `root`.
-  3. Verify `nullifier = Hash(secret_key, path_indices)` (deterministic).
-  4. Output `root`, `nullifier`, `amount`.
+  3. Verify nullifier is deterministic from the private inputs.
+  4. Output `root`, `nullifier`, `new_commitment`.
 
 ---
 
@@ -191,10 +209,10 @@ Source: [`web/`](../web/)
 ```
 web/
   app/
-    layout.tsx          # Root layout: dark theme, Inter font, Providers, Toaster
-    globals.css         # Monad purple/black theme (oklch), glassmorphism utilities
-    page.tsx            # Landing page (hero, problem, how it works, features)
-    dashboard/page.tsx  # Role selection (Organize / Receive)
+    layout.tsx          # Root layout: dark theme, Geist font
+    client-shell.tsx    # Providers + ChainProvider wrapper
+    globals.css         # Chain-adaptive themes (neutral default, per-chain overrides)
+    page.tsx            # Landing page (hero, use cases, features, CTA)
     payer/
       layout.tsx        # AuthGuard + PageShell wrapper
       page.tsx          # Organizer dashboard (org selector, stats, subscribers, payouts)
@@ -202,23 +220,26 @@ web/
     receive/
       layout.tsx        # AuthGuard + PageShell wrapper
       page.tsx          # Subscriber dashboard (browse orgs, subscriptions, payment history)
-      [id]/page.tsx     # Claim page (view payment, transfer to wallet)
+      [id]/page.tsx     # Claim page (ZK proof generation + withdrawal)
   components/
     providers.tsx       # ParaProvider + QueryClientProvider ("use client")
-    header.tsx          # Nav bar with wallet connect/disconnect
+    header.tsx          # Nav bar with inline SVG logo, ChainSelector, wallet
+    chain-selector.tsx  # Chain switching dropdown
     auth-guard.tsx      # Route protection via useAccount()
     page-shell.tsx      # Page layout wrapper
     tx-status.tsx       # Transaction status animation (idle > pending > success)
-    wallet-display.tsx  # Truncated address + copy
     ui/                 # shadcn/ui components
   lib/
     utils.ts            # cn() helper
-    constants.ts        # App-wide constants
+    constants.ts        # ChainConfig registry, token configs, chain IDs
+    chain-context.tsx   # ChainProvider React context + useChain() hook
+    contracts.ts        # Viem-based contract interactions (chain-parameterized)
+    wallet.ts           # Para wallet client hook (chain-aware)
+    merkle.ts           # Client-side Merkle tree from on-chain events
+    zk.ts               # Noir proof generation helpers
+    store.ts            # Reactive store (useSyncExternalStore + PostgreSQL)
     db.ts               # PostgreSQL client
     database.types.ts   # TypeScript types for DB tables
-    store.ts            # Reactive store (useSyncExternalStore + PostgreSQL)
-    mock-data.ts        # Legacy mock data (unused)
-    mock-actions.ts     # Legacy mock actions (unused)
 ```
 
 ### Reactive Store Pattern
@@ -228,11 +249,14 @@ The app uses `useSyncExternalStore` to maintain a local cache that syncs with Po
 - **Hook**: `useStore()` provides reactive access to the full state.
 
 ### Design System
-- **Theme**: Monad purple/black with oklch color space.
-- **Primary**: `oklch(0.65 0.25 285)` (vibrant purple).
-- **Background**: `oklch(0.09 0.015 280)` (near-black with purple tint).
-- **Custom utilities**: `.glass` (glassmorphism), `.glow-purple` (hover glow), `.gradient-text`.
+- **Theming**: Chain-adaptive with neutral grayscale default. No colors until user selects a chain.
+- **Monad theme**: Purple palette (`oklch(0.65 0.25 285)`) activated via `html[data-chain="monad"]`.
+- **Celo theme**: Yellow/deep-purple palette (Celo brand `#fcff52` + `#1e002b`) via `html[data-chain="celo"]`.
+- **Neutral default**: Pure grayscale, zero chroma.
+- **Custom utilities**: `.glass` (glassmorphism), `.glow-primary` (hover glow), `.gradient-text`.
 - **Dark mode**: Always-on via `className="dark"` on `<html>`.
+- **Logo**: Inline SVG with shield stroke using `currentColor` that adapts to active chain.
+- **Transitions**: `transition-colors duration-500` for smooth theme switching.
 
 ---
 
@@ -245,17 +269,21 @@ DATABASE_URL=                    # PostgreSQL connection string (Railway auto-in
 
 ---
 
-## 8. Monad Network Details
+## 8. Network Details
 
+### Monad (Chain 143)
 - **RPC**: `https://rpc3.monad.xyz`
 - **Chain ID**: `143`
 - **Currency**: `MON`
-- **Explorer**: `https://explorer.monad.xyz`
-- **Speed**: Sub-second finality. UI should feel instant.
+- **Explorer**: `https://monadexplorer.com`
+- **USDC**: `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` (6 decimals)
 
-### Token Addresses
-- **Native Gas Token**: `MON` (for gas fees).
-- **USDC**: `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` (6 decimals).
+### Celo (Chain 42220)
+- **RPC**: `https://forno.celo.org`
+- **Chain ID**: `42220`
+- **Currency**: `CELO`
+- **Explorer**: `https://celoscan.io`
+- **USDC**: `0xcebA9300f2b948710d2653dD7B07f33A8B32118C` (6 decimals)
 
 ---
 
@@ -266,6 +294,7 @@ DATABASE_URL=                    # PostgreSQL connection string (Railway auto-in
 - Set `output: "standalone"` in `next.config.ts`.
 - Add environment variables in Railway dashboard.
 - `NEXT_PUBLIC_*` env vars are inlined at build time.
+- Build command must use `--webpack` flag (Turbopack incompatible with `@aztec/bb.js` WASM).
 
 ### Database (PostgreSQL on Railway)
 1. Add a PostgreSQL service in Railway (or use any PostgreSQL host).

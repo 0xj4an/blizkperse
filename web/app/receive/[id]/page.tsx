@@ -23,14 +23,20 @@ import {
   claimPayment,
 } from "@/lib/store";
 import { useParaWalletClient } from "@/lib/wallet";
-import { useChain } from "@/lib/chain-context";
-import { generateProof, fieldToHex, type ProofInput } from "@/lib/zk";
+import { CHAINS, type SupportedChainId } from "@/lib/constants";
+import {
+  generateProof,
+  fieldToHex,
+  poseidon2,
+  computeEntry,
+  type ProofInput,
+} from "@/lib/zk";
 import { buildTreeFromEvents, rootToHex } from "@/lib/merkle";
 import { registerRoot } from "@/lib/contracts";
 
 const STEP_MESSAGES: Record<string, string> = {
   "loading-notes": "Loading payment data...",
-  "building-tree": "Building merkle tree from on-chain data...",
+  "building-tree": "Recomputing note commitment...",
   "generating-proof": "Generating ZK proof (this may take 10-30 seconds)...",
   "registering-root": "Registering merkle root on-chain...",
   "withdrawing": "Submitting withdrawal transaction...",
@@ -48,13 +54,14 @@ export default function ClaimPage() {
   const [txHash, setTxHash] = useState<string>();
   const [claimed, setClaimed] = useState(payment?.status === "claimed");
   const [claimStep, setClaimStep] = useState<string>("");
+  const [claimExplorerUrl, setClaimExplorerUrl] = useState<string>("");
+  const [claimRecipient, setClaimRecipient] = useState<string>("");
   const { walletClient, address, isReady } = useParaWalletClient();
-  const { chain } = useChain();
   const [destinationAddress, setDestinationAddress] = useState("");
 
   useEffect(() => {
     if (address && !destinationAddress) setDestinationAddress(address);
-  }, [address]);
+  }, [address, destinationAddress]);
 
   if (!payment) {
     return (
@@ -79,9 +86,8 @@ export default function ClaimPage() {
       toast.error("Connect your wallet first");
       return;
     }
-
     if (!destinationAddress || !/^0x[a-fA-F0-9]{40}$/.test(destinationAddress)) {
-      toast.error("Enter a valid wallet address");
+      toast.error("Enter a valid destination wallet address");
       return;
     }
 
@@ -89,58 +95,113 @@ export default function ClaimPage() {
     try {
       // Step 1: Fetch note data for this payment
       setClaimStep("loading-notes");
-      const noteRes = await fetch(`/api/notes?payment_id=${paymentId}`);
-      const notes = noteRes.ok ? await noteRes.json() : [];
-      const noteData = Array.isArray(notes) ? notes[0] : notes;
+      let noteData: { commitment?: string; value?: string; holder_pk?: string; randomness?: string; chain_id?: number } | null = null;
 
-      if (!noteData?.commitment) {
-        throw new Error("No note data found for this payment. The deposit may not have stored note details.");
+      // Prefer notes explicitly linked to this payment
+      const noteRes = await fetch(`/api/notes?payment_id=${paymentId}`);
+      if (noteRes.ok) {
+        const notes = await noteRes.json();
+        noteData = Array.isArray(notes) ? notes[0] : notes;
       }
 
-      // Step 2: Build merkle tree from on-chain Deposit events
-      setClaimStep("building-tree");
-      const tree = await buildTreeFromEvents(chain);
-      const leafIndex = tree.indexOf(BigInt(noteData.commitment));
-      if (leafIndex === -1) throw new Error("Note commitment not found on-chain. The deposit may still be pending.");
+      // Fallback: find latest note for this subscriber (handles older deposits without payment_id)
+      if (!noteData?.commitment && payment.subscriberId) {
+        const fallbackRes = await fetch(
+          `/api/notes?subscriber_id=${payment.subscriberId}`,
+        );
+        if (fallbackRes.ok) {
+          const fallbackNotes = await fallbackRes.json();
+          if (Array.isArray(fallbackNotes) && fallbackNotes.length > 0) {
+            noteData = fallbackNotes[fallbackNotes.length - 1];
+          }
+        }
+      }
 
+      if (!noteData?.commitment || noteData.value == null || noteData.holder_pk == null || noteData.randomness == null) {
+        throw new Error(
+          "No note data found for this payment. The deposit may not have stored note details.",
+        );
+      }
+
+      // Use the note's chain (where the deposit was made), not the currently selected chain
+      const noteChainId = (noteData.chain_id ?? 143) as SupportedChainId;
+      const noteChain = CHAINS[noteChainId];
+      if (!noteChain || noteChain.placeholder) {
+        throw new Error(`Contracts not deployed on ${noteChain?.name ?? "unknown chain"} yet.`);
+      }
+
+      // Step 2: Recompute note values from raw inputs using circuit-matching Poseidon
+      // This handles both old deposits (Poseidon2 on-chain) and new ones (correct Poseidon)
+      setClaimStep("building-tree");
+      const valueBig = BigInt(noteData.value);
+      const holderPk = BigInt(noteData.holder_pk);
+      const randomBig = BigInt(noteData.randomness);
+
+      // Recompute nullifier and commitment with the circuit's Poseidon hash
+      const nullifier = await poseidon2(randomBig, holderPk);
+      const commitment = await computeEntry(
+        valueBig,
+        holderPk,
+        randomBig,
+        nullifier,
+      );
+
+      // Build Merkle tree from on-chain deposits and find this note's path
+      const tree = await buildTreeFromEvents(noteChain);
+      const leafIndex = tree.indexOf(commitment);
+      if (leafIndex === -1) {
+        throw new Error(
+          "Note commitment not found in Merkle tree. The deposit may not be indexed yet.",
+        );
+      }
       const { siblings, indices, root } = await tree.getProof(leafIndex);
 
-      // Step 3: Generate ZK proof
+      // Step 3: Generate ZK proof (withdraw circuit)
+      // recipient = where to send the 1 USDC; can be any address (e.g. connected wallet).
+      // pk_b = note owner (from note data); must match for nullifier/commitment.
       setClaimStep("generating-proof");
+      const recipientField = fieldToHex(BigInt(destinationAddress));
+      const merkleProofLength = String(siblings.length);
       const proofInput: ProofInput = {
-        new_commitment: "0x" + "0".repeat(64),
-        nullifier_in: noteData.nullifier,
-        merkle_proof_length: String(indices.length),
+        value: fieldToHex(valueBig),
+        nullifier: fieldToHex(nullifier),
+        merkle_proof_length: merkleProofLength,
         expected_merkle_root: fieldToHex(root),
-        value: noteData.value,
-        pk_b: noteData.holder_pk,
-        random: noteData.randomness,
-        from: noteData.holder_pk,
+        recipient: recipientField,
+        pk_b: fieldToHex(holderPk),
+        random: fieldToHex(randomBig),
         merkle_proof_indices: indices,
-        merkle_proof_siblings: siblings.map((s: bigint) => fieldToHex(s)),
+        merkle_proof_siblings: siblings.map((sibling) => fieldToHex(sibling)),
       };
       const proofResult = await generateProof(proofInput);
 
       // Step 4: Register root on-chain (may already exist)
       setClaimStep("registering-root");
       try {
-        await registerRoot(walletClient, chain, rootToHex(root));
+        await registerRoot(walletClient, noteChain, rootToHex(root));
       } catch {
         // Root may already be registered - OK
       }
 
       // Step 5: Submit withdrawal
       setClaimStep("withdrawing");
-      const result = await claimPayment(paymentId, walletClient, proofResult, chain);
+      const result = await claimPayment(paymentId, walletClient, proofResult, noteChain);
       setTxHash(result.txHash);
+      setClaimExplorerUrl(noteChain.explorerUrl);
+      setClaimRecipient(destinationAddress);
       setTxState("success");
       setClaimed(true);
       toast.success("Payment claimed successfully!");
     } catch (err) {
       console.error("Claim failed:", err);
       setTxState("error");
-      const msg = err instanceof Error ? err.message : "Claim failed";
-      toast.error(msg.includes("User rejected") ? "Transaction cancelled" : msg);
+      const raw = err instanceof Error ? err.message : "Claim failed";
+      const msg = raw.includes("User rejected")
+        ? "Transaction cancelled"
+        : raw.includes("SumcheckFailed") || raw.includes("0x9fc3a218")
+          ? "Proof verification failed (SumcheckFailed). The deployed WithdrawVerifier may not match the circuit used by this app. Recompile and redeploy the verifier from the same zk/circuits build used by /api/generate-proof."
+          : raw;
+      toast.error(msg);
     }
   };
 
@@ -196,10 +257,15 @@ export default function ClaimPage() {
               {claimed && (payment.claimedAt || txHash) && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Tx Hash</span>
-                  <span className="font-mono text-xs text-muted-foreground">
+                  <a
+                    href={`${claimExplorerUrl || CHAINS[143].explorerUrl}/tx/${txHash || payment.txHash || ""}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-xs text-primary hover:underline"
+                  >
                     {(txHash || payment.txHash || "").slice(0, 10)}...
                     {(txHash || payment.txHash || "").slice(-8)}
-                  </span>
+                  </a>
                 </div>
               )}
             </div>
@@ -208,7 +274,7 @@ export default function ClaimPage() {
               <div className="space-y-3">
                 <div className="space-y-2">
                   <label className="text-sm text-muted-foreground">
-                    Destination wallet
+                    Destination wallet (receives the 1 USDC)
                   </label>
                   <Input
                     placeholder="0x..."
@@ -241,8 +307,8 @@ export default function ClaimPage() {
             {(txState === "pending" || txState === "success" || txState === "error") && (
               <TxStatus
                 state={txState}
-                txHash={txHash}
                 successMessage="Payment transferred to your wallet!"
+                successDetail={claimRecipient ? `Received by: ${claimRecipient.slice(0, 6)}...${claimRecipient.slice(-4)}` : undefined}
                 progressMessage={STEP_MESSAGES[claimStep] || "Processing..."}
               />
             )}

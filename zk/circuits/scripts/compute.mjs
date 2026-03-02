@@ -9,10 +9,10 @@ function bytesToBigIntBE(bytes) {
 }
 
 const toBigInt = (frOrBytes) => {
-  // frOrBytes puede ser Fr o Uint8Array/number[]
+  // frOrBytes can be Fr or Uint8Array/number[]
   if (typeof frOrBytes === "bigint") return frOrBytes;
 
-  // Fr suele tener toBuffer()/toBytes() dependiendo versión
+  // Fr usually has toBuffer()/toBytes() depending on version
   if (frOrBytes instanceof Fr) {
     const buf = frOrBytes.toBuffer?.() ?? frOrBytes.toBytes?.();
     return bytesToBigIntBE(buf);

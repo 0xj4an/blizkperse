@@ -13,10 +13,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ChainSelector } from "@/components/chain-selector";
 import { LogIn, ChevronDown, LayoutDashboard, HandCoins, LogOut, Copy, Check } from "lucide-react";
-import { useState, useEffect } from "react";
-import { getAllBalances } from "@/lib/contracts";
+import { useState } from "react";
 import { useChain } from "@/lib/chain-context";
-import type { Hex } from "viem";
 
 function truncateAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -26,20 +24,10 @@ export function Header() {
   const { isConnected, embedded } = useAccount();
   const { openModal } = useModal();
   const { logout } = useLogout();
-  const { chain } = useChain();
+  useChain();
   const [copied, setCopied] = useState(false);
-  const [balances, setBalances] = useState<Record<string, bigint>>({});
 
   const address = embedded?.wallets?.[0]?.address;
-
-  useEffect(() => {
-    if (!address) return;
-    getAllBalances(chain, address as Hex).then(setBalances).catch(() => {});
-    const interval = setInterval(() => {
-      getAllBalances(chain, address as Hex).then(setBalances).catch(() => {});
-    }, 30_000);
-    return () => clearInterval(interval);
-  }, [address, chain.id]);
 
   const copyAddress = async () => {
     if (!address) return;
@@ -64,10 +52,10 @@ export function Header() {
                   fill="none"
                   opacity="0.7"
                 />
-                <circle cx="26" cy="24" r="5" stroke="white" strokeWidth="1.8" fill="none" />
-                <line x1="26" y1="29" x2="26" y2="35" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+                <circle cx="26" cy="24" r="5" stroke="currentColor" strokeWidth="1.8" fill="none" opacity="0.9" />
+                <line x1="26" y1="29" x2="26" y2="35" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" opacity="0.9" />
               </g>
-              <text x="62" y="38" fontFamily="'Geist', 'Inter', ui-monospace, monospace" fontSize="28" fontWeight="700" fill="white" letterSpacing="-0.01em" opacity="0.9">blizkperse</text>
+              <text x="62" y="38" fontFamily="'Geist', 'Inter', ui-monospace, monospace" fontSize="28" fontWeight="700" fill="currentColor" letterSpacing="-0.01em" opacity="0.9">blizkperse</text>
             </svg>
           </Link>
 
@@ -95,24 +83,6 @@ export function Header() {
 
           {isConnected && address ? (
             <>
-              {/* Balances */}
-              {Object.keys(balances).length > 0 && (
-                <div className="hidden items-center gap-1.5 md:flex">
-                  {chain.tokens.map((t) => {
-                    const raw = balances[t.symbol];
-                    if (raw === undefined) return null;
-                    const formatted = Number(raw) / 10 ** t.decimals;
-                    return (
-                      <Badge key={t.symbol} variant="outline" className="gap-1 font-mono text-xs">
-                        {formatted < 0.01 && formatted > 0
-                          ? "<0.01"
-                          : formatted.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                        <span className="text-muted-foreground">{t.symbol}</span>
-                      </Badge>
-                    );
-                  })}
-                </div>
-              )}
               <Badge
                 variant="secondary"
                 className="cursor-pointer gap-1.5 font-mono text-xs transition-colors hover:bg-secondary/80"
@@ -132,30 +102,6 @@ export function Header() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-52">
-                  {/* Mobile balances */}
-                  {Object.keys(balances).length > 0 && (
-                    <>
-                      <div className="px-2 py-1.5 md:hidden">
-                        <p className="mb-1 text-xs font-medium text-muted-foreground">Balances</p>
-                        {chain.tokens.map((t) => {
-                          const raw = balances[t.symbol];
-                          if (raw === undefined) return null;
-                          const formatted = Number(raw) / 10 ** t.decimals;
-                          return (
-                            <div key={t.symbol} className="flex items-center justify-between py-0.5 text-sm">
-                              <span>{t.symbol}</span>
-                              <span className="font-mono">
-                                {formatted < 0.01 && formatted > 0
-                                  ? "<0.01"
-                                  : formatted.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <DropdownMenuSeparator className="md:hidden" />
-                    </>
-                  )}
                   <Link href="/payer" className="md:hidden">
                     <DropdownMenuItem>
                       <LayoutDashboard className="mr-2 h-4 w-4" />

@@ -4,6 +4,7 @@ pragma solidity ^0.8.17;
 import "forge-std/Script.sol";
 import "forge-std/console2.sol";
 
+import "../contract/Verifier.sol";
 import "../contract/Starter.sol";
 
 contract VerifyScript is Script {
@@ -18,7 +19,7 @@ contract VerifyScript is Script {
         // Deploy verifier + wrapper
         // NOTE: HonkVerifier symbol must come from Starter.sol importing Verifier.sol.
         HonkVerifier verifier = new HonkVerifier();
-        starter = new Starter(verifier);
+        starter = new Starter(IVerifier(address(verifier)));
 
         // Proof: single-line hex string, must start with 0x
         string memory proofHex = vm.readLine("./circuits/proofs/with_foundry.proof");

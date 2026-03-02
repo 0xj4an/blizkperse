@@ -209,16 +209,16 @@ html[data-chain="celo"] .dark {
     backdrop-filter: blur(24px);
     border: 1px solid oklch(1 0 0 / 0.08);
   }
-  .glow-purple {
-    box-shadow: 0 0 60px oklch(0.65 0.25 285 / 0.15),
-      0 0 120px oklch(0.65 0.25 285 / 0.05);
+  .glow-primary {
+    box-shadow: 0 0 60px oklch(from var(--primary) l c h / 0.15),
+      0 0 120px oklch(from var(--primary) l c h / 0.05);
   }
   .gradient-text {
     background: linear-gradient(
       135deg,
-      oklch(0.78 0.18 285),
-      oklch(0.65 0.25 285),
-      oklch(0.6 0.2 300)
+      oklch(from var(--primary) calc(l + 0.13) calc(c * 0.72) h),
+      var(--primary),
+      oklch(from var(--primary) calc(l - 0.05) calc(c * 0.8) calc(h + 15))
     );
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;

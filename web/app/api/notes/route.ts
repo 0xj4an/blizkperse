@@ -11,9 +11,9 @@ export async function GET(req: NextRequest) {
     ? await sql`SELECT * FROM notes WHERE payment_id = ${paymentId}`
     : subscriberId
       ? await sql`
-          SELECT n.* FROM notes n
-          JOIN payments p ON p.id = n.payment_id
-          WHERE p.subscriber_id = ${subscriberId}
+          SELECT * FROM notes
+          WHERE subscriber_id = ${subscriberId}
+          ORDER BY created_at ASC
         `
       : await sql`SELECT * FROM notes`;
 
@@ -23,8 +23,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   await ensureSchema();
 
-  const { subscriber_id, commitment, value, holder_pk, randomness, nullifier } =
-    await req.json();
+  const {
+    subscriber_id,
+    chain_id,
+    commitment,
+    value,
+    holder_pk,
+    randomness,
+    nullifier,
+  } = await req.json();
 
   // Find the most recent claimable payment for this subscriber
   const [payment] = await sql`
@@ -35,8 +42,8 @@ export async function POST(req: NextRequest) {
   `;
 
   const [row] = await sql`
-    INSERT INTO notes (payment_id, commitment, value, holder_pk, randomness, nullifier)
-    VALUES (${payment?.id ?? null}, ${commitment}, ${value}, ${holder_pk}, ${randomness}, ${nullifier})
+    INSERT INTO notes (payment_id, subscriber_id, chain_id, commitment, value, holder_pk, randomness, nullifier)
+    VALUES (${payment?.id ?? null}, ${subscriber_id ?? null}, ${chain_id ?? 143}, ${commitment}, ${value}, ${holder_pk}, ${randomness}, ${nullifier})
     RETURNING *
   `;
 

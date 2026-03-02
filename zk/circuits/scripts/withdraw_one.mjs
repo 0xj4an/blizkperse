@@ -1,12 +1,12 @@
 /**
- * Llama pool.withdraw(proof, publicInputs) para retirar 1 USDC al recipient.
- * Orden publicInputs: [value, nullifier, merkle_proof_length, expected_merkle_root, recipient].
+ * Calls pool.withdraw(proof, publicInputs) to withdraw 1 USDC to the recipient.
+ * publicInputs order: [value, nullifier, merkle_proof_length, expected_merkle_root, recipient].
  *
- * Requiere: MONAD_RPC, PROOF_FILE. Para firmar la tx: B_PRIVATE_KEY (recomendado para wallet B) o PRIVATE_KEY.
- * Opcional: POOL_ADDRESS, WITHDRAW_VALUE, NULLIFIER, MERKLE_PROOF_LENGTH, EXPECTED_ROOT, RECIPIENT
- *           (si no se pasan, se leen de WithdrawProver.toml)
+ * Requires: MONAD_RPC, PROOF_FILE. To sign the tx: B_PRIVATE_KEY (recommended for wallet B) or PRIVATE_KEY.
+ * Optional: POOL_ADDRESS, WITHDRAW_VALUE, NULLIFIER, MERKLE_PROOF_LENGTH, EXPECTED_ROOT, RECIPIENT
+ *           (if not provided, read from WithdrawProver.toml)
  *
- * Uso (wallet B en la demo):
+ * Usage (wallet B in demo):
  *   B_PRIVATE_KEY=0x... PROOF_FILE=circuits/proofs/withdraw.proof node circuits/scripts/withdraw_one.mjs
  */
 import fs from "fs";

@@ -8,6 +8,8 @@ export type TxState = "idle" | "pending" | "success" | "error";
 interface TxStatusProps {
   state: TxState;
   txHash?: string;
+  /** When set, shown below successMessage instead of txHash (e.g. "Received by: 0x1234...5678") */
+  successDetail?: string;
   successMessage?: string;
   errorMessage?: string;
   progressMessage?: string;
@@ -16,6 +18,7 @@ interface TxStatusProps {
 export function TxStatus({
   state,
   txHash,
+  successDetail,
   successMessage = "Transaction confirmed",
   errorMessage = "Transaction failed",
   progressMessage,
@@ -51,7 +54,10 @@ export function TxStatus({
               <CheckCircle2 className="h-10 w-10 text-green-500/80" />
             </motion.div>
             <p className="text-sm font-medium">{successMessage}</p>
-            {txHash && (
+            {successDetail && (
+              <p className="font-mono text-xs text-muted-foreground">{successDetail}</p>
+            )}
+            {!successDetail && txHash && (
               <p className="font-mono text-xs text-muted-foreground">
                 {txHash.slice(0, 10)}...{txHash.slice(-8)}
               </p>

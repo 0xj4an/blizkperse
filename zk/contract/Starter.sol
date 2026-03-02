@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.17;
 
-import "../circuits/target/Verifier.sol";
+import "./Verifier.sol";
 
 contract Starter {
     IVerifier public verifier;
