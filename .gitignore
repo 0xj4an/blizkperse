@@ -7,9 +7,6 @@ Thumbs.db
 .env.*
 !.env.example
 
-# ── Private Docs ────────────────────────────────────
-docs/hackathon_submission.md
-
 # ── Node / Next.js (web/) ───────────────────────────
 node_modules/
 .pnp

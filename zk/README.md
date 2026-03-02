@@ -2,7 +2,7 @@
 
 Noir ZK circuits and Foundry smart contracts for the Blizkperse shielded pool.
 
-> **Withdraw verifier + frontend:** For withdrawals from the web to work, the verifier must be compiled from this repo with `circuits/scripts/compile_withdraw_verifier.sh` and the API must use the same flags (`bb prove --oracle_hash keccak`). See **[docs/BUILD_AND_DEPLOY.md](docs/BUILD_AND_DEPLOY.md)** to avoid SumcheckFailed errors.
+> **Withdraw verifier + frontend:** For withdrawals from the web to work, the verifier must be compiled from this repo with `circuits/scripts/compile_withdraw_verifier.sh` and the API must use the same flags (`bb prove --oracle_hash keccak`). See **[docs/build-and-deploy.md](docs/build-and-deploy.md)** to avoid SumcheckFailed errors.
 
 ## Prerequisites
 
@@ -32,6 +32,13 @@ Noir ZK circuits and Foundry smart contracts for the Blizkperse shielded pool.
    ```
 
 5. Install [bbup](https://github.com/AztecProtocol/aztec-packages/blob/master/barretenberg/bbup/README.md#installation) (Barretenberg CLI manager), then run `bbup`.
+
+6. Configure environment:
+
+   ```bash
+   cp .env.example .env
+   # Fill in PRIVATE_KEY, POOL_ADDRESS, USDC_ADDRESS, and RPC URL
+   ```
 
 ## Project Structure
 
@@ -99,6 +106,6 @@ After deploying, update:
 
 ## Documentation
 
-- [Build & Deploy Guide](docs/BUILD_AND_DEPLOY.md) - Avoiding SumcheckFailed, deployment checklist
-- [Deposit/Withdraw Demo](docs/DEMO_DEPOSIT_WITHDRAW.md) - Step-by-step CLI demo
-- [Testing Guide](docs/TEST_DEPOSIT_WITHDRAW.md) - Anonymity validation, proof generation
+- [Build & Deploy Guide](docs/build-and-deploy.md) - Avoiding SumcheckFailed, deployment checklist
+- [Deposit/Withdraw Demo](docs/demo-deposit-withdraw.md) - Step-by-step CLI demo
+- [Testing Guide](docs/test-deposit-withdraw.md) - Anonymity validation, proof generation

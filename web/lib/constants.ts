@@ -1,7 +1,3 @@
-export const SITE_NAME = "Blizkperse";
-export const SITE_DESCRIPTION =
-  "Private stablecoin payments on any chain";
-
 // ── Token config ────────────────────────────────────────
 
 export interface TokenConfig {

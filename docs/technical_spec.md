@@ -141,19 +141,7 @@ RLS is enabled on all tables. For the demo, public read/write policies are appli
 
 ## 4. Smart Contracts
 
-### Monad Mainnet (Chain 143)
-- **HonkVerifier**: `0x6b11b3eB54Bbda485D616150A4C85E8629e1A552`
-- **WithdrawVerifier**: `0x4d900D53514140755fe842eb3e0d53b12BBcCD24`
-- **ShieldedPool**: `0x8d44379c778Cb714B72FcaD80dcb5EC7c031343c`
-- **USDC**: `0x754704Bc059F8C67012fEd69BC8A327a5aafb603`
-- **Deploy Block**: 58,002,970
-
-### Celo Mainnet (Chain 42220)
-- **HonkVerifier**: `0x085BD9c0C568BE5093130E2359B00e46cb0800d1`
-- **WithdrawVerifier**: `0xfe231dd394Df5863B02BfA9CFA50f4877961d5b7`
-- **ShieldedPool**: `0xcE61001eb3Cd531784D2Cee9DDAbB17a3fc6B16A`
-- **USDC**: `0xcebA9300f2b948710d2653dD7B07f33A8B32118C`
-- **Deploy Block**: 60,249,143
+All contract addresses, deploy blocks, and token configs are maintained in [`web/lib/constants.ts`](../web/lib/constants.ts). See the root [README Supported Chains table](../README.md#supported-chains) for a quick reference.
 
 ### `ShieldedPool.sol`
 Manages the Merkle Tree and ZK proof verification.
@@ -271,19 +259,7 @@ DATABASE_URL=                    # PostgreSQL connection string (Railway auto-in
 
 ## 8. Network Details
 
-### Monad (Chain 143)
-- **RPC**: `https://rpc3.monad.xyz`
-- **Chain ID**: `143`
-- **Currency**: `MON`
-- **Explorer**: `https://monadexplorer.com`
-- **USDC**: `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` (6 decimals)
-
-### Celo (Chain 42220)
-- **RPC**: `https://forno.celo.org`
-- **Chain ID**: `42220`
-- **Currency**: `CELO`
-- **Explorer**: `https://celoscan.io`
-- **USDC**: `0xcebA9300f2b948710d2653dD7B07f33A8B32118C` (6 decimals)
+All network details (RPC URLs, chain IDs, native currencies, explorers, token addresses) are defined in [`web/lib/constants.ts`](../web/lib/constants.ts). See the root [README Supported Chains table](../README.md#supported-chains) for a summary.
 
 ---
 
@@ -301,3 +277,12 @@ DATABASE_URL=                    # PostgreSQL connection string (Railway auto-in
 2. Railway auto-injects `DATABASE_URL` into the app service.
 3. The app auto-creates tables on first API call via `ensureSchema()` in `lib/db.ts`.
 4. Alternatively, run `sql/schema.sql` manually to pre-create tables.
+
+---
+
+## Related Documentation
+
+- [Root README](../README.md) - Project overview, supported chains, quick start
+- [Integration Guide](integration_guide.md) - Frontend to ZK to Contract wiring
+- [Brand Kit](brand_kit.md) - Color palette, typography, chain-adaptive theming
+- [ZK README](../zk/README.md) - Circuits, contracts, verifier generation
