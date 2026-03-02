@@ -1,6 +1,6 @@
 "use client";
 
-import { ParaProvider, Environment } from "@getpara/react-sdk";
+import { ParaProvider, ParaModal, Environment } from "@getpara/react-sdk";
 import "@getpara/react-sdk/styles.css";
 
 export function ParaWrapper({
@@ -24,6 +24,7 @@ export function ParaWrapper({
       }}
     >
       {children}
+      <ParaModal />
     </ParaProvider>
   );
 }
