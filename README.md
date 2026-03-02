@@ -104,7 +104,7 @@ blizkperse/
 │   ├── script/             # Foundry deploy scripts
 │   └── docs/               # Build, deploy, and testing guides
 ├── sql/                    # Database schema
-└── docs/                   # Architecture, integration, pitch, brand
+└── docs/                   # Architecture, integration, brand
 ```
 
 ---
@@ -165,25 +165,19 @@ Every doc in the project, organized by area.
 | File | Description |
 | --- | --- |
 | [`zk/README.md`](zk/README.md) | Noir + Foundry setup, verifier generation, deployed contract addresses |
-| [`zk/docs/BUILD_AND_DEPLOY.md`](zk/docs/BUILD_AND_DEPLOY.md) | Verifier compilation, deployment checklist, avoiding SumcheckFailed |
-| [`zk/docs/DEMO_DEPOSIT_WITHDRAW.md`](zk/docs/DEMO_DEPOSIT_WITHDRAW.md) | Step-by-step CLI demo: compile, deploy, deposit, withdraw |
-| [`zk/docs/TEST_DEPOSIT_WITHDRAW.md`](zk/docs/TEST_DEPOSIT_WITHDRAW.md) | On-chain anonymity validation, proof generation, testing guide |
+| [`zk/docs/build-and-deploy.md`](zk/docs/build-and-deploy.md) | Verifier compilation, deployment checklist, avoiding SumcheckFailed |
+| [`zk/docs/demo-deposit-withdraw.md`](zk/docs/demo-deposit-withdraw.md) | Step-by-step CLI demo: compile, deploy, deposit, withdraw |
+| [`zk/docs/test-deposit-withdraw.md`](zk/docs/test-deposit-withdraw.md) | On-chain anonymity validation, proof generation, testing guide |
 
-### Brand & Pitch
+### Brand & Design
 
 | File | Description |
 | --- | --- |
 | [`docs/brand_kit.md`](docs/brand_kit.md) | Color palette (oklch), typography, chain-adaptive theming rules |
 
-### Hackathon
-
-| File | Description |
-| --- | --- |
-| [`docs/hackathon/`](docs/hackathon/) | Pitch deck, slides, submission form, HTML presentations |
-
 ---
 
 ## Team
 
-- [**0xj4an**](https://github.com/0xj4an) - Frontend, Documentation, Product
+- [**0xj4an**](https://github.com/0xj4an) - Dev Lead, Frontend, Product
 - [**ArturVargas**](https://github.com/ArturVargas) - ZK Circuits, Contracts, Deploy Scripts

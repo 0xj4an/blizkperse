@@ -53,6 +53,32 @@ lib/
   db.ts                 # PostgreSQL client
 ```
 
+## Architecture Overview
+
+The frontend is chain-adaptive: it starts with a neutral grayscale theme and applies chain-specific colors (purple for Monad, yellow for Celo) when the user selects a chain. The `ChainProvider` context gates the entire app behind chain selection, then exposes the active `ChainConfig` to all components.
+
+State management uses a reactive store pattern (`useSyncExternalStore`) backed by PostgreSQL. Mutations write to the database first, then update the local cache and trigger re-renders.
+
+Authentication is handled by Para SDK, which provides social login and embedded wallets as a client-only provider.
+
+## Key Libraries
+
+| Package | Version | Purpose |
+|---|---|---|
+| `@noir-lang/noir_js` | `1.0.0-beta.0` | Noir circuit compilation and witness generation |
+| `@aztec/bb.js` | `0.63.1` | Barretenberg WASM prover (UltraHonk) |
+| `@getpara/react-sdk` | latest | Social login + embedded wallets |
+| `viem` | latest | EVM contract interactions |
+| `postgres` | latest | PostgreSQL client (no ORM) |
+
+## Common Issues
+
+| Issue | Cause | Fix |
+|---|---|---|
+| `worker_threads` error on dev/build | Turbopack incompatible with `@aztec/bb.js` WASM | Use `--webpack` flag: `npm run dev -- --webpack` |
+| Para hydration mismatch | Para SDK is client-only | Wrap Para components with `"use client"` directive |
+| Framer Motion `ease` type error | TypeScript strict mode | Add `as const` to ease arrays |
+
 ## Deployment (Railway)
 
 1. Connect GitHub repo for automated deployments
@@ -61,3 +87,10 @@ lib/
 4. Railway auto-injects `DATABASE_URL`
 
 Build uses `output: "standalone"` in `next.config.ts`.
+
+## Related Documentation
+
+- [Technical Spec](../docs/technical_spec.md) - Full architecture, contract interfaces, DB schema
+- [Integration Guide](../docs/integration_guide.md) - Frontend to ZK to Contract wiring
+- [Brand Kit](../docs/brand_kit.md) - Color palette, typography, theming rules
+- [ZK README](../zk/README.md) - Circuits, contracts, deployment

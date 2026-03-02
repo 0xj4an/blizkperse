@@ -1,5 +1,7 @@
 # Blizkperse Brand Kit
 
+> CSS implementation: [`web/app/globals.css`](../web/app/globals.css)
+
 ## Logo
 
 The logo is a shield icon with a lock cutout, paired with the "blizkperse" wordmark. The shield stroke color adapts to the active chain via `currentColor`.

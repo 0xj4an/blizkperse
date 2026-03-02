@@ -1,6 +1,6 @@
 /**
  * Generate withdraw proof. Must use the SAME bb flags as zk/circuits/scripts/compile_withdraw_verifier.sh
- * (bb prove --oracle_hash keccak). See zk/docs/BUILD_AND_DEPLOY.md.
+ * (bb prove --oracle_hash keccak). See zk/docs/build-and-deploy.md.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { exec } from "child_process";
