@@ -6,10 +6,33 @@ import { NextRequest, NextResponse } from "next/server";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { writeFile, readFile, unlink, rm } from "fs/promises";
+import { existsSync } from "fs";
 import path from "path";
 import { randomBytes } from "crypto";
 
 const execAsync = promisify(exec);
+
+// Resolve the circuits directory robustly across dev/standalone/Docker environments.
+// In dev mode: cwd = web/ → ../zk/circuits
+// In standalone: cwd = .next/standalone/ → ../../zk/circuits (or env var)
+function resolveCircuitDir(): string {
+  if (process.env.CIRCUITS_DIR) {
+    return process.env.CIRCUITS_DIR;
+  }
+  const candidates = [
+    path.resolve(process.cwd(), "..", "zk", "circuits"),
+    path.resolve(process.cwd(), "zk", "circuits"),
+    path.resolve(process.cwd(), "..", "..", "zk", "circuits"),
+  ];
+  for (const dir of candidates) {
+    if (existsSync(path.join(dir, "Nargo.toml"))) {
+      return dir;
+    }
+  }
+  throw new Error(
+    `Circuit directory not found. Set CIRCUITS_DIR env var. Searched: ${candidates.join(", ")}`,
+  );
+}
 
 // Simple in-memory lock to prevent concurrent proof generation
 // (since we use the same Prover.toml file)
@@ -49,7 +72,7 @@ export async function POST(req: NextRequest) {
     // Use standard Prover.toml (nargo always looks for this file)
     // Generate unique witness/proof names to avoid conflicts
     const sessionId = randomBytes(8).toString("hex");
-    const circuitDir = path.resolve(process.cwd(), "..", "zk", "circuits");
+    const circuitDir = resolveCircuitDir();
     const proverFile = path.join(circuitDir, "Prover.toml");
     const proofDir = path.join(circuitDir, "proofs", `proof_${sessionId}.proof`);
     const proofFile = path.join(proofDir, "proof");

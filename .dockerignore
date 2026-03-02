@@ -1,0 +1,12 @@
+**/node_modules
+**/.next
+**/.git
+**/out
+**/*.env
+**/*.env.*
+web/.env.local
+zk/out
+zk/cache
+zk/broadcast
+zk/deployments
+zk/circuits/proofs
