@@ -33,8 +33,8 @@ RUN npm run build
 # ── Stage 2: Runtime ─────────────────────────────────────
 FROM node:20-bookworm AS runner
 
-# bb requires libc++ (LLVM C++ runtime)
-RUN apt-get update && apt-get install -y --no-install-recommends libc++1 && rm -rf /var/lib/apt/lists/*
+# bb requires libc++ (LLVM C++ runtime) and jq (JSON processing)
+RUN apt-get update && apt-get install -y --no-install-recommends libc++1 jq && rm -rf /var/lib/apt/lists/*
 
 # Copy nargo + bb with their full home dirs (includes dependency cache)
 COPY --from=builder /root/.nargo /root/.nargo
