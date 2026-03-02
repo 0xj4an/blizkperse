@@ -20,6 +20,10 @@ COPY zk/circuits/ ./zk/circuits/
 RUN cd zk/circuits && nargo compile
 
 # Build Next.js
+# Railway passes env vars as build args automatically when declared with ARG
+ARG NEXT_PUBLIC_PARA_API_KEY
+ENV NEXT_PUBLIC_PARA_API_KEY=${NEXT_PUBLIC_PARA_API_KEY}
+
 WORKDIR /app/web
 COPY web/package*.json ./
 RUN npm ci
