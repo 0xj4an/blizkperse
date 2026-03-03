@@ -54,11 +54,16 @@ FROM ubuntu:24.04 AS runner
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# bb requires libc++ (LLVM C++ runtime) and jq (JSON processing)
+# Node 22 (to run server.js) + bb deps (libc++, jq)
 RUN apt-get update && apt-get install -y --no-install-recommends \
   ca-certificates \
+  curl \
+  gnupg \
   libc++1 \
   jq && \
+  rm -rf /var/lib/apt/lists/* && \
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+  apt-get update && apt-get install -y --no-install-recommends nodejs && \
   rm -rf /var/lib/apt/lists/*
 
 # Copy nargo + bb with their full home dirs (includes dependency cache)
