@@ -6,7 +6,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const { tx_hash } = await req.json();
+  const body = await req.json().catch(() => ({}));
+  const tx_hash = body?.tx_hash ?? null;
 
   const [row] = await sql`
     UPDATE payments

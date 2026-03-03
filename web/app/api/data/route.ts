@@ -10,7 +10,13 @@ export async function GET() {
       sql`SELECT * FROM subscribers`,
       sql`SELECT * FROM subscriptions`,
       sql`SELECT * FROM payouts ORDER BY created_at DESC`,
-      sql`SELECT * FROM payments`,
+      // Include chain_id and note id from the payment's note for filtering and UI
+      sql`
+        SELECT p.*,
+          (SELECT n.chain_id FROM notes n WHERE n.payment_id = p.id ORDER BY n.created_at DESC LIMIT 1) AS chain_id,
+          (SELECT n.id FROM notes n WHERE n.payment_id = p.id ORDER BY n.created_at DESC LIMIT 1) AS note_id
+        FROM payments p
+      `,
     ]);
 
   return NextResponse.json({

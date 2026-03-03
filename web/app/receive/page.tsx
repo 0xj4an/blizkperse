@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { invalidateAndRefetchStore } from "@/lib/store";
 import { toast } from "sonner";
 import { useAccount } from "@getpara/react-sdk";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,6 +24,8 @@ import {
   ensureSubscriber,
   joinOrganizer,
 } from "@/lib/store";
+import { useChain } from "@/lib/chain-context";
+import { CHAINS, type SupportedChainId } from "@/lib/constants";
 
 export default function ReceiveDashboard() {
   const { embedded } = useAccount();
@@ -36,15 +39,25 @@ export default function ReceiveDashboard() {
     ensureSubscriber(address).then((sub) => setSubId(sub.id));
   }, [address]);
 
+  const { chainId: selectedChainId } = useChain();
   const mySubscriptions = store.subscriptions.filter(
     (s) => s.subscriberId === subId
   );
-  const myPayments = store.payments.filter(
+  const myPaymentsAll = store.payments.filter(
     (p) => p.subscriberId === subId
+  );
+  // Show payments on the selected chain, or payments with no note yet (chain_id null) so they aren’t hidden
+  const myPayments = myPaymentsAll.filter(
+    (p) => p.chainId == null || p.chainId === selectedChainId
   );
   const subscribedOrgIds = new Set(mySubscriptions.map((s) => s.organizerId));
 
   const [joining, setJoining] = useState<string | null>(null);
+
+  // Refetch store when entering receive so payment status (claimable/claimed) matches DB
+  useEffect(() => {
+    invalidateAndRefetchStore();
+  }, []);
 
   const handleJoin = async (organizerId: string) => {
     if (!subId) return;
@@ -177,14 +190,25 @@ export default function ReceiveDashboard() {
         </Card>
       </TabsContent>
 
-      {/* Payment History */}
+      {/* Payment History — only payments whose note is on the selected chain */}
       <TabsContent value="history">
         <Card className="overflow-hidden">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">
+              History
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Claimable payments on {CHAINS[selectedChainId]?.name ?? "this network"}.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Organizer</TableHead>
                 <TableHead>Amount</TableHead>
+                <TableHead>Payout ID</TableHead>
+                <TableHead>Note ID</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
@@ -192,6 +216,9 @@ export default function ReceiveDashboard() {
             <TableBody>
               {myPayments.map((payment) => {
                 const org = getOrganizerById(payment.organizerId);
+                const explorerUrl = (payment.chainId === 143 || payment.chainId === 42220)
+                  ? CHAINS[payment.chainId as SupportedChainId].explorerUrl
+                  : CHAINS[143].explorerUrl;
                 return (
                   <TableRow key={payment.id}>
                     <TableCell className="font-medium">
@@ -199,6 +226,12 @@ export default function ReceiveDashboard() {
                     </TableCell>
                     <TableCell>
                       ${payment.amount.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground" title={payment.payoutId}>
+                      {payment.payoutId.slice(0, 8)}…
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground" title={payment.noteId ?? ""}>
+                      {payment.noteId ? `${payment.noteId.slice(0, 8)}…` : "—"}
                     </TableCell>
                     <TableCell>
                       <Badge
@@ -213,7 +246,7 @@ export default function ReceiveDashboard() {
                         {payment.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right space-y-1">
                       {payment.status === "claimable" && (
                         <Link href={`/receive/${payment.id}`}>
                           <Button size="sm" variant="outline" className="gap-1">
@@ -223,11 +256,22 @@ export default function ReceiveDashboard() {
                         </Link>
                       )}
                       {payment.status === "claimed" && (
-                        <span className="text-xs text-muted-foreground">
-                          {payment.claimedAt
-                            ? new Date(payment.claimedAt).toLocaleDateString()
-                            : "Claimed"}
-                        </span>
+                        <div className="flex flex-col items-end gap-0.5 text-xs text-muted-foreground">
+                          {payment.claimedAt && (
+                            <span>{new Date(payment.claimedAt).toLocaleDateString()}</span>
+                          )}
+                          {payment.txHash && (
+                            <a
+                              href={`${explorerUrl}/tx/${payment.txHash}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-mono text-primary hover:underline"
+                              title={payment.txHash}
+                            >
+                              {payment.txHash.slice(0, 10)}…{payment.txHash.slice(-8)}
+                            </a>
+                          )}
+                        </div>
                       )}
                     </TableCell>
                   </TableRow>
@@ -236,15 +280,18 @@ export default function ReceiveDashboard() {
               {myPayments.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={4}
+                    colSpan={6}
                     className="py-8 text-center text-sm text-muted-foreground"
                   >
-                    No payments yet.
+                    {myPaymentsAll.length === 0
+                      ? "No payments yet."
+                      : `No payments on ${CHAINS[selectedChainId]?.name ?? "this network"}. Try switching the network above.`}
                   </TableCell>
                 </TableRow>
               )}
             </TableBody>
           </Table>
+          </CardContent>
         </Card>
       </TabsContent>
     </Tabs>
