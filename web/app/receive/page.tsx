@@ -46,10 +46,10 @@ export default function ReceiveDashboard() {
   const myPaymentsAll = store.payments.filter(
     (p) => p.subscriberId === subId
   );
-  // Show payments on the selected chain. Payments without a chain_id (note not yet deposited)
-  // are shown on all chains only if not yet claimable; claimable notes must belong to a specific chain.
+  // Show payments on the selected chain. Payments without a chain_id (note not yet
+  // deposited on-chain) are shown on all chains so recipients can see pending payouts.
   const myPayments = myPaymentsAll.filter(
-    (p) => p.chainId === selectedChainId || (p.chainId == null && p.status !== "claimable")
+    (p) => p.chainId === selectedChainId || p.chainId == null
   );
   // Derive which organizers are active on the selected chain (have any payment on it).
   // Orgs with zero payments are shown on all chains (new orgs).
