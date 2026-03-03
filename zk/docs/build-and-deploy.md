@@ -197,3 +197,18 @@ The app uses a **Dockerfile** at the repo root so that proof generation works in
 2. **"nargo: command not found"** or **"bb: command not found"** → PATH in the runner image must include `/root/.nargo/bin` and `/root/.bb` (Dockerfile copies these from builder).
 3. **Timeout / 504** → Increase `maxDuration` in the route or upgrade the plan; confirm the request is not being killed by a proxy (e.g. 60s) before the API.
 4. **SumcheckFailed** → The deployed WithdrawVerifier was built from a different circuit or flags. Compile the verifier with `zk/circuits/scripts/compile_withdraw_verifier.sh`, redeploy the contract, and ensure the API uses `bb prove ... --oracle_hash keccak`.
+
+---
+
+## ¿Deposit y withdraw usan archivos locales?
+
+En local y en Railway el flujo es el mismo en cuanto a **origen de datos**:
+
+| Paso | Deposit (pagar / crear payout) | Withdraw (claim) |
+|------|-------------------------------|------------------|
+| **Datos de notas / pagos** | No usa archivos. Los pagos y la nota se crean en memoria y se persisten vía **API → base de datos** (`/api/payouts`, `/api/notes`). | No usa archivos. Los datos de la nota vienen de **API → DB** (`/api/notes?payment_id=...` o `?subscriber_id=...`). |
+| **Árbol de Merkle** | No aplica. | No usa archivos. El árbol se construye con datos que devuelve **`/api/deposit-events`**: esa ruta lee la tabla **`notes`** y la caché **`deposit_events_cache`** (DB) y, si hace falta, escanea la **RPC** (eventos `Deposit` del contrato). |
+| **Generación del proof** | No aplica. | **Sí usa el disco** solo aquí: la ruta **`/api/generate-proof`** escribe `Prover.toml` en el directorio del circuito, ejecuta **`nargo execute`** y **`bb prove`** (que leen `target/with_foundry.json` y escriben `target/*.gz`, `proofs/*.proof`) y luego lee el proof generado. Ese directorio en local es `zk/circuits` y en Railway es `CIRCUITS_DIR` (p. ej. `/app/circuits`). |
+| **Blockchain** | **RPC**: `depositToPool` (tx al pool). | **RPC**: `registerRoot` y `withdraw` (txs al pool). |
+
+Resumen: **deposit no usa archivos locales**. **Withdraw** solo usa archivos en el paso de **generar el proof** (directorio del circuito con `nargo`/`bb`); el resto usa **DB** y **RPC**.

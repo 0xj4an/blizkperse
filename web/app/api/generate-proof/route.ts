@@ -72,6 +72,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const MAX_DEPTH = 10;
+    const rawLength = input.merkle_proof_length;
+    const merkleProofLength = typeof rawLength === "string" ? parseInt(rawLength, 10) : Number(rawLength);
+    if (Number.isNaN(merkleProofLength) || merkleProofLength < 0 || merkleProofLength > MAX_DEPTH) {
+      return NextResponse.json(
+        { error: `merkle_proof_length must be a number between 0 and ${MAX_DEPTH}, got: ${rawLength}` },
+        { status: 400 }
+      );
+    }
+    const indices = Array.isArray(input.merkle_proof_indices) ? input.merkle_proof_indices : [];
+    const siblings = Array.isArray(input.merkle_proof_siblings) ? input.merkle_proof_siblings : [];
+    if (indices.length !== MAX_DEPTH || siblings.length !== MAX_DEPTH) {
+      return NextResponse.json(
+        { error: `merkle_proof_indices and merkle_proof_siblings must have exactly ${MAX_DEPTH} elements, got ${indices.length} and ${siblings.length}` },
+        { status: 400 }
+      );
+    }
+
     // Use standard Prover.toml (nargo always looks for this file)
     // Generate unique witness/proof names to avoid conflicts
     const sessionId = randomBytes(8).toString("hex");
@@ -80,19 +98,19 @@ export async function POST(req: NextRequest) {
     const proofDir = path.join(circuitDir, "proofs", `proof_${sessionId}.proof`);
     const proofFile = path.join(proofDir, "proof");
 
-    // Build Prover.toml content
-    const indices = input.merkle_proof_indices.map((i: number) => String(i)).join(", ");
-    const siblings = input.merkle_proof_siblings.map((s: string) => `"${s}"`).join(", ");
+    // Build Prover.toml content (use validated length and arrays)
+    const indicesStr = indices.map((i: number) => String(Number(i))).join(", ");
+    const siblingsStr = siblings.map((s: string) => `"${String(s).trim()}"`).join(", ");
 
     const tomlContent = `value = "${input.value}"
 nullifier = "${input.nullifier}"
-merkle_proof_length = ${input.merkle_proof_length}
+merkle_proof_length = ${merkleProofLength}
 expected_merkle_root = "${input.expected_merkle_root}"
 recipient = "${input.recipient}"
 pk_b = "${input.pk_b}"
 random = "${input.random}"
-merkle_proof_indices = [${indices}]
-merkle_proof_siblings = [${siblings}]
+merkle_proof_indices = [${indicesStr}]
+merkle_proof_siblings = [${siblingsStr}]
 `;
 
     // Write Prover.toml
@@ -114,10 +132,25 @@ merkle_proof_siblings = [${siblings}]
       );
 
       // Step 2: Generate proof with bb (MUST match compile_withdraw_verifier.sh: same --oracle_hash keccak)
-      const { stdout: proveOut, stderr: proveErr } = await execAsync(
-        `bb prove -b ./target/with_foundry.json -w ./target/proof_${sessionId}.gz -o ./proofs/proof_${sessionId}.proof --oracle_hash keccak`,
-        { cwd: circuitDir, timeout: 60000 }
-      );
+      let proveOut = "", proveErr = "";
+      try {
+        const result = await execAsync(
+          `bb prove -b ./target/with_foundry.json -w ./target/proof_${sessionId}.gz -o ./proofs/proof_${sessionId}.proof --oracle_hash keccak`,
+          { cwd: circuitDir, timeout: 60000 }
+        );
+        proveOut = result.stdout;
+        proveErr = result.stderr ?? "";
+      } catch (bbErr: unknown) {
+        const errMsg = bbErr instanceof Error ? bbErr.message : String(bbErr);
+        const stderr = bbErr && typeof bbErr === "object" && "stderr" in bbErr ? String((bbErr as { stderr?: string }).stderr ?? "") : "";
+        console.error("bb prove failed:", errMsg, "stderr:", stderr);
+        if (errMsg.includes("Length is too large") || (stderr && stderr.includes("Length is too large"))) {
+          throw new Error(
+            "Length is too large: merkle_proof_length must be 10 and merkle_proof_indices/siblings must have exactly 10 elements (circuit MAX_DEPTH=10). If the error persists, the witness or artifact may not match this bb version."
+          );
+        }
+        throw bbErr;
+      }
       console.log("bb prove stdout:", proveOut);
       if (proveErr) console.log("bb prove stderr:", proveErr);
 
