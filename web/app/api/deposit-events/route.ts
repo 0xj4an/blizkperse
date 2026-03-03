@@ -147,23 +147,45 @@ export async function GET(req: NextRequest) {
     `;
   }
 
-  // Check event cache first
-  let events = await sql`
+  // Primary source: notes table (every deposit from the app is stored here)
+  const noteRows = await sql`
+    SELECT commitment FROM notes
+    WHERE chain_id = ${chainId} AND commitment IS NOT NULL AND commitment != ''
+    ORDER BY created_at ASC
+  `;
+
+  const seenCommitments = new Set<string>();
+  const events: { sender: string; commitment: string; blockNumber: string }[] = [];
+
+  for (const row of noteRows) {
+    const c = (row.commitment as string)?.trim();
+    if (c) {
+      const key = c.toLowerCase();
+      if (!seenCommitments.has(key)) {
+        seenCommitments.add(key);
+        events.push({ sender: "", commitment: c, blockNumber: "0" });
+      }
+    }
+  }
+
+  // Optional: add any commitment from on-chain scan cache that we don't have in notes
+  // (e.g. deposits made via script / external)
+  const cachedEvents = await sql`
     SELECT sender, commitment, block_number as "blockNumber"
     FROM deposit_events_cache
     WHERE chain_id = ${chainId}
     ORDER BY id ASC
   `;
-
-  // Fallback: if on-chain scan found nothing (Monad prunes historical logs),
-  // use commitments stored in the notes table at deposit time
-  if (events.length === 0) {
-    events = await sql`
-      SELECT '' as sender, n.commitment, '0' as "blockNumber"
-      FROM notes n
-      WHERE n.chain_id = ${chainId}
-      ORDER BY n.created_at ASC
-    `;
+  for (const e of cachedEvents) {
+    const c = (e.commitment as string)?.trim();
+    if (c && !seenCommitments.has(c.toLowerCase())) {
+      seenCommitments.add(c.toLowerCase());
+      events.push({
+        sender: (e.sender as string) ?? "",
+        commitment: c,
+        blockNumber: (e.blockNumber as string) ?? "0",
+      });
+    }
   }
 
   return NextResponse.json(events);

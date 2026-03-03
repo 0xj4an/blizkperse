@@ -21,8 +21,10 @@ import {
   useStore,
   getOrganizerById,
   claimPayment,
+  invalidateAndRefetchStore,
 } from "@/lib/store";
 import { useParaWalletClient } from "@/lib/wallet";
+import { useChain } from "@/lib/chain-context";
 import { CHAINS, type SupportedChainId } from "@/lib/constants";
 import {
   generateProof,
@@ -32,7 +34,7 @@ import {
   type ProofInput,
 } from "@/lib/zk";
 import { buildTreeFromEvents, rootToHex } from "@/lib/merkle";
-import { registerRoot } from "@/lib/contracts";
+import { registerRoot, getPublicClient, isRootKnown } from "@/lib/contracts";
 
 const STEP_MESSAGES: Record<string, string> = {
   "loading-notes": "Loading payment data...",
@@ -52,16 +54,23 @@ export default function ClaimPage() {
 
   const [txState, setTxState] = useState<TxState>("idle");
   const [txHash, setTxHash] = useState<string>();
-  const [claimed, setClaimed] = useState(payment?.status === "claimed");
+  const [justClaimed, setJustClaimed] = useState(false);
+  const claimed = justClaimed || payment?.status === "claimed";
   const [claimStep, setClaimStep] = useState<string>("");
   const [claimExplorerUrl, setClaimExplorerUrl] = useState<string>("");
   const [claimRecipient, setClaimRecipient] = useState<string>("");
   const { walletClient, address, isReady } = useParaWalletClient();
+  const { chainId: selectedChainId } = useChain();
   const [destinationAddress, setDestinationAddress] = useState("");
 
   useEffect(() => {
     if (address && !destinationAddress) setDestinationAddress(address);
   }, [address, destinationAddress]);
+
+  // Refetch store when opening this claim so status (claimable/claimed) matches DB
+  useEffect(() => {
+    invalidateAndRefetchStore();
+  }, []);
 
   if (!payment) {
     return (
@@ -97,6 +106,9 @@ export default function ClaimPage() {
       setClaimStep("loading-notes");
       let noteData: { commitment?: string; value?: string; holder_pk?: string; randomness?: string; chain_id?: number } | null = null;
 
+      // Chain we'll use for this claim (needed before fallback so we pick a note for this chain)
+      const noteChainId = (payment.chainId ?? selectedChainId ?? 143) as SupportedChainId;
+
       // Prefer notes explicitly linked to this payment
       const noteRes = await fetch(`/api/notes?payment_id=${paymentId}`);
       if (noteRes.ok) {
@@ -104,30 +116,40 @@ export default function ClaimPage() {
         noteData = Array.isArray(notes) ? notes[0] : notes;
       }
 
-      // Fallback: find latest note for this subscriber (handles older deposits without payment_id)
+      // Fallback: latest note for this subscriber on the SAME chain we're claiming on (so commitment is in that chain's tree)
       if (!noteData?.commitment && payment.subscriberId) {
         const fallbackRes = await fetch(
           `/api/notes?subscriber_id=${payment.subscriberId}`,
         );
         if (fallbackRes.ok) {
           const fallbackNotes = await fallbackRes.json();
-          if (Array.isArray(fallbackNotes) && fallbackNotes.length > 0) {
-            noteData = fallbackNotes[fallbackNotes.length - 1];
+          const list = Array.isArray(fallbackNotes) ? fallbackNotes : [];
+          const forChain = list.filter((n: { chain_id?: number }) => (n.chain_id ?? 143) === noteChainId);
+          if (forChain.length > 0) {
+            noteData = forChain[forChain.length - 1];
           }
         }
       }
 
       if (!noteData?.commitment || noteData.value == null || noteData.holder_pk == null || noteData.randomness == null) {
         throw new Error(
-          "No note data found for this payment. The deposit may not have stored note details.",
+          "No note data found for this payment on this network. Link a note to this payment or ensure the deposit was stored for the selected chain.",
         );
       }
 
-      // Use the note's chain (where the deposit was made), not the currently selected chain
-      const noteChainId = (noteData.chain_id ?? 143) as SupportedChainId;
+      // Use chain we already decided (payment.chainId ?? selectedChainId ?? 143)
       const noteChain = CHAINS[noteChainId];
       if (!noteChain || noteChain.placeholder) {
         throw new Error(`Contracts not deployed on ${noteChain?.name ?? "unknown chain"} yet.`);
+      }
+
+      // The wallet must be on the chain we're using for the tx
+      if (selectedChainId !== noteChainId) {
+        toast.error(
+          `This payment was deposited on ${noteChain.name}. Switch the network to "${noteChain.name}" using the selector above, then try again.`,
+        );
+        setTxState("idle");
+        return;
       }
 
       // Step 2: Recompute note values from raw inputs using circuit-matching Poseidon
@@ -175,12 +197,18 @@ export default function ClaimPage() {
       };
       const proofResult = await generateProof(proofInput);
 
-      // Step 4: Register root on-chain (may already exist)
+      // Step 4: Register root on-chain only if not already known (e.g. retry after "nonce too low" skips this)
       setClaimStep("registering-root");
-      try {
-        await registerRoot(walletClient, noteChain, rootToHex(root));
-      } catch {
-        // Root may already be registered - OK
+      const rootHex = rootToHex(root);
+      const known = await isRootKnown(noteChain, rootHex);
+      if (!known) {
+        try {
+          const registerTxHash = await registerRoot(walletClient, noteChain, rootHex);
+          const publicClient = getPublicClient(noteChain);
+          await publicClient.waitForTransactionReceipt({ hash: registerTxHash });
+        } catch {
+          // Root may have been registered by another tx - proceed to withdraw
+        }
       }
 
       // Step 5: Submit withdrawal
@@ -190,12 +218,29 @@ export default function ClaimPage() {
       setClaimExplorerUrl(noteChain.explorerUrl);
       setClaimRecipient(destinationAddress);
       setTxState("success");
-      setClaimed(true);
+      setJustClaimed(true);
       toast.success("Payment claimed successfully!");
     } catch (err) {
       console.error("Claim failed:", err);
+      const raw = err instanceof Error ? err.message : String(err);
+      if (raw.toLowerCase().includes("nullifier used")) {
+        setTxState("idle");
+        try {
+          await fetch(`/api/payments/${paymentId}/claim`, {
+            method: "PATCH",
+            body: JSON.stringify({}),
+          });
+          await invalidateAndRefetchStore();
+        } catch {
+          // ignore
+        }
+        setJustClaimed(true);
+        toast.info(
+          "This payment was already withdrawn on-chain (e.g. from a previous attempt). Marked as claimed. Check your wallet or the chain explorer for the transfer.",
+        );
+        return;
+      }
       setTxState("error");
-      const raw = err instanceof Error ? err.message : "Claim failed";
       const msg = raw.includes("User rejected")
         ? "Transaction cancelled"
         : raw.includes("SumcheckFailed") || raw.includes("0x9fc3a218")
@@ -248,23 +293,37 @@ export default function ClaimPage() {
                 <span className="text-muted-foreground">From</span>
                 <span className="font-medium">{org?.name ?? "Unknown"}</span>
               </div>
+              <div className="flex items-center justify-between text-sm gap-2">
+                <span className="text-muted-foreground shrink-0">Payment ID</span>
+                <span className="font-mono text-xs truncate" title={payment.id}>{payment.id.slice(0, 8)}…{payment.id.slice(-6)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm gap-2">
+                <span className="text-muted-foreground shrink-0">Payout ID</span>
+                <span className="font-mono text-xs truncate" title={payment.payoutId}>{payment.payoutId.slice(0, 8)}…{payment.payoutId.slice(-6)}</span>
+              </div>
+              {payment.noteId && (
+                <div className="flex items-center justify-between text-sm gap-2">
+                  <span className="text-muted-foreground shrink-0">Note ID</span>
+                  <span className="font-mono text-xs truncate" title={payment.noteId}>{payment.noteId.slice(0, 8)}…{payment.noteId.slice(-6)}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Status</span>
                 <Badge variant={claimed ? "default" : "secondary"}>
                   {claimed ? "Claimed" : "Claimable"}
                 </Badge>
               </div>
-              {claimed && (payment.claimedAt || txHash) && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Tx Hash</span>
+              {claimed && (txHash || payment.txHash) && (
+                <div className="flex items-center justify-between text-sm gap-2">
+                  <span className="text-muted-foreground shrink-0">Tx Hash</span>
                   <a
                     href={`${claimExplorerUrl || CHAINS[143].explorerUrl}/tx/${txHash || payment.txHash || ""}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-mono text-xs text-primary hover:underline"
+                    className="font-mono text-xs text-primary hover:underline truncate"
+                    title={txHash || payment.txHash || ""}
                   >
-                    {(txHash || payment.txHash || "").slice(0, 10)}...
-                    {(txHash || payment.txHash || "").slice(-8)}
+                    {(txHash || payment.txHash || "").slice(0, 10)}…{(txHash || payment.txHash || "").slice(-8)}
                   </a>
                 </div>
               )}

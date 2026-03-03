@@ -66,6 +66,10 @@ export interface Payment {
   status: "claimable" | "claimed" | "expired";
   claimedAt?: string;
   txHash?: string;
+  /** Chain where the deposit note lives (from notes.chain_id). Used to filter claimable payments by network. */
+  chainId?: number;
+  /** Id of the note linked to this payment (for UI). */
+  noteId?: string;
 }
 
 // ── Store (local cache, synced via API routes) ──────────
@@ -136,6 +140,12 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T | null> {
 
 let hydratePromise: Promise<void> | null = null;
 
+/** Force a fresh fetch from the API (e.g. so payment status matches DB). */
+export function invalidateAndRefetchStore() {
+  hydratePromise = null;
+  hydrateStore();
+}
+
 export function hydrateStore() {
   if (hydratePromise) return hydratePromise;
   hydratePromise = (async () => {
@@ -197,6 +207,8 @@ export function hydrateStore() {
       status: r.status as Payment["status"],
       claimedAt: (r.claimed_at as string) ?? undefined,
       txHash: (r.tx_hash as string) ?? undefined,
+      chainId: r.chain_id != null ? Number(r.chain_id) : undefined,
+      noteId: r.note_id != null ? String(r.note_id) : undefined,
     }));
 
     state.loaded = true;
@@ -586,11 +598,6 @@ export async function claimPayment(
   if (walletClient && proofResult && chainConfig) {
     const publicClient = getPublicClient(chainConfig);
     const pi = proofResult.publicInputs;
-    const account = walletClient.account?.address;
-    const nonce =
-      account
-        ? await publicClient.getTransactionCount({ address: account, blockTag: "pending" })
-        : undefined;
     const withdrawTx = await withdrawFromPool(walletClient, chainConfig, {
       proof: proofResult.proof,
       publicInputs: [
@@ -600,7 +607,6 @@ export async function claimPayment(
         pi.expectedRoot,
         pi.recipient,
       ],
-      ...(nonce !== undefined && { nonce }),
     });
     await publicClient.waitForTransactionReceipt({ hash: withdrawTx });
     txHash = withdrawTx;
