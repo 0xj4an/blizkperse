@@ -1,17 +1,37 @@
 # Multi-stage build: install ZK toolchain + build Next.js standalone app
-# nargo 1.0.0-beta.18 + bb 3.0.0-nightly.20260102 (matched via install_bb.sh in noir repo)
+# nargo 1.0.0-beta.18 + bb 0.63.1 (must match local versions)
 
 # ── Stage 1: Builder ─────────────────────────────────────
-FROM node:20-bookworm AS builder
+# Use Ubuntu 24.04 so glibc is new enough for bb
+FROM ubuntu:24.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Base tools, git and build deps
+RUN apt-get update && apt-get install -y \
+  curl \
+  ca-certificates \
+  git \
+  build-essential \
+  pkg-config \
+  libssl-dev \
+  gnupg && \
+  rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22 from NodeSource
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+  apt-get update && apt-get install -y nodejs && \
+  rm -rf /var/lib/apt/lists/*
 
 # Install nargo (Noir compiler/executor)
 RUN curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
 ENV PATH="/root/.nargo/bin:${PATH}"
 RUN noirup -v 1.0.0-beta.18
 
-# Install bb (Barretenberg prover) - direct download since bbup uses wrong tag for nightlies
-RUN mkdir -p /root/.bb && curl -L "https://github.com/AztecProtocol/aztec-packages/releases/download/v3.0.0-nightly.20260102/barretenberg-amd64-linux.tar.gz" | tar xz -C /root/.bb
+# Install bb (Barretenberg prover)
+RUN curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/master/barretenberg/cpp/installation/install | bash
 ENV PATH="/root/.bb:${PATH}"
+RUN bbup -v 0.63.1
 
 # Pre-compile circuit to cache git dependencies (main.nr must be the withdraw circuit)
 WORKDIR /app
@@ -30,10 +50,16 @@ COPY web/ ./
 RUN npm run build
 
 # ── Stage 2: Runtime ─────────────────────────────────────
-FROM node:20-bookworm AS runner
+FROM ubuntu:24.04 AS runner
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 # bb requires libc++ (LLVM C++ runtime) and jq (JSON processing)
-RUN apt-get update && apt-get install -y --no-install-recommends libc++1 jq && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  ca-certificates \
+  libc++1 \
+  jq && \
+  rm -rf /var/lib/apt/lists/*
 
 # Copy nargo + bb with their full home dirs (includes dependency cache)
 COPY --from=builder /root/.nargo /root/.nargo
