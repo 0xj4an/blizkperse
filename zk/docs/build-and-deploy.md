@@ -164,3 +164,36 @@ The scripts in `circuits/scripts/` use `MONAD_RPC` and `POOL_ADDRESS` by default
 | 2 | `forge script script/Deploy.s.sol:DeployPool --rpc-url "$CELO_RPC" --broadcast` |
 | 3 | Note verifier, withdrawVerifier, pool, and block |
 | 4 | Update `web/lib/constants.ts` (Celo: pool, verifier, withdrawVerifier, deployBlock, placeholder: false, poolTokenDecimals: 6, poolDenomination: 1e6) |
+
+---
+
+## Deploying the web app on Railway
+
+The app uses a **Dockerfile** at the repo root so that proof generation works in production.
+
+### What the Dockerfile does
+
+1. **Builder stage:** Installs **nargo** (Noir 1.0.0-beta.18) and **bb** (Barretenberg 0.63.1), copies `zk/circuits/`, runs `nargo compile` to produce `target/with_foundry.json`, then builds Next.js (`web/`) in standalone mode.
+2. **Runner stage:** Copies nargo + bb, the compiled circuit dir (as `/app/circuits`), and the Next.js standalone app. Sets `CIRCUITS_DIR=/app/circuits` so the API finds the circuit. Creates `circuits/proofs` for temp proof files.
+
+### Railway config
+
+- `railway.toml`: `builder = "DOCKERFILE"`, `dockerfilePath = "Dockerfile"`.
+- No extra env vars are required for proof generation; `CIRCUITS_DIR` is set in the image.
+
+### Checklist so the flow does not fail on Railway
+
+| Check | Why |
+|-------|-----|
+| **`zk/circuits/src/main.nr` is the withdraw circuit** | Docker only runs `nargo compile` (no script). If `main.nr` were another circuit, `with_foundry.json` would not match the deployed WithdrawVerifier → SumcheckFailed. |
+| **Build passes the `target/with_foundry.json` check** | The Dockerfile runs `test -f target/with_foundry.json` after compile; if it fails, the image is not built. |
+| **API timeouts** | `/api/generate-proof` has `maxDuration = 120` and `/api/deposit-events` has `maxDuration = 60` so long-running steps are not cut off. |
+| **Postgres** | If you use Railway Postgres, set `DATABASE_URL` (or whatever the app expects) in Railway env. |
+| **Memory** | Proof generation (nargo + bb) can use ~1 GB RAM; avoid the smallest plan if you see OOM. |
+
+### If proof generation fails on Railway
+
+1. **"Circuit directory not found"** → `CIRCUITS_DIR` must be `/app/circuits` in the running container (set in Dockerfile).
+2. **"nargo: command not found"** or **"bb: command not found"** → PATH in the runner image must include `/root/.nargo/bin` and `/root/.bb` (Dockerfile copies these from builder).
+3. **Timeout / 504** → Increase `maxDuration` in the route or upgrade the plan; confirm the request is not being killed by a proxy (e.g. 60s) before the API.
+4. **SumcheckFailed** → The deployed WithdrawVerifier was built from a different circuit or flags. Compile the verifier with `zk/circuits/scripts/compile_withdraw_verifier.sh`, redeploy the contract, and ensure the API uses `bb prove ... --oracle_hash keccak`.

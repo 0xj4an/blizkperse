@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createPublicClient, http, parseAbiItem, type Chain } from "viem";
+
+// RPC scan can take a while on first run or with many blocks (e.g. Monad rate limits)
+export const maxDuration = 60;
 import { CHAINS, type SupportedChainId, type ChainConfig } from "@/lib/constants";
 import sql, { ensureSchema } from "@/lib/db";
 

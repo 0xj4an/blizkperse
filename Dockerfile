@@ -14,10 +14,10 @@ RUN curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/maste
 ENV PATH="/root/.bb:${PATH}"
 RUN bbup -v 0.63.1
 
-# Pre-compile circuit to cache git dependencies
+# Pre-compile circuit to cache git dependencies (main.nr must be the withdraw circuit)
 WORKDIR /app
 COPY zk/circuits/ ./zk/circuits/
-RUN cd zk/circuits && nargo compile
+RUN cd zk/circuits && nargo compile && test -f target/with_foundry.json || (echo "Missing target/with_foundry.json; ensure main.nr is the withdraw circuit" && exit 1)
 
 # Build Next.js
 # Railway passes env vars as build args automatically when declared with ARG

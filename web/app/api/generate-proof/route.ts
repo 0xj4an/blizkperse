@@ -3,6 +3,9 @@
  * (bb prove --oracle_hash keccak). See zk/docs/build-and-deploy.md.
  */
 import { NextRequest, NextResponse } from "next/server";
+
+// Allow long-running proof generation on Railway/Vercel (nargo + bb can take 30–90s)
+export const maxDuration = 120;
 import { exec } from "child_process";
 import { promisify } from "util";
 import { writeFile, readFile, unlink, rm } from "fs/promises";
