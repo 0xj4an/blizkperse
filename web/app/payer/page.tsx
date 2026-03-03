@@ -23,20 +23,46 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Users, CircleDollarSign, Clock, Building2, Loader2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Plus, Users, CircleDollarSign, Clock, Building2, Loader2, Pencil, Trash2 } from "lucide-react";
 import {
   useStore,
   getSubscriberById,
   createOrganizer,
+  updateOrganizer,
+  deleteOrganizer,
 } from "@/lib/store";
+import { useChain } from "@/lib/chain-context";
+import { CHAINS } from "@/lib/constants";
 
 export default function PayerDashboard() {
   const { embedded } = useAccount();
   const address = embedded?.wallets?.[0]?.address ?? "";
   const store = useStore();
+  const { chainId: selectedChainId } = useChain();
+
+  // Filter my orgs to those active on the selected chain (or with no payments yet)
+  const orgIdsOnChain = new Set<string>();
+  const orgIdsWithPayments = new Set<string>();
+  for (const p of store.payments) {
+    orgIdsWithPayments.add(p.organizerId);
+    if (p.chainId === selectedChainId) orgIdsOnChain.add(p.organizerId);
+  }
 
   const myOrganizers = store.organizers.filter(
-    (o) => o.address.toLowerCase() === address.toLowerCase()
+    (o) =>
+      o.address.toLowerCase() === address.toLowerCase() &&
+      (orgIdsOnChain.has(o.id) || !orgIdsWithPayments.has(o.id))
   );
 
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
@@ -56,9 +82,22 @@ export default function PayerDashboard() {
     (p) => p.status === "deposited" || p.status === "pending"
   ).length;
 
+  // Check if selected org can be deleted (no payments or all claimed)
+  const orgPayments = selectedOrg
+    ? store.payments.filter((p) => p.organizerId === selectedOrg.id)
+    : [];
+  const canDelete =
+    orgPayments.length === 0 ||
+    orgPayments.every((p) => p.status === "claimed");
+
   const [createOpen, setCreateOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState("");
   const [creating, setCreating] = useState(false);
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const handleCreateOrg = async () => {
     if (!newOrgName.trim()) return;
@@ -73,6 +112,34 @@ export default function PayerDashboard() {
       toast.error("Failed to create organization.");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleRename = async () => {
+    if (!selectedOrg || !editName.trim()) return;
+    setSaving(true);
+    try {
+      await updateOrganizer(selectedOrg.id, { name: editName.trim() });
+      setEditOpen(false);
+      toast.success("Name updated!");
+    } catch {
+      toast.error("Failed to rename organization.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedOrg) return;
+    setDeleting(true);
+    try {
+      await deleteOrganizer(selectedOrg.id);
+      setSelectedOrgId(null);
+      toast.success("Organization deleted.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete.");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -132,11 +199,93 @@ export default function PayerDashboard() {
       {!selectedOrg ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            Create an organization to start distributing payouts.
+            No organizations on {CHAINS[selectedChainId]?.name ?? "this network"}. Create one to start distributing payouts.
           </CardContent>
         </Card>
       ) : (
         <>
+          {/* Org actions: Rename + Delete */}
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-semibold">{selectedOrg.name}</h2>
+            <Dialog
+              open={editOpen}
+              onOpenChange={(open) => {
+                setEditOpen(open);
+                if (open) setEditName(selectedOrg.name);
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Rename Organization</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 pt-2">
+                  <Input
+                    placeholder="New name"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleRename()}
+                  />
+                  <Button
+                    className="w-full gap-2"
+                    onClick={handleRename}
+                    disabled={saving || !editName.trim()}
+                  >
+                    {saving ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      "Save"
+                    )}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-destructive hover:text-destructive"
+                  disabled={!canDelete || deleting}
+                  title={
+                    canDelete
+                      ? "Delete organization"
+                      : "Cannot delete: unclaimed payments exist"
+                  }
+                >
+                  {deleting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete &ldquo;{selectedOrg.name}&rdquo;?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete the organization, its subscriptions, and all
+                    associated payout records. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleDelete}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+
           {/* Stats */}
           <div className="grid gap-4 sm:grid-cols-3">
             <Card>

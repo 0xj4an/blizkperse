@@ -319,6 +319,36 @@ export async function createOrganizer(params: {
   return org;
 }
 
+export async function updateOrganizer(
+  id: string,
+  updates: { name: string }
+): Promise<Organizer> {
+  await api(`/api/organizers/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+
+  state.organizers = state.organizers.map((o) =>
+    o.id === id ? { ...o, name: updates.name } : o
+  );
+  emitChange();
+  return state.organizers.find((o) => o.id === id)!;
+}
+
+export async function deleteOrganizer(id: string): Promise<void> {
+  const res = await fetch(`/api/organizers/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? "Failed to delete organizer");
+  }
+
+  state.organizers = state.organizers.filter((o) => o.id !== id);
+  state.payouts = state.payouts.filter((p) => p.organizerId !== id);
+  state.payments = state.payments.filter((p) => p.organizerId !== id);
+  state.subscriptions = state.subscriptions.filter((s) => s.organizerId !== id);
+  emitChange();
+}
+
 export async function joinOrganizer(
   organizerId: string,
   subscriberId: string

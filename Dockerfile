@@ -1,5 +1,5 @@
 # Multi-stage build: install ZK toolchain + build Next.js standalone app
-# nargo 1.0.0-beta.18 + bb 0.63.1 (must match local versions)
+# nargo 1.0.0-beta.18 + bb 3.0.0-nightly.20260102 (matched via install_bb.sh in noir repo)
 
 # ── Stage 1: Builder ─────────────────────────────────────
 FROM node:20-bookworm AS builder
@@ -9,10 +9,9 @@ RUN curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | ba
 ENV PATH="/root/.nargo/bin:${PATH}"
 RUN noirup -v 1.0.0-beta.18
 
-# Install bb (Barretenberg prover)
-RUN curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/master/barretenberg/cpp/installation/install | bash
+# Install bb (Barretenberg prover) - direct download since bbup uses wrong tag for nightlies
+RUN mkdir -p /root/.bb && curl -L "https://github.com/AztecProtocol/aztec-packages/releases/download/v3.0.0-nightly.20260102/barretenberg-amd64-linux.tar.gz" | tar xz -C /root/.bb
 ENV PATH="/root/.bb:${PATH}"
-RUN bbup -v 0.63.1
 
 # Pre-compile circuit to cache git dependencies (main.nr must be the withdraw circuit)
 WORKDIR /app

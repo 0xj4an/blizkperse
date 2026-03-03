@@ -21,6 +21,18 @@ export function ParaWrapper({
         disableEmailLogin: false,
         authLayout: ["AUTH:FULL", "EXTERNAL:FULL"],
         oAuthMethods: ["GOOGLE", "TWITTER"],
+        logo: "/logo.svg",
+        theme: {
+          mode: "dark",
+          backgroundColor: "#0D0B14",
+          foregroundColor: "#FFFFFF",
+          accentColor: "#7C3AED",
+          darkBackgroundColor: "#0D0B14",
+          darkForegroundColor: "#FFFFFF",
+          darkAccentColor: "#7C3AED",
+          borderRadius: "md",
+          font: "Inter",
+        },
       }}
     >
       {children}

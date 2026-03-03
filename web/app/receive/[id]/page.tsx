@@ -107,7 +107,7 @@ export default function ClaimPage() {
       let noteData: { commitment?: string; value?: string; holder_pk?: string; randomness?: string; chain_id?: number } | null = null;
 
       // Chain we'll use for this claim (needed before fallback so we pick a note for this chain)
-      const noteChainId = (payment.chainId ?? selectedChainId ?? 143) as SupportedChainId;
+      const noteChainId = (payment.chainId ?? selectedChainId) as SupportedChainId;
 
       // Prefer notes explicitly linked to this payment
       const noteRes = await fetch(`/api/notes?payment_id=${paymentId}`);
@@ -124,7 +124,7 @@ export default function ClaimPage() {
         if (fallbackRes.ok) {
           const fallbackNotes = await fallbackRes.json();
           const list = Array.isArray(fallbackNotes) ? fallbackNotes : [];
-          const forChain = list.filter((n: { chain_id?: number }) => (n.chain_id ?? 143) === noteChainId);
+          const forChain = list.filter((n: { chain_id?: number }) => (n.chain_id ?? selectedChainId) === noteChainId);
           if (forChain.length > 0) {
             noteData = forChain[forChain.length - 1];
           }
@@ -137,7 +137,7 @@ export default function ClaimPage() {
         );
       }
 
-      // Use chain we already decided (payment.chainId ?? selectedChainId ?? 143)
+      // Use chain we already decided (payment.chainId ?? selectedChainId)
       const noteChain = CHAINS[noteChainId];
       if (!noteChain || noteChain.placeholder) {
         throw new Error(`Contracts not deployed on ${noteChain?.name ?? "unknown chain"} yet.`);
@@ -317,7 +317,7 @@ export default function ClaimPage() {
                 <div className="flex items-center justify-between text-sm gap-2">
                   <span className="text-muted-foreground shrink-0">Tx Hash</span>
                   <a
-                    href={`${claimExplorerUrl || CHAINS[143].explorerUrl}/tx/${txHash || payment.txHash || ""}`}
+                    href={`${claimExplorerUrl || CHAINS[selectedChainId].explorerUrl}/tx/${txHash || payment.txHash || ""}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-mono text-xs text-primary hover:underline truncate"
