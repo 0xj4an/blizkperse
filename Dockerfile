@@ -72,19 +72,19 @@ COPY --from=builder /root/.nargo /root/.nargo
 COPY --from=builder /root/.bb /root/.bb
 ENV PATH="/root/.nargo/bin:/root/.bb:${PATH}"
 
-# Copy circuit files (source + compiled artifact + cached deps)
+# Copy circuit files to same path as builder so nargo cache matches (avoids re-clone + witness/artifact mismatch)
 WORKDIR /app
-COPY --from=builder /app/zk/circuits/ ./circuits/
+COPY --from=builder /app/zk/circuits/ ./zk/circuits/
 
 # Create writable dirs for proof generation temp files
-RUN mkdir -p ./circuits/proofs
+RUN mkdir -p ./zk/circuits/proofs
 
 # Copy Next.js standalone output
 COPY --from=builder /app/web/.next/standalone ./
 COPY --from=builder /app/web/.next/static ./.next/static
 COPY --from=builder /app/web/public ./public
 
-ENV CIRCUITS_DIR=/app/circuits
+ENV CIRCUITS_DIR=/app/zk/circuits
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 EXPOSE 3000
