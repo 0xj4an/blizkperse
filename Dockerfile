@@ -54,11 +54,12 @@ FROM ubuntu:24.04 AS runner
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Node 22 (to run server.js) + bb deps (libc++, jq)
+# Node 22 (to run server.js) + git (nargo execute may run git clone for deps) + bb deps (libc++, jq)
 RUN apt-get update && apt-get install -y --no-install-recommends \
   ca-certificates \
   curl \
   gnupg \
+  git \
   libc++1 \
   jq && \
   rm -rf /var/lib/apt/lists/* && \
