@@ -73,6 +73,14 @@ export function getPublicClient(config: ChainConfig): PublicClient {
   return client;
 }
 
+function getWalletAccount(walletClient: WalletClient) {
+  const { account } = walletClient;
+  if (!account) {
+    throw new Error("Wallet client account is not available");
+  }
+  return account;
+}
+
 // ── Write functions ─────────────────────────────────────
 
 export async function approvePoolToken(
@@ -81,6 +89,7 @@ export async function approvePoolToken(
   amount: bigint = config.poolDenomination,
 ): Promise<Hash> {
   return walletClient.writeContract({
+    account: getWalletAccount(walletClient),
     address: config.contracts.stablecoin,
     abi: ERC20_ABI,
     functionName: "approve",
@@ -95,6 +104,7 @@ export async function depositToPool(
   commitment: Hex,
 ): Promise<Hash> {
   return walletClient.writeContract({
+    account: getWalletAccount(walletClient),
     address: config.contracts.pool,
     abi: POOL_ABI,
     functionName: "deposit",
@@ -163,6 +173,7 @@ export async function registerRoot(
   root: Hex,
 ): Promise<Hash> {
   return walletClient.writeContract({
+    account: getWalletAccount(walletClient),
     address: config.contracts.pool,
     abi: POOL_ABI,
     functionName: "registerRoot",
@@ -182,6 +193,7 @@ export async function withdrawFromPool(
   },
 ): Promise<Hash> {
   return walletClient.writeContract({
+    account: getWalletAccount(walletClient),
     address: config.contracts.pool,
     abi: POOL_ABI,
     functionName: "withdraw",
