@@ -44,10 +44,12 @@ import {
 } from "@/lib/store";
 import { useChain } from "@/lib/chain-context";
 import { CHAINS } from "@/lib/constants";
+import { useParaWalletClient } from "@/lib/wallet";
 
 export default function PayerDashboard() {
   const { embedded } = useAccount();
   const address = embedded?.wallets?.[0]?.address ?? "";
+  const { walletClient } = useParaWalletClient();
   const store = useStore();
   const { chainId: selectedChainId } = useChain();
 
@@ -103,7 +105,11 @@ export default function PayerDashboard() {
     if (!newOrgName.trim()) return;
     setCreating(true);
     try {
-      const org = await createOrganizer({ name: newOrgName.trim(), address });
+      const org = await createOrganizer({
+        name: newOrgName.trim(),
+        address,
+        walletClient,
+      });
       setSelectedOrgId(org.id);
       setNewOrgName("");
       setCreateOpen(false);
@@ -119,7 +125,11 @@ export default function PayerDashboard() {
     if (!selectedOrg || !editName.trim()) return;
     setSaving(true);
     try {
-      await updateOrganizer(selectedOrg.id, { name: editName.trim() });
+      await updateOrganizer(
+        selectedOrg.id,
+        { name: editName.trim() },
+        { walletClient, address },
+      );
       setEditOpen(false);
       toast.success("Name updated!");
     } catch {
@@ -133,7 +143,7 @@ export default function PayerDashboard() {
     if (!selectedOrg) return;
     setDeleting(true);
     try {
-      await deleteOrganizer(selectedOrg.id);
+      await deleteOrganizer(selectedOrg.id, { walletClient, address });
       setSelectedOrgId(null);
       toast.success("Organization deleted.");
     } catch (err) {

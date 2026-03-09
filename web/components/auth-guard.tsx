@@ -5,6 +5,8 @@ import { useAccount, useModal } from "@getpara/react-sdk";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { createWalletAuthHeadersGetter } from "@/lib/api-auth";
+import { useParaWalletClient } from "@/lib/wallet";
 import {
   Card,
   CardContent,
@@ -20,6 +22,8 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isConnected, embedded } = useAccount();
   const { openModal } = useModal();
   const address = embedded?.wallets?.[0]?.address ?? "";
+  const { walletClient } = useParaWalletClient();
+  const getAuthHeaders = createWalletAuthHeadersGetter(walletClient, address);
 
   const [profileState, setProfileState] = useState<ProfileState>("loading");
   const [username, setUsername] = useState("");
@@ -73,9 +77,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
     setSaving(true);
     try {
+      const authHeaders = await getAuthHeaders();
       const res = await fetch("/api/subscribers", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({ address, name: trimmed }),
       });
       if (!res.ok) throw new Error("Failed to save");

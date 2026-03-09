@@ -26,18 +26,22 @@ import {
 } from "@/lib/store";
 import { useChain } from "@/lib/chain-context";
 import { CHAINS, type SupportedChainId } from "@/lib/constants";
+import { useParaWalletClient } from "@/lib/wallet";
 
 export default function ReceiveDashboard() {
   const { embedded } = useAccount();
   const address = embedded?.wallets?.[0]?.address ?? "";
+  const { walletClient } = useParaWalletClient();
   const store = useStore();
 
   // ensure current user exists as subscriber
   const [subId, setSubId] = useState("");
   useEffect(() => {
     if (!address) return;
-    ensureSubscriber(address).then((sub) => setSubId(sub.id));
-  }, [address]);
+    ensureSubscriber(address, undefined, undefined, walletClient)
+      .then((sub) => setSubId(sub.id))
+      .catch(() => {});
+  }, [address, walletClient]);
 
   const { chainId: selectedChainId } = useChain();
   const mySubscriptions = store.subscriptions.filter(
@@ -80,7 +84,7 @@ export default function ReceiveDashboard() {
     if (!subId) return;
     setJoining(organizerId);
     try {
-      await joinOrganizer(organizerId, subId);
+      await joinOrganizer(organizerId, subId, { walletClient, address });
       toast.success("Joined successfully!");
     } catch {
       toast.error("Failed to join. Please try again.");

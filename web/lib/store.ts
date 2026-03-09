@@ -20,6 +20,7 @@ import {
   bigintToBytes32,
   type ProofResult,
 } from "./zk";
+import { getWalletAuthHeaders } from "./api-auth";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -63,7 +64,7 @@ export interface Payment {
   organizerId: string;
   subscriberId: string;
   amount: number;
-  status: "claimable" | "claimed" | "expired";
+  status: "pending" | "claimable" | "claimed" | "expired";
   claimedAt?: string;
   txHash?: string;
   /** Chain where the deposit note lives (from notes.chain_id). Used to filter claimable payments by network. */
@@ -128,6 +129,32 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T | null> {
     const res = await fetch(path, {
       headers: { "Content-Type": "application/json" },
       ...opts,
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function authedApi<T>(
+  path: string,
+  auth: { walletClient?: WalletClient | null; address?: string | null },
+  opts?: RequestInit,
+): Promise<T | null> {
+  const authHeaders = await getWalletAuthHeaders(
+    auth.walletClient ?? null,
+    auth.address ?? null,
+  );
+
+  try {
+    const res = await fetch(path, {
+      ...opts,
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders,
+        ...(opts?.headers ?? {}),
+      },
     });
     if (!res.ok) return null;
     return res.json();
@@ -246,40 +273,54 @@ export function getSubscriberByAddress(address: string) {
 export async function ensureSubscriber(
   address: string,
   name?: string,
-  email?: string
+  email?: string,
+  walletClient?: WalletClient | null,
 ): Promise<Subscriber> {
   const existing = getSubscriberByAddress(address);
   if (existing) return existing;
 
-  const displayName = name ?? `${address.slice(0, 6)}...${address.slice(-4)}`;
-
-  const data = await api<Record<string, unknown>>("/api/subscribers", {
-    method: "POST",
-    body: JSON.stringify({ address, name: displayName, email }),
-  });
-
-  if (data) {
+  const existingRemote = await api<Record<string, unknown>>(
+    `/api/subscribers?address=${encodeURIComponent(address)}`,
+  );
+  if (existingRemote) {
     const sub: Subscriber = {
-      id: data.id as string,
-      address: data.address as string,
-      name: data.name as string,
-      email: (data.email as string) ?? undefined,
-      joinedAt: data.created_at as string,
+      id: existingRemote.id as string,
+      address: existingRemote.address as string,
+      name: existingRemote.name as string,
+      email: (existingRemote.email as string) ?? undefined,
+      joinedAt: existingRemote.created_at as string,
     };
-    state.subscribers = [...state.subscribers.filter((s) => s.id !== sub.id), sub];
+    state.subscribers = [
+      ...state.subscribers.filter((s) => s.id !== sub.id),
+      sub,
+    ];
     emitChange();
     return sub;
   }
 
-  // local-only fallback
+  const displayName = name ?? `${address.slice(0, 6)}...${address.slice(-4)}`;
+
+  const data = await authedApi<Record<string, unknown>>(
+    "/api/subscribers",
+    { walletClient, address },
+    {
+    method: "POST",
+    body: JSON.stringify({ address, name: displayName, email }),
+    },
+  );
+
+  if (!data) {
+    throw new Error("Failed to create subscriber");
+  }
+
   const sub: Subscriber = {
-    id: localId(),
-    address,
-    name: displayName,
-    email,
-    joinedAt: new Date().toISOString(),
+    id: data.id as string,
+    address: data.address as string,
+    name: data.name as string,
+    email: (data.email as string) ?? undefined,
+    joinedAt: data.created_at as string,
   };
-  state.subscribers = [...state.subscribers, sub];
+  state.subscribers = [...state.subscribers.filter((s) => s.id !== sub.id), sub];
   emitChange();
   return sub;
 }
@@ -287,30 +328,25 @@ export async function ensureSubscriber(
 export async function createOrganizer(params: {
   name: string;
   address: string;
+  walletClient?: WalletClient | null;
 }): Promise<Organizer> {
-  const data = await api<Record<string, unknown>>("/api/organizers", {
+  const data = await authedApi<Record<string, unknown>>(
+    "/api/organizers",
+    { walletClient: params.walletClient, address: params.address },
+    {
     method: "POST",
     body: JSON.stringify({ name: params.name, owner_address: params.address }),
-  });
+    },
+  );
 
-  if (data) {
-    const org: Organizer = {
-      id: data.id as string,
-      name: data.name as string,
-      address: data.owner_address as string,
-      totalDistributed: 0,
-      subscriberCount: 0,
-    };
-    state.organizers = [...state.organizers, org];
-    emitChange();
-    return org;
+  if (!data) {
+    throw new Error("Failed to create organizer");
   }
 
-  // local-only fallback
   const org: Organizer = {
-    id: localId(),
-    name: params.name,
-    address: params.address,
+    id: data.id as string,
+    name: data.name as string,
+    address: data.owner_address as string,
     totalDistributed: 0,
     subscriberCount: 0,
   };
@@ -321,22 +357,40 @@ export async function createOrganizer(params: {
 
 export async function updateOrganizer(
   id: string,
-  updates: { name: string }
+  updates: { name: string },
+  auth: { walletClient?: WalletClient | null; address?: string | null },
 ): Promise<Organizer> {
-  await api(`/api/organizers/${id}`, {
+  const data = await authedApi<Record<string, unknown>>(
+    `/api/organizers/${id}`,
+    auth,
+    {
     method: "PATCH",
     body: JSON.stringify(updates),
-  });
+    },
+  );
+  if (!data) {
+    throw new Error("Failed to update organizer");
+  }
 
   state.organizers = state.organizers.map((o) =>
-    o.id === id ? { ...o, name: updates.name } : o
+    o.id === id ? { ...o, name: data.name as string } : o
   );
   emitChange();
   return state.organizers.find((o) => o.id === id)!;
 }
 
-export async function deleteOrganizer(id: string): Promise<void> {
-  const res = await fetch(`/api/organizers/${id}`, { method: "DELETE" });
+export async function deleteOrganizer(
+  id: string,
+  auth: { walletClient?: WalletClient | null; address?: string | null },
+): Promise<void> {
+  const authHeaders = await getWalletAuthHeaders(
+    auth.walletClient ?? null,
+    auth.address ?? null,
+  );
+  const res = await fetch(`/api/organizers/${id}`, {
+    method: "DELETE",
+    headers: authHeaders,
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error ?? "Failed to delete organizer");
@@ -351,34 +405,28 @@ export async function deleteOrganizer(id: string): Promise<void> {
 
 export async function joinOrganizer(
   organizerId: string,
-  subscriberId: string
+  subscriberId: string,
+  auth: { walletClient?: WalletClient | null; address?: string | null },
 ): Promise<Subscription> {
-  let subData: Subscription | null = null;
-
-  const data = await api<Record<string, unknown>>("/api/subscriptions", {
+  const data = await authedApi<Record<string, unknown>>(
+    "/api/subscriptions",
+    auth,
+    {
     method: "POST",
     body: JSON.stringify({ organizer_id: organizerId, subscriber_id: subscriberId }),
-  });
-
-  if (data) {
-    subData = {
-      id: data.id as string,
-      organizerId: data.organizer_id as string,
-      subscriberId: data.subscriber_id as string,
-      status: data.status as "active",
-      joinedAt: data.created_at as string,
-    };
+    },
+  );
+  if (!data) {
+    throw new Error("Failed to join organizer");
   }
 
-  if (!subData) {
-    subData = {
-      id: localId(),
-      organizerId,
-      subscriberId,
-      status: "active",
-      joinedAt: new Date().toISOString(),
-    };
-  }
+  const subData: Subscription = {
+    id: data.id as string,
+    organizerId: data.organizer_id as string,
+    subscriberId: data.subscriber_id as string,
+    status: data.status as "active",
+    joinedAt: data.created_at as string,
+  };
 
   state.subscriptions = [...state.subscriptions, subData];
 
@@ -403,13 +451,63 @@ export async function createPayout(params: {
   onProgress?: (step: string, current: number, total: number) => void;
 }): Promise<Payout> {
   const token = params.token ?? params.chainConfig.defaultToken.symbol;
-  const totalAmount = params.recipients.reduce((s, r) => s + r.amount, 0);
-
-  // Calculate total notes needed (1 note = 1 USDC)
-  const totalNotes = params.recipients.reduce(
-    (s, r) => s + Math.floor(r.amount),
-    0
+  const expandedRecipients = params.recipients.flatMap((recipient) =>
+    Array.from({ length: Math.floor(recipient.amount) }, () => ({
+      subscriberId: recipient.subscriberId,
+      amount: 1,
+    })),
   );
+  const totalNotes = expandedRecipients.length;
+  const totalAmount = totalNotes;
+
+  if (totalNotes === 0) {
+    throw new Error("Payout must include at least one whole-token note");
+  }
+
+  const payoutSeed = await authedApi<{
+    payout: Record<string, unknown>;
+    payments: Array<Record<string, unknown>>;
+  }>(
+    "/api/payouts",
+    { walletClient: params.walletClient, address: params.ownerAddress },
+    {
+      method: "POST",
+      body: JSON.stringify({
+        organizer_id: params.organizerId,
+        total_amount: totalAmount,
+        token,
+        tx_hash: null,
+        status: "pending",
+        recipients: expandedRecipients.map((r) => ({
+          subscriber_id: r.subscriberId,
+          amount: r.amount,
+        })),
+      }),
+    },
+  );
+
+  if (!payoutSeed) {
+    throw new Error("Failed to create payout");
+  }
+
+  const payout: Payout = {
+    id: payoutSeed.payout.id as string,
+    organizerId: payoutSeed.payout.organizer_id as string,
+    totalAmount: Number(payoutSeed.payout.total_amount),
+    token: (payoutSeed.payout.token as string) ?? token,
+    status: (payoutSeed.payout.status as Payout["status"]) ?? "pending",
+    createdAt: payoutSeed.payout.created_at as string,
+    txHash: (payoutSeed.payout.tx_hash as string) ?? undefined,
+  };
+
+  const newPayments: Payment[] = payoutSeed.payments.map((r) => ({
+    id: r.id as string,
+    payoutId: r.payout_id as string,
+    organizerId: r.organizer_id as string,
+    subscriberId: r.subscriber_id as string,
+    amount: Number(r.amount),
+    status: r.status as Payment["status"],
+  }));
 
   let txHash: string;
 
@@ -469,61 +567,65 @@ export async function createPayout(params: {
     // Step 2: Deposit notes one by one
     let noteIndex = 0;
 
-    for (const recipient of params.recipients) {
+    for (const [index, recipient] of expandedRecipients.entries()) {
       const sub = getSubscriberById(recipient.subscriberId);
       if (!sub) continue;
 
       const pk_b = addressToFieldPk(sub.address);
-      const noteCount = Math.floor(recipient.amount);
+      noteIndex++;
+      params.onProgress?.("Depositing note", noteIndex, totalNotes);
 
-      for (let n = 0; n < noteCount; n++) {
-        noteIndex++;
-        params.onProgress?.("Depositing note", noteIndex, totalNotes);
+      const randomness = generateRandomField();
+      const note = await createNote(1n, pk_b, randomness);
+      const commitment = bigintToBytes32(note.commitment) as Hex;
 
-        const randomness = generateRandomField();
-        const note = await createNote(1n, pk_b, randomness);
-        const commitment = bigintToBytes32(note.commitment) as Hex;
-
-        let depositTx: Hex;
-        try {
-          depositTx = await depositToPool(params.walletClient, config, commitment);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          let contractReason: string | null = decodeRevertDataFromError(err);
-          if (!contractReason && err instanceof BaseError) {
-            const revertErr = err.walk((e) => e instanceof ContractFunctionRevertedError);
-            if (revertErr instanceof ContractFunctionRevertedError && revertErr.data?.args?.[0]) {
-              contractReason = String(revertErr.data.args[0]);
-            }
+      let depositTx: Hex;
+      try {
+        depositTx = await depositToPool(params.walletClient, config, commitment);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        let contractReason: string | null = decodeRevertDataFromError(err);
+        if (!contractReason && err instanceof BaseError) {
+          const revertErr = err.walk((e) => e instanceof ContractFunctionRevertedError);
+          if (revertErr instanceof ContractFunctionRevertedError && revertErr.data?.args?.[0]) {
+            contractReason = String(revertErr.data.args[0]);
           }
-          if (!contractReason && params.ownerAddress) {
-            contractReason = await getDepositRevertReason(config, params.ownerAddress, commitment);
-          }
-          if (contractReason || msg.includes("revert") || msg.includes("unknown reason")) {
-            const poolAddr = config.contracts.pool;
-            const reasonLine = contractReason ? `Contract revert: "${contractReason}". ` : "";
-            let detail = `Pool: ${poolAddr}. ${reasonLine}`;
-            if (params.ownerAddress && !contractReason) {
-              const allowance = await getPoolAllowance(config, params.ownerAddress);
-              const need = requiredAllowance;
-              detail += `Your allowance: ${allowance.toString()} (need ${need.toString()}). ${allowance < need ? "Approve more to the pool address above." : "Revert reason could not be decoded. Likely: 'transferFrom failed' (check balance, try approve 0 then approve amount) or 'commitment already used' (duplicate note)."}`;
-            } else if (params.ownerAddress && contractReason === "transferFrom failed") {
-              const balance = await getTokenBalance(config, params.ownerAddress, config.defaultToken);
-              detail += `Your ${config.defaultToken.symbol} balance: ${balance.toString()}. The pool pulls exactly 1 ${config.defaultToken.symbol} per deposit; ensure you have enough and the token is not paused. Try approve(pool, 0) then approve(pool, amount) if you had a previous approval.`;
-            } else if (params.ownerAddress && contractReason === "commitment already used") {
-              detail += "This note was already deposited (e.g. duplicate or previous run). Create a new payout.";
-            }
-            throw new Error(`Deposit failed on ${config.name}. ${detail}`);
-          }
-          throw err;
         }
-        await publicClient.waitForTransactionReceipt({ hash: depositTx });
-        lastTxHash = depositTx;
+        if (!contractReason && params.ownerAddress) {
+          contractReason = await getDepositRevertReason(config, params.ownerAddress, commitment);
+        }
+        if (contractReason || msg.includes("revert") || msg.includes("unknown reason")) {
+          const poolAddr = config.contracts.pool;
+          const reasonLine = contractReason ? `Contract revert: "${contractReason}". ` : "";
+          let detail = `Pool: ${poolAddr}. ${reasonLine}`;
+          if (params.ownerAddress && !contractReason) {
+            const allowance = await getPoolAllowance(config, params.ownerAddress);
+            const need = requiredAllowance;
+            detail += `Your allowance: ${allowance.toString()} (need ${need.toString()}). ${allowance < need ? "Approve more to the pool address above." : "Revert reason could not be decoded. Likely: 'transferFrom failed' (check balance, try approve 0 then approve amount) or 'commitment already used' (duplicate note)."}`;
+          } else if (params.ownerAddress && contractReason === "transferFrom failed") {
+            const balance = await getTokenBalance(config, params.ownerAddress, config.defaultToken);
+            detail += `Your ${config.defaultToken.symbol} balance: ${balance.toString()}. The pool pulls exactly 1 ${config.defaultToken.symbol} per deposit; ensure you have enough and the token is not paused. Try approve(pool, 0) then approve(pool, amount) if you had a previous approval.`;
+          } else if (params.ownerAddress && contractReason === "commitment already used") {
+            detail += "This note was already deposited (e.g. duplicate or previous run). Create a new payout.";
+          }
+          throw new Error(`Deposit failed on ${config.name}. ${detail}`);
+        }
+        throw err;
+      }
+      await publicClient.waitForTransactionReceipt({ hash: depositTx });
+      lastTxHash = depositTx;
 
-        // Store note data for recipient to later claim (chain_id = chain where deposit was sent)
-        await api("/api/notes", {
+      const payment = newPayments[index];
+      if (!payment) {
+        throw new Error("Missing payment record for deposited note");
+      }
+      const noteRow = await authedApi<Record<string, unknown>>(
+        "/api/notes",
+        { walletClient: params.walletClient, address: params.ownerAddress },
+        {
           method: "POST",
           body: JSON.stringify({
+            payment_id: payment.id,
             subscriber_id: recipient.subscriberId,
             chain_id: config.id,
             commitment: bigintToBytes32(note.commitment),
@@ -532,7 +634,11 @@ export async function createPayout(params: {
             randomness: bigintToBytes32(note.random),
             nullifier: bigintToBytes32(note.nullifier),
           }),
-        });
+        },
+      );
+      if (noteRow?.id) {
+        payment.noteId = String(noteRow.id);
+        payment.chainId = config.id;
       }
     }
 
@@ -542,67 +648,27 @@ export async function createPayout(params: {
     txHash = mockTxHash();
   }
 
-  // ── Persist payout record ──────────────────────────────
-  let payout: Payout;
-  let newPayments: Payment[] = [];
+  const finalizedPayout = await authedApi<Record<string, unknown>>(
+    `/api/payouts/${payout.id}`,
+    { walletClient: params.walletClient, address: params.ownerAddress },
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        status: "deposited",
+        tx_hash: txHash,
+      }),
+    },
+  );
 
-  const data = await api<{
-    payout: Record<string, unknown>;
-    payments: Array<Record<string, unknown>>;
-  }>("/api/payouts", {
-    method: "POST",
-    body: JSON.stringify({
-      organizer_id: params.organizerId,
-      total_amount: totalAmount,
-      token,
-      tx_hash: txHash,
-      recipients: params.recipients.map((r) => ({
-        subscriber_id: r.subscriberId,
-        amount: r.amount,
-      })),
-    }),
-  });
-
-  if (data) {
-    payout = {
-      id: data.payout.id as string,
-      organizerId: data.payout.organizer_id as string,
-      totalAmount: Number(data.payout.total_amount),
-      token: (data.payout.token as string) ?? token,
-      status: "deposited",
-      createdAt: data.payout.created_at as string,
-      txHash,
-    };
-
-    newPayments = data.payments.map((r) => ({
-      id: r.id as string,
-      payoutId: r.payout_id as string,
-      organizerId: r.organizer_id as string,
-      subscriberId: r.subscriber_id as string,
-      amount: Number(r.amount),
-      status: "claimable" as const,
-    }));
-  } else {
-    const payoutId = localId();
-    payout = {
-      id: payoutId,
-      organizerId: params.organizerId,
-      totalAmount,
-      token,
-      status: "deposited",
-      createdAt: new Date().toISOString(),
-      txHash,
-    };
-
-    newPayments = params.recipients.map((r) => ({
-      id: localId(),
-      payoutId,
-      organizerId: params.organizerId,
-      subscriberId: r.subscriberId,
-      amount: r.amount,
-      status: "claimable" as const,
-    }));
+  if (!finalizedPayout) {
+    throw new Error("Failed to finalize payout");
   }
+
+  payout.status = finalizedPayout.status as Payout["status"];
+  payout.txHash = (finalizedPayout.tx_hash as string) ?? txHash;
+  newPayments.forEach((payment) => {
+    payment.status = "claimable";
+  });
 
   const org = state.organizers.find((o) => o.id === params.organizerId);
   if (org) {
@@ -621,6 +687,7 @@ export async function claimPayment(
   walletClient?: WalletClient,
   proofResult?: ProofResult,
   chainConfig?: ChainConfig,
+  address?: string,
 ): Promise<{ txHash: string }> {
   let txHash: string;
 
@@ -646,10 +713,17 @@ export async function claimPayment(
 
   const now = new Date().toISOString();
 
-  await api(`/api/payments/${paymentId}/claim`, {
-    method: "PATCH",
-    body: JSON.stringify({ tx_hash: txHash }),
-  });
+  const data = await authedApi<Record<string, unknown>>(
+    `/api/payments/${paymentId}/claim`,
+    { walletClient, address },
+    {
+      method: "PATCH",
+      body: JSON.stringify({ tx_hash: txHash }),
+    },
+  );
+  if (!data) {
+    throw new Error("Failed to mark payment as claimed");
+  }
 
   const payment = state.payments.find((p) => p.id === paymentId);
   if (payment) {

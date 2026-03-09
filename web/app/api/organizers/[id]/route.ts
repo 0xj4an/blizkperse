@@ -1,15 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import sql from "@/lib/db";
+import { requireWalletAuth } from "@/lib/server-auth";
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireWalletAuth(req);
+  if ("error" in auth) return auth.error;
+
   const { id } = await params;
   const { name } = await req.json();
 
   if (!name || typeof name !== "string" || !name.trim()) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 });
+  }
+
+  const [organizer] = await sql`
+    SELECT owner_address FROM organizers WHERE id = ${id}
+  `;
+  if (!organizer) {
+    return NextResponse.json({ error: "Organizer not found" }, { status: 404 });
+  }
+  if (String(organizer.owner_address).toLowerCase() !== auth.address) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const [row] = await sql`
@@ -24,10 +38,23 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireWalletAuth(req);
+  if ("error" in auth) return auth.error;
+
   const { id } = await params;
+
+  const [organizer] = await sql`
+    SELECT owner_address FROM organizers WHERE id = ${id}
+  `;
+  if (!organizer) {
+    return NextResponse.json({ error: "Organizer not found" }, { status: 404 });
+  }
+  if (String(organizer.owner_address).toLowerCase() !== auth.address) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   // Guard: block delete if any payment is not yet claimed
   const [{ count }] = await sql`

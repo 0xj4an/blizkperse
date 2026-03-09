@@ -35,6 +35,7 @@ import {
 } from "@/lib/zk";
 import { buildTreeFromEvents, rootToHex } from "@/lib/merkle";
 import { registerRoot, getPublicClient, isRootKnown } from "@/lib/contracts";
+import { createWalletAuthHeadersGetter } from "@/lib/api-auth";
 
 const STEP_MESSAGES: Record<string, string> = {
   "loading-notes": "Loading payment data...",
@@ -60,6 +61,7 @@ export default function ClaimPage() {
   const [claimExplorerUrl, setClaimExplorerUrl] = useState<string>("");
   const [claimRecipient, setClaimRecipient] = useState<string>("");
   const { walletClient, address, isReady } = useParaWalletClient();
+  const getAuthHeaders = createWalletAuthHeadersGetter(walletClient, address);
   const { chainId: selectedChainId } = useChain();
   const [destinationAddress, setDestinationAddress] = useState("");
 
@@ -110,7 +112,10 @@ export default function ClaimPage() {
       const noteChainId = (payment.chainId ?? selectedChainId) as SupportedChainId;
 
       // Prefer notes explicitly linked to this payment
-      const noteRes = await fetch(`/api/notes?payment_id=${paymentId}`);
+      const authHeaders = await getAuthHeaders();
+      const noteRes = await fetch(`/api/notes?payment_id=${paymentId}`, {
+        headers: authHeaders,
+      });
       if (noteRes.ok) {
         const notes = await noteRes.json();
         noteData = Array.isArray(notes) ? notes[0] : notes;
@@ -120,6 +125,9 @@ export default function ClaimPage() {
       if (!noteData?.commitment && payment.subscriberId) {
         const fallbackRes = await fetch(
           `/api/notes?subscriber_id=${payment.subscriberId}`,
+          {
+            headers: authHeaders,
+          },
         );
         if (fallbackRes.ok) {
           const fallbackNotes = await fallbackRes.json();
@@ -213,7 +221,13 @@ export default function ClaimPage() {
 
       // Step 5: Submit withdrawal
       setClaimStep("withdrawing");
-      const result = await claimPayment(paymentId, walletClient, proofResult, noteChain);
+      const result = await claimPayment(
+        paymentId,
+        walletClient,
+        proofResult,
+        noteChain,
+        address,
+      );
       setTxHash(result.txHash);
       setClaimExplorerUrl(noteChain.explorerUrl);
       setClaimRecipient(destinationAddress);
@@ -228,6 +242,10 @@ export default function ClaimPage() {
         try {
           await fetch(`/api/payments/${paymentId}/claim`, {
             method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              ...(await getAuthHeaders()),
+            },
             body: JSON.stringify({}),
           });
           await invalidateAndRefetchStore();
