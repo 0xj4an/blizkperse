@@ -237,9 +237,9 @@ export default function ReceiveDashboard() {
             <TableBody>
               {myPayments.map((payment) => {
                 const org = getOrganizerById(payment.organizerId);
-                const explorerUrl = (payment.chainId === 143 || payment.chainId === 42220)
-                  ? CHAINS[payment.chainId as SupportedChainId].explorerUrl
-                  : CHAINS[selectedChainId].explorerUrl;
+                const explorerUrl =
+                  CHAINS[payment.chainId as SupportedChainId]?.explorerUrl ??
+                  CHAINS[selectedChainId].explorerUrl;
                 return (
                   <TableRow key={payment.id}>
                     <TableCell className="font-medium">

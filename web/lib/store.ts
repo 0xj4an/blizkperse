@@ -530,13 +530,12 @@ export async function createPayout(params: {
 
     // Step 1: Approve only if current allowance is insufficient
     const requiredAllowance = BigInt(totalNotes) * config.poolDenomination;
-    const CELO_CHAIN_ID = 42220;
     let lastTxHash: Hex | null = null;
     if (params.ownerAddress) {
       const currentAllowance = await getPoolAllowance(config, params.ownerAddress);
       if (currentAllowance < requiredAllowance) {
         params.onProgress?.("Approving token", 0, totalNotes);
-        if (config.id === CELO_CHAIN_ID) {
+        if (config.slug === "celo") {
           const resetTx = await approvePoolToken(params.walletClient, params.chainConfig, 0n);
           await publicClient.waitForTransactionReceipt({ hash: resetTx });
         }
@@ -550,7 +549,7 @@ export async function createPayout(params: {
       }
     } else {
       params.onProgress?.("Approving token", 0, totalNotes);
-      if (config.id === CELO_CHAIN_ID) {
+      if (config.slug === "celo") {
         const resetTx = await approvePoolToken(params.walletClient, params.chainConfig, 0n);
         await publicClient.waitForTransactionReceipt({ hash: resetTx });
       }

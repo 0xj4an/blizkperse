@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import sql, { ensureSchema } from "@/lib/db";
 import { requireWalletAuth } from "@/lib/server-auth";
-import { CHAINS, type SupportedChainId } from "@/lib/constants";
+import { CHAINS, DEFAULT_CHAIN_ID, type SupportedChainId } from "@/lib/constants";
 
 export async function GET(req: NextRequest) {
   await ensureSchema();
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "payment_id is required" }, { status: 400 });
   }
 
-  const normalizedChainId = Number(chain_id ?? 143) as SupportedChainId;
+  const normalizedChainId = Number(chain_id ?? DEFAULT_CHAIN_ID) as SupportedChainId;
   if (!CHAINS[normalizedChainId]) {
     return NextResponse.json({ error: "Unsupported chain_id" }, { status: 400 });
   }

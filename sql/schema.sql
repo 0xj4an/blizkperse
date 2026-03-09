@@ -59,7 +59,7 @@ create table if not exists notes (
   id uuid primary key default gen_random_uuid(),
   payment_id uuid references payments(id) on delete cascade,
   subscriber_id text,
-  chain_id integer not null default 143,
+  chain_id integer not null,
   commitment text not null,
   value text not null,
   holder_pk text not null,
@@ -70,8 +70,14 @@ create table if not exists notes (
 );
 
 alter table notes drop constraint if exists notes_chain_id_check;
-alter table notes add constraint notes_chain_id_check
-check (chain_id in (143, 42220));
+-- Choose the constraint that matches the target environment.
+-- Production DBs: mainnet only.
+-- Development DBs: testnet only.
+-- The app runtime (`web/lib/db.ts`) applies the correct variant automatically using `BLIZ_ENV`.
+-- alter table notes add constraint notes_chain_id_check
+-- check (chain_id in (143, 42220));
+-- alter table notes add constraint notes_chain_id_check
+-- check (chain_id in (10143, 11142220));
 
 -- Indexes for common queries
 create index if not exists idx_organizers_owner on organizers(owner_address);

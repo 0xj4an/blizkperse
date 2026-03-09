@@ -1,5 +1,3 @@
-// ── Token config ────────────────────────────────────────
-
 export interface TokenConfig {
   symbol: string;
   name: string;
@@ -7,14 +5,21 @@ export interface TokenConfig {
   address: `0x${string}`;
 }
 
-// ── Chain config ────────────────────────────────────────
+export type ChainSlug = "monad" | "celo";
 
-export type SupportedChainId = 143 | 42220;
+export enum ChainId {
+  MONAD = 143,
+  MONAD_TESTNET = 10143,
+  CELO = 42220,
+  CELO_TESTNET = 11142220,
+}
+
+export type SupportedChainId = ChainId;
 
 export interface ChainConfig {
   id: SupportedChainId;
   name: string;
-  slug: "monad" | "celo";
+  slug: ChainSlug;
   rpcUrl: string;
   explorerUrl: string;
   explorerName: string;
@@ -29,56 +34,63 @@ export interface ChainConfig {
   poolDenomination: bigint;
   tokens: TokenConfig[];
   defaultToken: TokenConfig;
-  /** Block number the pool contract was deployed at (for event scanning) */
   deployBlock: bigint;
-  /** true when contracts are not yet deployed */
   placeholder: boolean;
 }
 
-// ── Token addresses ────────────────────────────────────
+type DeployEnv = "production" | "development";
 
-// Monad (143)
+interface ChainDefaults {
+  id: SupportedChainId;
+  name: string;
+  rpcUrl: string;
+  explorerUrl: string;
+  explorerName: string;
+  nativeCurrency: { name: string; symbol: string; decimals: number };
+  contracts: {
+    pool: `0x${string}`;
+    verifier: `0x${string}`;
+    withdrawVerifier: `0x${string}`;
+    stablecoin: `0x${string}`;
+  };
+  poolTokenDecimals: number;
+  poolDenomination: bigint;
+  stablecoinSymbol: string;
+  stablecoinName: string;
+  extraTokens: TokenConfig[];
+  deployBlock: bigint;
+}
+
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as const;
+const DEPLOY_ENV: DeployEnv =
+  process.env.NEXT_PUBLIC_BLIZ_ENV === "development" ? "development" : "production";
+
+const MONAD_CHAIN_IDS = new Set<SupportedChainId>([
+  ChainId.MONAD,
+  ChainId.MONAD_TESTNET,
+]);
+const CELO_CHAIN_IDS = new Set<SupportedChainId>([
+  ChainId.CELO,
+  ChainId.CELO_TESTNET,
+]);
+const ALL_CHAIN_IDS = new Set<SupportedChainId>([
+  ChainId.MONAD,
+  ChainId.MONAD_TESTNET,
+  ChainId.CELO,
+  ChainId.CELO_TESTNET,
+]);
+
 const MONAD_USDC = "0x754704Bc059F8C67012fEd69BC8A327a5aafb603" as const;
 const MONAD_USDT = "0xe7cd86e13AC4309349F30B3435a9d337750fC82D" as const;
 
-// Celo (42220) - Circle & Tether
 const CELO_USDC = "0xcebA9300f2b948710d2653dD7B07f33A8B32118C" as const;
 const CELO_USDT = "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e" as const;
 
-// Celo (42220) - Mento stablecoins (rebranded 2025)
-const CELO_USDm = "0x765DE816845861e75A25fCA122bb6898B8B1282a" as const;
-const CELO_EURm = "0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73" as const;
-const CELO_BRLm = "0xe8537a3d056DA446677B9E9d6c5dB704EaAb4787" as const;
-const CELO_GBPm = "0xCCF663b1fF11028f0b19058d0f7B674004a40746" as const;
-const CELO_JPYm = "0xc45eCF20f3CD864B32D9794d6f76814aE8892e20" as const;
-const CELO_CHFm = "0xb55a79F398E759E43C95b979163f30eC87Ee131D" as const;
-const CELO_AUDm = "0x7175504C455076F15c04A2F90a8e352281F492F9" as const;
-const CELO_CADm = "0xff4Ab19391af240c311c54200a492233052B6325" as const;
-const CELO_KESm = "0x456a3D042C0DbD3db53D5489e98dFb038553B0d0" as const;
-const CELO_PHPm = "0x105d4A9306D2E55a71d2Eb95B81553AE1dC20d7B" as const;
-const CELO_COPm = "0x8A567e2aE79CA692Bd748aB832081C45de4041eA" as const;
-const CELO_NGNm = "0xE2702Bd97ee33c88c8f6f92DA3B733608aa76F71" as const;
-const CELO_XOFm = "0x73F93dcc49cB8A239e2032663e9475dd5ef29A08" as const;
-const CELO_ZARm = "0x4c35853A3B4e647fD266f4de678dCc8fEC410BF6" as const;
-const CELO_GHSm = "0xfAeA5F3404bbA20D3cc2f8C4B0A888F55a3c7313" as const;
 
-const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as const;
-
-// ── Shared token definitions ───────────────────────────
-
-const MONAD_USDC_TOKEN: TokenConfig = { symbol: "USDC", name: "USD Coin", decimals: 6, address: MONAD_USDC };
-const MONAD_USDT_TOKEN: TokenConfig = { symbol: "USDT", name: "Tether USD", decimals: 6, address: MONAD_USDT };
-
-const CELO_USDC_TOKEN: TokenConfig = { symbol: "USDC", name: "USD Coin", decimals: 6, address: CELO_USDC };
-const CELO_USDT_TOKEN: TokenConfig = { symbol: "USDT", name: "Tether USD", decimals: 6, address: CELO_USDT };
-
-// ── Chain registry ──────────────────────────────────────
-
-export const CHAINS: Record<SupportedChainId, ChainConfig> = {
-  143: {
-    id: 143,
+const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
+  monad: {
+    id: ChainId.MONAD,
     name: "Monad",
-    slug: "monad",
     rpcUrl: "https://rpc3.monad.xyz",
     explorerUrl: "https://monadexplorer.com",
     explorerName: "Monad Explorer",
@@ -91,20 +103,20 @@ export const CHAINS: Record<SupportedChainId, ChainConfig> = {
     },
     poolTokenDecimals: 6,
     poolDenomination: BigInt(1_000_000),
-    tokens: [MONAD_USDC_TOKEN, MONAD_USDT_TOKEN],
-    defaultToken: MONAD_USDC_TOKEN,
+    stablecoinSymbol: "USDC",
+    stablecoinName: "USD Coin",
+    extraTokens: [
+      { symbol: "USDT", name: "Tether USD", decimals: 6, address: MONAD_USDT },
+    ],
     deployBlock: BigInt(58_002_970),
-    placeholder: false,
   },
-  42220: {
-    id: 42220,
+  celo: {
+    id: ChainId.CELO,
     name: "Celo",
-    slug: "celo",
     rpcUrl: "https://forno.celo.org",
     explorerUrl: "https://celoscan.io",
     explorerName: "CeloScan",
     nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
-    // Celo deploy: Tx1 HonkVerifier, Tx2 WithdrawVerifier, Tx3 ShieldedPool. Block 60249143.
     contracts: {
       pool: "0xcE61001eb3Cd531784D2Cee9DDAbB17a3fc6B16A",
       verifier: "0x085BD9c0C568BE5093130E2359B00e46cb0800d1",
@@ -113,32 +125,223 @@ export const CHAINS: Record<SupportedChainId, ChainConfig> = {
     },
     poolTokenDecimals: 6,
     poolDenomination: BigInt(1_000_000),
-    tokens: [
-      // Circle & Tether
-      CELO_USDC_TOKEN,
-      CELO_USDT_TOKEN,
-      // Mento stablecoins (rebranded 2025)
-      { symbol: "USDm", name: "Mento Dollar", decimals: 18, address: CELO_USDm },
-      { symbol: "EURm", name: "Mento Euro", decimals: 18, address: CELO_EURm },
-      { symbol: "BRLm", name: "Mento Real", decimals: 18, address: CELO_BRLm },
-      { symbol: "GBPm", name: "Mento Pound", decimals: 18, address: CELO_GBPm },
-      { symbol: "JPYm", name: "Mento Yen", decimals: 18, address: CELO_JPYm },
-      { symbol: "CHFm", name: "Mento Franc", decimals: 18, address: CELO_CHFm },
-      { symbol: "AUDm", name: "Mento AUD", decimals: 18, address: CELO_AUDm },
-      { symbol: "CADm", name: "Mento CAD", decimals: 18, address: CELO_CADm },
-      { symbol: "KESm", name: "Mento Shilling", decimals: 18, address: CELO_KESm },
-      { symbol: "PHPm", name: "Mento Peso (PH)", decimals: 18, address: CELO_PHPm },
-      { symbol: "COPm", name: "Mento Peso (CO)", decimals: 18, address: CELO_COPm },
-      { symbol: "NGNm", name: "Mento Naira", decimals: 18, address: CELO_NGNm },
-      { symbol: "XOFm", name: "Mento CFA", decimals: 18, address: CELO_XOFm },
-      { symbol: "ZARm", name: "Mento Rand", decimals: 18, address: CELO_ZARm },
-      { symbol: "GHSm", name: "Mento Cedi", decimals: 18, address: CELO_GHSm },
+    stablecoinSymbol: "USDC",
+    stablecoinName: "USD Coin",
+    extraTokens: [
+      { symbol: "USDT", name: "Tether USD", decimals: 6, address: CELO_USDT },
     ],
-    defaultToken: CELO_USDC_TOKEN,
     deployBlock: BigInt(60_249_143),
-    placeholder: false,
   },
 };
 
-export const DEFAULT_CHAIN_ID: SupportedChainId = 42220;
-export const CHAIN_IDS: SupportedChainId[] = [42220, 143];
+const DEV_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
+  monad: {
+    id: ChainId.MONAD_TESTNET,
+    name: "Monad Testnet",
+    rpcUrl: "",
+    explorerUrl: "",
+    explorerName: "Monad Explorer",
+    nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
+    contracts: {
+      pool: ZERO_ADDR,
+      verifier: ZERO_ADDR,
+      withdrawVerifier: ZERO_ADDR,
+      stablecoin: ZERO_ADDR,
+    },
+    poolTokenDecimals: 6,
+    poolDenomination: BigInt(1_000_000),
+    stablecoinSymbol: "USDC",
+    stablecoinName: "USD Coin",
+    extraTokens: [],
+    deployBlock: BigInt(0),
+  },
+  celo: {
+    id: ChainId.CELO_TESTNET,
+    name: "Celo Testnet",
+    rpcUrl: "",
+    explorerUrl: "",
+    explorerName: "Celo Explorer",
+    nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
+    contracts: {
+      pool: ZERO_ADDR,
+      verifier: ZERO_ADDR,
+      withdrawVerifier: ZERO_ADDR,
+      stablecoin: ZERO_ADDR,
+    },
+    poolTokenDecimals: 6,
+    poolDenomination: BigInt(1_000_000),
+    stablecoinSymbol: "USDC",
+    stablecoinName: "USD Coin",
+    extraTokens: [],
+    deployBlock: BigInt(0),
+  },
+};
+
+const DEFAULTS = DEPLOY_ENV === "development" ? DEV_DEFAULTS : PROD_DEFAULTS;
+
+function getEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
+function getEnvNumber(name: string, fallback: number): number {
+  const value = getEnv(name);
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function isKnownChainId(value: number): value is SupportedChainId {
+  return ALL_CHAIN_IDS.has(value as SupportedChainId);
+}
+
+function isChainIdValidForSlug(slug: ChainSlug, value: SupportedChainId): boolean {
+  return slug === "monad" ? MONAD_CHAIN_IDS.has(value) : CELO_CHAIN_IDS.has(value);
+}
+
+function getEnvChainId(
+  name: string,
+  slug: ChainSlug,
+  fallback: SupportedChainId,
+): SupportedChainId {
+  const parsed = getEnvNumber(name, fallback);
+  if (!isKnownChainId(parsed)) {
+    throw new Error(`Invalid chain id in ${name}: ${parsed}`);
+  }
+  if (!isChainIdValidForSlug(slug, parsed)) {
+    throw new Error(`Chain id ${parsed} is not valid for ${slug}`);
+  }
+  return parsed;
+}
+
+function getEnvBigInt(name: string, fallback: bigint): bigint {
+  const value = getEnv(name);
+  if (!value) return fallback;
+  try {
+    return BigInt(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function isAddress(value: string | undefined): value is `0x${string}` {
+  return Boolean(value && /^0x[a-fA-F0-9]{40}$/.test(value));
+}
+
+function getEnvAddress(name: string, fallback: `0x${string}`): `0x${string}` {
+  const value = getEnv(name);
+  return isAddress(value) ? value : fallback;
+}
+
+function getEnvBoolean(name: string): boolean | undefined {
+  const value = getEnv(name)?.toLowerCase();
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return undefined;
+}
+
+function buildChainConfig(slug: ChainSlug): ChainConfig {
+  const prefix = `NEXT_PUBLIC_${slug.toUpperCase()}`;
+  const defaults = DEFAULTS[slug];
+
+  const id = getEnvChainId(`${prefix}_CHAIN_ID`, slug, defaults.id);
+  const name = getEnv(`${prefix}_NAME`) ?? defaults.name;
+  const rpcUrl = getEnv(`${prefix}_RPC_URL`) ?? defaults.rpcUrl;
+  const explorerUrl = getEnv(`${prefix}_EXPLORER_URL`) ?? defaults.explorerUrl;
+  const explorerName = getEnv(`${prefix}_EXPLORER_NAME`) ?? defaults.explorerName;
+  const poolTokenDecimals = getEnvNumber(
+    `${prefix}_POOL_TOKEN_DECIMALS`,
+    defaults.poolTokenDecimals,
+  );
+  const poolDenomination = getEnvBigInt(
+    `${prefix}_POOL_DENOMINATION`,
+    defaults.poolDenomination,
+  );
+  const stablecoin = getEnvAddress(
+    `${prefix}_STABLECOIN_ADDRESS`,
+    defaults.contracts.stablecoin,
+  );
+  const defaultToken: TokenConfig = {
+    symbol: getEnv(`${prefix}_STABLECOIN_SYMBOL`) ?? defaults.stablecoinSymbol,
+    name: getEnv(`${prefix}_STABLECOIN_NAME`) ?? defaults.stablecoinName,
+    decimals: poolTokenDecimals,
+    address: stablecoin,
+  };
+
+  const computedPlaceholder =
+    !rpcUrl ||
+    !explorerUrl ||
+    stablecoin === ZERO_ADDR ||
+    getEnvAddress(`${prefix}_POOL_ADDRESS`, defaults.contracts.pool) === ZERO_ADDR ||
+    getEnvAddress(`${prefix}_VERIFIER_ADDRESS`, defaults.contracts.verifier) === ZERO_ADDR ||
+    getEnvAddress(
+      `${prefix}_WITHDRAW_VERIFIER_ADDRESS`,
+      defaults.contracts.withdrawVerifier,
+    ) === ZERO_ADDR ||
+    getEnvBigInt(`${prefix}_DEPLOY_BLOCK`, defaults.deployBlock) <= BigInt(0);
+
+  const placeholder =
+    getEnvBoolean(`${prefix}_PLACEHOLDER`) ?? computedPlaceholder;
+
+  const tokens =
+    DEPLOY_ENV === "production"
+      ? [defaultToken, ...defaults.extraTokens]
+      : [defaultToken];
+
+  return {
+    id,
+    name,
+    slug,
+    rpcUrl,
+    explorerUrl,
+    explorerName,
+    nativeCurrency: defaults.nativeCurrency,
+    contracts: {
+      pool: getEnvAddress(`${prefix}_POOL_ADDRESS`, defaults.contracts.pool),
+      verifier: getEnvAddress(`${prefix}_VERIFIER_ADDRESS`, defaults.contracts.verifier),
+      withdrawVerifier: getEnvAddress(
+        `${prefix}_WITHDRAW_VERIFIER_ADDRESS`,
+        defaults.contracts.withdrawVerifier,
+      ),
+      stablecoin,
+    },
+    poolTokenDecimals,
+    poolDenomination,
+    tokens,
+    defaultToken,
+    deployBlock: getEnvBigInt(`${prefix}_DEPLOY_BLOCK`, defaults.deployBlock),
+    placeholder,
+  };
+}
+
+const monadChain = buildChainConfig("monad");
+const celoChain = buildChainConfig("celo");
+
+if (monadChain.id === celoChain.id) {
+  throw new Error("Monad and Celo chain IDs must be different");
+}
+
+export const CHAINS: Record<number, ChainConfig> = Object.freeze({
+  [celoChain.id]: celoChain,
+  [monadChain.id]: monadChain,
+});
+
+export const CHAIN_IDS = Object.freeze([celoChain.id, monadChain.id]);
+
+const defaultChainSlug = getEnv("NEXT_PUBLIC_DEFAULT_CHAIN") as ChainSlug | undefined;
+
+export const DEFAULT_CHAIN_ID =
+  defaultChainSlug === "monad"
+    ? monadChain.id
+    : defaultChainSlug === "celo"
+      ? celoChain.id
+      : celoChain.id;
+
+export function isSupportedChainId(value: unknown): value is SupportedChainId {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    isKnownChainId(value) &&
+    value in CHAINS
+  );
+}

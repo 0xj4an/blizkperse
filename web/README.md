@@ -15,7 +15,7 @@ Next.js 16 frontend for the Blizkperse private payments platform.
 ```bash
 npm install
 cp .env.example .env.local
-# Fill in NEXT_PUBLIC_PARA_API_KEY and DATABASE_URL
+# Fill in NEXT_PUBLIC_PARA_API_KEY, DATABASE_URL, and chain env vars
 npm run dev -- --webpack
 ```
 
@@ -29,6 +29,11 @@ Open [http://localhost:3000](http://localhost:3000).
 |---|---|
 | `NEXT_PUBLIC_PARA_API_KEY` | Para SDK API key |
 | `DATABASE_URL` | PostgreSQL connection string |
+| `BLIZ_ENV` | Server-side environment selector for DB/runtime checks: `production` or `development` |
+| `NEXT_PUBLIC_BLIZ_ENV` | `production` for mainnet deploys, `development` for testnet deploys |
+| `NEXT_PUBLIC_DEFAULT_CHAIN` | Initial chain slug: `celo` or `monad` |
+| `NEXT_PUBLIC_MONAD_*` | Monad RPC, explorer, chain id, deployed contracts, token, deploy block |
+| `NEXT_PUBLIC_CELO_*` | Celo RPC, explorer, chain id, deployed contracts, token, deploy block |
 
 ## Project Structure
 
@@ -83,7 +88,7 @@ Authentication is handled by Para SDK, which provides social login and embedded 
 
 1. Connect GitHub repo for automated deployments
 2. Add PostgreSQL service in Railway
-3. Set environment variables (`NEXT_PUBLIC_PARA_API_KEY`)
+3. Set environment variables for the target environment (`NEXT_PUBLIC_PARA_API_KEY`, `NEXT_PUBLIC_BLIZ_ENV`, `NEXT_PUBLIC_MONAD_*`, `NEXT_PUBLIC_CELO_*`)
 4. Railway auto-injects `DATABASE_URL`
 
 Build uses `output: "standalone"` in `next.config.ts`.
