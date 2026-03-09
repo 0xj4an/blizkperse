@@ -9,9 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@aztec/bb.js": "0.63.1",
+    "@aztec/bb.js": "^4.0.4",
     "@getpara/react-sdk": "^2.11.0",
-    "@noir-lang/noir_js": "1.0.0-beta.0",
+    "@noir-lang/noir_js": "^1.0.0-beta.19",
     "@tanstack/react-query": "^5.90.21",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

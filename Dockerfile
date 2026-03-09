@@ -54,7 +54,7 @@ FROM ubuntu:24.04 AS runner
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Node 22 (to run server.js) + git (nargo execute may run git clone for deps) + bb deps (libc++, jq)
+# Node 22 (to run server.js) + git (for potential scripts) + bb deps (libc++, jq)
 RUN apt-get update && apt-get install -y --no-install-recommends \
   ca-certificates \
   curl \
@@ -67,12 +67,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   apt-get update && apt-get install -y --no-install-recommends nodejs && \
   rm -rf /var/lib/apt/lists/*
 
-# Copy nargo + bb with their full home dirs (includes dependency cache)
-COPY --from=builder /root/.nargo /root/.nargo
-COPY --from=builder /root/.bb /root/.bb
-ENV PATH="/root/.nargo/bin:/root/.bb:${PATH}"
-
-# Copy circuit files to same path as builder so nargo cache matches (avoids re-clone + witness/artifact mismatch)
+# Copy circuit files to same path as builder so the backend can load with_foundry.json
 WORKDIR /app
 COPY --from=builder /app/zk/circuits/ ./zk/circuits/
 
