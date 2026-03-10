@@ -34,6 +34,8 @@ import {
 import { useParaWalletClient } from "@/lib/wallet";
 import { useChain } from "@/lib/chain-context";
 import type { TokenConfig } from "@/lib/constants";
+import { useApiAuth } from "@/lib/api-auth";
+import { useModal } from "@getpara/react-sdk";
 
 type Step = "select" | "amounts" | "review";
 
@@ -58,6 +60,8 @@ export default function CreatePayoutPage() {
   const { chain } = useChain();
   const [selectedToken, setSelectedToken] = useState<TokenConfig>(chain.defaultToken);
   const { walletClient, address, isReady } = useParaWalletClient();
+  const apiAuth = useApiAuth();
+  const { openModal } = useModal();
 
   const filtered = availableSubscribers.filter(
     (s) =>
@@ -117,6 +121,7 @@ export default function CreatePayoutPage() {
         })),
         token: selectedToken.symbol,
         walletClient: walletClient ?? undefined,
+        auth: { ...apiAuth, walletClient, address },
         chainConfig: chain,
         ownerAddress: address ?? undefined,
         onProgress: (step, current, total) => {
@@ -414,8 +419,7 @@ export default function CreatePayoutPage() {
                   </Button>
                   <Button
                     size="lg"
-                    onClick={handleDeposit}
-                    disabled={!isReady}
+                    onClick={isReady ? handleDeposit : () => openModal()}
                     className="gap-2"
                   >
                     <CircleDollarSign className="h-5 w-5" />

@@ -20,7 +20,7 @@ import {
   bigintToBytes32,
   type ProofResult,
 } from "./zk";
-import { getWalletAuthHeaders } from "./api-auth";
+import { getWalletAuthHeaders, type WalletAuth } from "./api-auth";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -139,13 +139,10 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T | null> {
 
 async function authedApi<T>(
   path: string,
-  auth: { walletClient?: WalletClient | null; address?: string | null },
+  auth: WalletAuth,
   opts?: RequestInit,
 ): Promise<T | null> {
-  const authHeaders = await getWalletAuthHeaders(
-    auth.walletClient ?? null,
-    auth.address ?? null,
-  );
+  const authHeaders = await getWalletAuthHeaders(auth);
 
   try {
     const res = await fetch(path, {
@@ -274,7 +271,7 @@ export async function ensureSubscriber(
   address: string,
   name?: string,
   email?: string,
-  walletClient?: WalletClient | null,
+  auth?: WalletAuth,
 ): Promise<Subscriber> {
   const existing = getSubscriberByAddress(address);
   if (existing) return existing;
@@ -302,7 +299,7 @@ export async function ensureSubscriber(
 
   const data = await authedApi<Record<string, unknown>>(
     "/api/subscribers",
-    { walletClient, address },
+    { ...auth, address },
     {
     method: "POST",
     body: JSON.stringify({ address, name: displayName, email }),
@@ -328,11 +325,11 @@ export async function ensureSubscriber(
 export async function createOrganizer(params: {
   name: string;
   address: string;
-  walletClient?: WalletClient | null;
+  auth?: WalletAuth;
 }): Promise<Organizer> {
   const data = await authedApi<Record<string, unknown>>(
     "/api/organizers",
-    { walletClient: params.walletClient, address: params.address },
+    { ...params.auth, address: params.address },
     {
     method: "POST",
     body: JSON.stringify({ name: params.name, owner_address: params.address }),
@@ -358,7 +355,7 @@ export async function createOrganizer(params: {
 export async function updateOrganizer(
   id: string,
   updates: { name: string },
-  auth: { walletClient?: WalletClient | null; address?: string | null },
+  auth: WalletAuth,
 ): Promise<Organizer> {
   const data = await authedApi<Record<string, unknown>>(
     `/api/organizers/${id}`,
@@ -381,12 +378,9 @@ export async function updateOrganizer(
 
 export async function deleteOrganizer(
   id: string,
-  auth: { walletClient?: WalletClient | null; address?: string | null },
+  auth: WalletAuth,
 ): Promise<void> {
-  const authHeaders = await getWalletAuthHeaders(
-    auth.walletClient ?? null,
-    auth.address ?? null,
-  );
+  const authHeaders = await getWalletAuthHeaders(auth);
   const res = await fetch(`/api/organizers/${id}`, {
     method: "DELETE",
     headers: authHeaders,
@@ -406,7 +400,7 @@ export async function deleteOrganizer(
 export async function joinOrganizer(
   organizerId: string,
   subscriberId: string,
-  auth: { walletClient?: WalletClient | null; address?: string | null },
+  auth: WalletAuth,
 ): Promise<Subscription> {
   const data = await authedApi<Record<string, unknown>>(
     "/api/subscriptions",
@@ -445,6 +439,7 @@ export async function createPayout(params: {
   recipients: { subscriberId: string; amount: number }[];
   token?: string;
   walletClient?: WalletClient;
+  auth?: WalletAuth;
   chainConfig: ChainConfig;
   /** If provided, we check balance before deposit and throw a clear error if insufficient. */
   ownerAddress?: Hex;
@@ -469,7 +464,7 @@ export async function createPayout(params: {
     payments: Array<Record<string, unknown>>;
   }>(
     "/api/payouts",
-    { walletClient: params.walletClient, address: params.ownerAddress },
+    { ...params.auth, walletClient: params.walletClient, address: params.ownerAddress },
     {
       method: "POST",
       body: JSON.stringify({
@@ -620,7 +615,7 @@ export async function createPayout(params: {
       }
       const noteRow = await authedApi<Record<string, unknown>>(
         "/api/notes",
-        { walletClient: params.walletClient, address: params.ownerAddress },
+        { ...params.auth, walletClient: params.walletClient, address: params.ownerAddress },
         {
           method: "POST",
           body: JSON.stringify({
@@ -649,7 +644,7 @@ export async function createPayout(params: {
 
   const finalizedPayout = await authedApi<Record<string, unknown>>(
     `/api/payouts/${payout.id}`,
-    { walletClient: params.walletClient, address: params.ownerAddress },
+    { ...params.auth, walletClient: params.walletClient, address: params.ownerAddress },
     {
       method: "PATCH",
       body: JSON.stringify({
@@ -686,7 +681,7 @@ export async function claimPayment(
   walletClient?: WalletClient,
   proofResult?: ProofResult,
   chainConfig?: ChainConfig,
-  address?: string,
+  auth?: WalletAuth,
 ): Promise<{ txHash: string }> {
   let txHash: string;
 
@@ -714,7 +709,7 @@ export async function claimPayment(
 
   const data = await authedApi<Record<string, unknown>>(
     `/api/payments/${paymentId}/claim`,
-    { walletClient, address },
+    { ...auth, walletClient },
     {
       method: "PATCH",
       body: JSON.stringify({ tx_hash: txHash }),

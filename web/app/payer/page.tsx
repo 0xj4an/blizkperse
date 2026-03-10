@@ -7,6 +7,7 @@ import { useAccount } from "@getpara/react-sdk";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -45,11 +46,13 @@ import {
 import { useChain } from "@/lib/chain-context";
 import { CHAINS } from "@/lib/constants";
 import { useParaWalletClient } from "@/lib/wallet";
+import { useApiAuth } from "@/lib/api-auth";
 
 export default function PayerDashboard() {
   const { embedded } = useAccount();
   const address = embedded?.wallets?.[0]?.address ?? "";
   const { walletClient } = useParaWalletClient();
+  const apiAuth = useApiAuth();
   const store = useStore();
   const { chainId: selectedChainId } = useChain();
 
@@ -108,7 +111,7 @@ export default function PayerDashboard() {
       const org = await createOrganizer({
         name: newOrgName.trim(),
         address,
-        walletClient,
+        auth: { ...apiAuth, walletClient },
       });
       setSelectedOrgId(org.id);
       setNewOrgName("");
@@ -128,7 +131,7 @@ export default function PayerDashboard() {
       await updateOrganizer(
         selectedOrg.id,
         { name: editName.trim() },
-        { walletClient, address },
+        { ...apiAuth, walletClient, address },
       );
       setEditOpen(false);
       toast.success("Name updated!");
@@ -143,7 +146,7 @@ export default function PayerDashboard() {
     if (!selectedOrg) return;
     setDeleting(true);
     try {
-      await deleteOrganizer(selectedOrg.id, { walletClient, address });
+      await deleteOrganizer(selectedOrg.id, { ...apiAuth, walletClient, address });
       setSelectedOrgId(null);
       toast.success("Organization deleted.");
     } catch (err) {
@@ -152,6 +155,55 @@ export default function PayerDashboard() {
       setDeleting(false);
     }
   };
+
+  if (!store.loaded) {
+    return (
+      <div className="space-y-8 animate-in fade-in duration-500">
+        {/* Org selector + Create skeleton */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <Skeleton className="h-9 w-32" />
+          <Skeleton className="h-9 w-32" />
+          <Skeleton className="h-9 w-40" />
+        </div>
+
+        {/* Title skeleton */}
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-8 w-48" />
+        </div>
+
+        {/* Stats skeleton */}
+        <div className="grid gap-4 sm:grid-cols-3">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardContent className="flex items-center gap-4 p-6">
+                <Skeleton className="h-10 w-10 rounded-full" />
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-8 w-20" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Subtitle skeleton */}
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-7 w-32" />
+          <Skeleton className="h-9 w-32" />
+        </div>
+
+        {/* Table skeleton */}
+        <Card>
+          <div className="p-4 space-y-4">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">

@@ -15,7 +15,8 @@ export async function GET(req: NextRequest) {
   `;
 
   if (!row) {
-    return NextResponse.json(null, { status: 404 });
+    // Missing subscriber is a valid onboarding state, not an API error.
+    return NextResponse.json(null);
   }
 
   return NextResponse.json(row);

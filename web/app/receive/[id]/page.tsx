@@ -35,7 +35,7 @@ import {
 } from "@/lib/zk";
 import { buildTreeFromEvents, rootToHex } from "@/lib/merkle";
 import { registerRoot, getPublicClient, isRootKnown } from "@/lib/contracts";
-import { createWalletAuthHeadersGetter } from "@/lib/api-auth";
+import { createWalletAuthHeadersGetter, useApiAuth } from "@/lib/api-auth";
 
 const STEP_MESSAGES: Record<string, string> = {
   "loading-notes": "Loading payment data...",
@@ -61,7 +61,12 @@ export default function ClaimPage() {
   const [claimExplorerUrl, setClaimExplorerUrl] = useState<string>("");
   const [claimRecipient, setClaimRecipient] = useState<string>("");
   const { walletClient, address, isReady } = useParaWalletClient();
-  const getAuthHeaders = createWalletAuthHeadersGetter(walletClient, address);
+  const apiAuth = useApiAuth();
+  const getAuthHeaders = createWalletAuthHeadersGetter({
+    ...apiAuth,
+    walletClient,
+    address,
+  });
   const { chainId: selectedChainId } = useChain();
   const [destinationAddress, setDestinationAddress] = useState("");
 
@@ -226,7 +231,7 @@ export default function ClaimPage() {
         walletClient,
         proofResult,
         noteChain,
-        address,
+        { ...apiAuth, walletClient, address },
       );
       setTxHash(result.txHash);
       setClaimExplorerUrl(noteChain.explorerUrl);

@@ -1,12 +1,19 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAccount, useModal } from "@getpara/react-sdk";
+import { useAccount, useModal, useSignMessage } from "@getpara/react-sdk";
+import { hexStringToBase64 } from "@getpara/core-sdk";
 import { toast } from "sonner";
+import { hashMessage, parseSignature, serializeSignature } from "viem";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createWalletAuthHeadersGetter } from "@/lib/api-auth";
 import { useParaWalletClient } from "@/lib/wallet";
+import {
+  AUTH_ADDRESS_HEADER,
+  AUTH_SIGNATURE_HEADER,
+  AUTH_TIMESTAMP_HEADER,
+  buildWalletAuthMessage,
+} from "@/lib/auth-shared";
 import {
   Card,
   CardContent,
@@ -18,12 +25,27 @@ import { LogIn, ShieldCheck, User, Loader2 } from "lucide-react";
 
 type ProfileState = "loading" | "needs-username" | "ready";
 
+function normalizeParaSignature(rawSignature: string): `0x${string}` {
+  const sigHex = rawSignature.startsWith("0x")
+    ? (rawSignature as `0x${string}`)
+    : (`0x${rawSignature}` as `0x${string}`);
+  const parsed = parseSignature(sigHex);
+  return serializeSignature({
+    r: parsed.r,
+    s: parsed.s,
+    yParity: parsed.yParity,
+  });
+}
+
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isConnected, embedded } = useAccount();
   const { openModal } = useModal();
-  const address = embedded?.wallets?.[0]?.address ?? "";
-  const { walletClient } = useParaWalletClient();
-  const getAuthHeaders = createWalletAuthHeadersGetter(walletClient, address);
+  const embeddedWallet = embedded?.wallets?.[0];
+  const fallbackAddress = embeddedWallet?.address ?? "";
+  const { address: walletAddress } = useParaWalletClient();
+  const { signMessageAsync } = useSignMessage();
+  const address = walletAddress ?? fallbackAddress;
+  const walletId = embeddedWallet?.id;
 
   const [profileState, setProfileState] = useState<ProfileState>("loading");
   const [username, setUsername] = useState("");
@@ -74,20 +96,56 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       toast.error("Username must be at least 2 characters");
       return;
     }
+    if (!address) {
+      toast.error("Wallet address not available");
+      return;
+    }
+    if (!walletId) {
+      toast.error("Embedded wallet not available");
+      return;
+    }
 
     setSaving(true);
     try {
-      const authHeaders = await getAuthHeaders();
+      const timestamp = String(Date.now());
+      const message = buildWalletAuthMessage(address, timestamp);
+      const hashedMessage = hashMessage(message);
+      const signatureRes = await signMessageAsync({
+        walletId,
+        messageBase64: hexStringToBase64(hashedMessage),
+      });
+      const rawSignature =
+        signatureRes && "signature" in signatureRes
+          ? signatureRes.signature
+          : undefined;
+      if (!rawSignature) {
+        throw new Error("Wallet signature requires additional confirmation");
+      }
+      const signature = normalizeParaSignature(rawSignature);
+      const authHeaders = {
+        [AUTH_ADDRESS_HEADER]: address.toLowerCase(),
+        [AUTH_SIGNATURE_HEADER]: signature,
+        [AUTH_TIMESTAMP_HEADER]: timestamp,
+      };
       const res = await fetch("/api/subscribers", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({ address, name: trimmed }),
       });
-      if (!res.ok) throw new Error("Failed to save");
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        const message =
+          body && typeof body.error === "string"
+            ? body.error
+            : "Failed to save username";
+        throw new Error(message);
+      }
       setProfileState("ready");
       toast.success(`Welcome, ${trimmed}!`);
-    } catch {
-      toast.error("Failed to save username. Please try again.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to save username";
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -161,7 +219,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
               onClick={handleSaveUsername}
               size="lg"
               className="w-full gap-2"
-              disabled={saving || !username.trim()}
+              disabled={saving || !username.trim() || !walletId}
             >
               {saving ? (
                 <Loader2 className="h-5 w-5 animate-spin" />
@@ -169,6 +227,11 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
                 "Continue"
               )}
             </Button>
+            {!walletId ? (
+              <p className="text-xs text-muted-foreground">
+                Connecting embedded wallet...
+              </p>
+            ) : null}
           </CardContent>
         </Card>
       </div>

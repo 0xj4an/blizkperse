@@ -1,14 +1,35 @@
 "use client";
 
-import type { WalletClient, Hex } from "viem";
+import { useMemo } from "react";
+import { hexStringToBase64 } from "@getpara/core-sdk";
+import { useAccount, useSignMessage } from "@getpara/react-sdk";
+import { hashMessage, parseSignature, serializeSignature, type Hex } from "viem";
+import type { WalletClient } from "viem";
 import {
   AUTH_ADDRESS_HEADER,
   AUTH_SIGNATURE_HEADER,
   AUTH_TIMESTAMP_HEADER,
   buildWalletAuthMessage,
 } from "./auth-shared";
+import { useParaWalletClient } from "./wallet";
 
 const AUTH_TTL_MS = 5 * 60 * 1000;
+
+export type ParaSignMessageResult =
+  | { signature: string }
+  | { pendingTransactionId: string; transactionReviewUrl?: string };
+
+export type ParaSignMessageFn = (args: {
+  walletId: string;
+  messageBase64: string;
+}) => Promise<ParaSignMessageResult>;
+
+export type WalletAuth = {
+  walletClient?: WalletClient | null;
+  address?: string | null;
+  walletId?: string | null;
+  signMessageAsync?: ParaSignMessageFn | null;
+};
 
 type CachedAuth = {
   address: string;
@@ -18,12 +39,26 @@ type CachedAuth = {
 
 let cachedAuth: CachedAuth | null = null;
 
+function normalizeParaSignature(rawSignature: string): `0x${string}` {
+  const sigHex = rawSignature.startsWith("0x")
+    ? (rawSignature as `0x${string}`)
+    : (`0x${rawSignature}` as `0x${string}`);
+  const parsed = parseSignature(sigHex);
+  return serializeSignature({
+    r: parsed.r,
+    s: parsed.s,
+    yParity: parsed.yParity,
+  });
+}
+
 export async function getWalletAuthHeaders(
-  walletClient: WalletClient | null | undefined,
-  address: string | null | undefined,
+  auth: WalletAuth,
 ): Promise<Record<string, string>> {
+  const { walletClient, address, walletId, signMessageAsync } = auth;
   if (!walletClient || !address) {
-    throw new Error("Wallet authentication is required");
+    if (!signMessageAsync || !walletId || !address) {
+      throw new Error("Wallet authentication is required");
+    }
   }
 
   const normalizedAddress = address.toLowerCase();
@@ -39,10 +74,32 @@ export async function getWalletAuthHeaders(
 
   const timestamp = String(now);
   const message = buildWalletAuthMessage(normalizedAddress, timestamp);
-  const signature = await walletClient.signMessage({
-    account: address as Hex,
-    message,
-  });
+  let signature: `0x${string}`;
+
+  // Use Para SDK's native signing if available to avoid sending personal_sign to RPCs that reject it
+  if (signMessageAsync && walletId) {
+    const hashed = hashMessage(message);
+    const signatureRes = await signMessageAsync({
+      walletId,
+      messageBase64: hexStringToBase64(hashed),
+    });
+    const rawSignature =
+      signatureRes && "signature" in signatureRes
+        ? (signatureRes as { signature: string }).signature
+        : undefined;
+    if (!rawSignature) {
+      throw new Error("Wallet signature requires additional confirmation");
+    }
+    signature = normalizeParaSignature(rawSignature);
+  } else if (walletClient) {
+    // Fallback to viem for non-embedded or external wallets
+    signature = await walletClient.signMessage({
+      account: address as Hex,
+      message,
+    });
+  } else {
+    throw new Error("Cannot sign message: no wallet client and no embedded wallet");
+  }
 
   const headers = {
     [AUTH_ADDRESS_HEADER]: normalizedAddress,
@@ -59,9 +116,23 @@ export async function getWalletAuthHeaders(
   return headers;
 }
 
-export function createWalletAuthHeadersGetter(
-  walletClient: WalletClient | null | undefined,
-  address: string | null | undefined,
-) {
-  return async () => getWalletAuthHeaders(walletClient, address);
+export function createWalletAuthHeadersGetter(auth: WalletAuth) {
+  return async () => getWalletAuthHeaders(auth);
+}
+
+export function useApiAuth(): WalletAuth {
+  const { embedded } = useAccount();
+  const { signMessageAsync } = useSignMessage();
+  const { walletClient, address: walletAddress } = useParaWalletClient();
+  const embeddedWallet = embedded?.wallets?.[0];
+
+  return useMemo(
+    () => ({
+      walletClient,
+      address: walletAddress ?? embeddedWallet?.address ?? null,
+      walletId: embeddedWallet?.id ?? null,
+      signMessageAsync,
+    }),
+    [walletClient, walletAddress, embeddedWallet?.address, embeddedWallet?.id, signMessageAsync],
+  );
 }

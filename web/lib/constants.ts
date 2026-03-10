@@ -138,42 +138,42 @@ const DEV_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
   monad: {
     id: ChainId.MONAD_TESTNET,
     name: "Monad Testnet",
-    rpcUrl: "",
-    explorerUrl: "",
+    rpcUrl: "https://testnet-rpc.monad.xyz",
+    explorerUrl: "https://testnet.monadvision.com/",
     explorerName: "Monad Explorer",
     nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
     contracts: {
-      pool: ZERO_ADDR,
-      verifier: ZERO_ADDR,
-      withdrawVerifier: ZERO_ADDR,
-      stablecoin: ZERO_ADDR,
+      pool: "0x1d42C0cD5fF14Ee71456473828996b1bC251a735",
+      verifier: "0x9b5CDf523cE2C706Db157EE2135FfEEa68674772",
+      withdrawVerifier: "0x3c453536fA6cE97ee92f186eE954E89aB316E315",
+      stablecoin: "0x534b2f3A21130d7a60830c2Df862319e593943A3",
     },
     poolTokenDecimals: 6,
     poolDenomination: BigInt(1_000_000),
     stablecoinSymbol: "USDC",
     stablecoinName: "USD Coin",
     extraTokens: [],
-    deployBlock: BigInt(0),
+    deployBlock: BigInt(17820960),
   },
   celo: {
     id: ChainId.CELO_TESTNET,
     name: "Celo Testnet",
-    rpcUrl: "",
-    explorerUrl: "",
+    rpcUrl: "http://127.0.0.1:8545",
+    explorerUrl: "https://celo-sepolia.blockscout.com",
     explorerName: "Celo Explorer",
     nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
     contracts: {
-      pool: ZERO_ADDR,
-      verifier: ZERO_ADDR,
-      withdrawVerifier: ZERO_ADDR,
-      stablecoin: ZERO_ADDR,
+      pool: "0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44",
+      verifier: "0x59b670e9fA9D0A427751Af201D676719a970857b",
+      withdrawVerifier: "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1",
+      stablecoin: "0x01C5C0122039549AD1493B8220cABEdD739BC44E",
     },
     poolTokenDecimals: 6,
     poolDenomination: BigInt(1_000_000),
     stablecoinSymbol: "USDC",
     stablecoinName: "USD Coin",
     extraTokens: [],
-    deployBlock: BigInt(0),
+    deployBlock: BigInt(1),
   },
 };
 
@@ -245,10 +245,10 @@ function buildChainConfig(slug: ChainSlug): ChainConfig {
   const defaults = DEFAULTS[slug];
 
   const id = getEnvChainId(`${prefix}_CHAIN_ID`, slug, defaults.id);
-  const name = getEnv(`${prefix}_NAME`) ?? defaults.name;
+  const name = defaults.name;
   const rpcUrl = getEnv(`${prefix}_RPC_URL`) ?? defaults.rpcUrl;
   const explorerUrl = getEnv(`${prefix}_EXPLORER_URL`) ?? defaults.explorerUrl;
-  const explorerName = getEnv(`${prefix}_EXPLORER_NAME`) ?? defaults.explorerName;
+  const explorerName = defaults.explorerName;
   const poolTokenDecimals = getEnvNumber(
     `${prefix}_POOL_TOKEN_DECIMALS`,
     defaults.poolTokenDecimals,
@@ -263,7 +263,7 @@ function buildChainConfig(slug: ChainSlug): ChainConfig {
   );
   const defaultToken: TokenConfig = {
     symbol: getEnv(`${prefix}_STABLECOIN_SYMBOL`) ?? defaults.stablecoinSymbol,
-    name: getEnv(`${prefix}_STABLECOIN_NAME`) ?? defaults.stablecoinName,
+    name: defaults.stablecoinName,
     decimals: poolTokenDecimals,
     address: stablecoin,
   };
