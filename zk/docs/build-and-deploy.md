@@ -101,16 +101,17 @@ POOL_ADDRESS=0x...   # ShieldedPool address from step 2
 
 This way the CLI scripts (`deposit_one.mjs`, `register_root.mjs`, etc.) use the new pool.
 
-### 5. Update the frontend (`web/lib/constants.ts`)
+### 5. Update the web environment
 
-In the Monad config (id 143):
+Set these in `web/.env` or Railway env vars:
 
-- `contracts.pool` → **ShieldedPool** address from step 2.
-- `contracts.verifier` → **HonkVerifier** address deployed in the same run.
-- `contracts.withdrawVerifier` → **WithdrawVerifier** address deployed in the same run.
-- `deployBlock` → block number from step 3 (e.g. `BigInt(58_000_000)`).
+- `NEXT_PUBLIC_MONAD_POOL_ADDRESS` → **ShieldedPool** address from step 2.
+- `NEXT_PUBLIC_MONAD_VERIFIER_ADDRESS` → **HonkVerifier** address deployed in the same run.
+- `NEXT_PUBLIC_MONAD_WITHDRAW_VERIFIER_ADDRESS` → **WithdrawVerifier** address deployed in the same run.
+- `NEXT_PUBLIC_MONAD_STABLECOIN_ADDRESS` → the USDC token used by the pool.
+- `NEXT_PUBLIC_MONAD_DEPLOY_BLOCK` → block number from step 3.
 
-All three addresses appear in the `forge script` output or in the explorer transactions (order: Verifier, WithdrawVerifier, ShieldedPool).
+All three addresses appear in the `forge script` output or in the explorer transactions.
 
 ### 6. Done
 
@@ -139,18 +140,15 @@ forge script script/Deploy.s.sol:DeployPool --rpc-url "$CELO_RPC" --broadcast
 
 Note the **three addresses** (Verifier, WithdrawVerifier, ShieldedPool) and the **block** of the first tx.
 
-### 3. Update the frontend (`web/lib/constants.ts`)
+### 3. Update the web environment
 
-In the **Celo** config (id 42220):
+Set these in `web/.env` or Railway env vars:
 
-- `contracts.pool` → deployed ShieldedPool address.
-- `contracts.verifier` → HonkVerifier address.
-- `contracts.withdrawVerifier` → WithdrawVerifier address.
-- `contracts.stablecoin` → keep `CELO_USDC` (or the token you use; must be 6 decimals to match the contract).
-- `poolTokenDecimals` → `6`.
-- `poolDenomination` → `BigInt(1_000_000)` (1e6).
-- `deployBlock` → deploy block (e.g. `BigInt(25_000_000)`).
-- `placeholder` → `false`.
+- `NEXT_PUBLIC_CELO_POOL_ADDRESS` → deployed ShieldedPool address.
+- `NEXT_PUBLIC_CELO_VERIFIER_ADDRESS` → HonkVerifier address.
+- `NEXT_PUBLIC_CELO_WITHDRAW_VERIFIER_ADDRESS` → WithdrawVerifier address.
+- `NEXT_PUBLIC_CELO_STABLECOIN_ADDRESS` → the 6-decimal USDC token used by the pool.
+- `NEXT_PUBLIC_CELO_DEPLOY_BLOCK` → deploy block.
 
 ### 4. CLI scripts for Celo
 
@@ -163,7 +161,7 @@ The scripts in `circuits/scripts/` use `MONAD_RPC` and `POOL_ADDRESS` by default
 | 1 | `.env` with `PRIVATE_KEY`, `USDC_ADDRESS=0xcebA9300f2b948710d2653dD7B07f33A8B32118C`, `CELO_RPC` |
 | 2 | `forge script script/Deploy.s.sol:DeployPool --rpc-url "$CELO_RPC" --broadcast` |
 | 3 | Note verifier, withdrawVerifier, pool, and block |
-| 4 | Update `web/lib/constants.ts` (Celo: pool, verifier, withdrawVerifier, deployBlock, placeholder: false, poolTokenDecimals: 6, poolDenomination: 1e6) |
+| 4 | Update `web/.env` / Railway env vars (Celo: pool, verifier, withdrawVerifier, stablecoin, deploy block) |
 
 ---
 

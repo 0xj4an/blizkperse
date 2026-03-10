@@ -6,8 +6,8 @@ export const maxDuration = 60;
 import { CHAINS, type SupportedChainId, type ChainConfig } from "@/lib/constants";
 import sql, { ensureSchema } from "@/lib/db";
 
-// Monad RPC: max 999 blocks per getLogs, rate-limited
-const CHUNK_SIZE = BigInt(999);
+// Monad RPC: max 100 blocks per getLogs, rate-limited
+const CHUNK_SIZE = BigInt(99);
 const CONCURRENCY = 3;
 const RETRY_DELAY_MS = 2000;
 const MAX_RETRIES = 3;

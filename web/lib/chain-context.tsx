@@ -5,6 +5,7 @@ import {
   useContext,
   useState,
   useCallback,
+  useEffect,
   type ReactNode,
 } from "react";
 import {
@@ -94,11 +95,24 @@ function ChainSelectScreen({
 
 export function ChainProvider({ children }: { children: ReactNode }) {
   const [chainId, setChainIdRaw] = useState<SupportedChainId | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+    const stored = localStorage.getItem("blizkperse-chain");
+    if (stored && CHAIN_IDS.includes(Number(stored) as SupportedChainId)) {
+      setChainIdRaw(Number(stored) as SupportedChainId);
+      document.documentElement.setAttribute("data-chain", CHAINS[Number(stored) as SupportedChainId].slug);
+    }
+  }, []);
 
   const setChainId = useCallback((id: SupportedChainId) => {
     setChainIdRaw(id);
+    localStorage.setItem("blizkperse-chain", String(id));
     document.documentElement.setAttribute("data-chain", CHAINS[id].slug);
   }, []);
+
+  if (!isMounted) return null;
 
   if (chainId === null) {
     return <ChainSelectScreen onSelect={setChainId} />;

@@ -43,6 +43,7 @@ const POOL_ABI = parseAbi([
   "event TransferIntent(bytes32 indexed root, bytes32 indexed nullifier, bytes32 indexed newCommitment)",
   "event Withdraw(address indexed recipient, bytes32 indexed nullifier)",
   "error ProofLengthWrong()",
+  "error ProofLengthWrongWithLogN(uint256 logN, uint256 actualLength, uint256 expectedLength)",
   "error PublicInputsLengthWrong()",
   "error SumcheckFailed()",
   "error ShpleminiFailed()",
@@ -276,8 +277,8 @@ const DEPOSIT_EVENT = {
   ],
 };
 
-/** Max block range per getLogs call. Monad rejects >= 1000 blocks */
-const MAX_BLOCK_RANGE = BigInt(999);
+/** Max block range per getLogs call. Monad rejects >= 100 blocks */
+const MAX_BLOCK_RANGE = BigInt(99);
 
 export async function getDepositEvents(
   config: ChainConfig,

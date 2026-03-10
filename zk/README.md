@@ -37,7 +37,7 @@ Noir ZK circuits and Foundry smart contracts for the Blizkperse shielded pool.
 
    ```bash
    cp .env.example .env
-   # Fill in PRIVATE_KEY, POOL_ADDRESS, USDC_ADDRESS, and RPC URL
+   # Fill in PRIVATE_KEY, USDC_ADDRESS, RPC URL, and later POOL_ADDRESS after deploy
    ```
 
 ## Project Structure
@@ -95,7 +95,9 @@ Deploys three contracts: **HonkVerifier**, **WithdrawVerifier**, **ShieldedPool*
 
 After deploying, update:
 - `zk/.env` with the new `POOL_ADDRESS`
-- `web/lib/constants.ts` with the new contract addresses and deploy block
+- `web/.env` / Railway env vars with the new contract addresses and deploy block
+
+For testnet deployment guidance, see [docs/testnet-deploy.md](docs/testnet-deploy.md).
 
 ## Deployed Contracts
 
@@ -107,5 +109,6 @@ After deploying, update:
 ## Documentation
 
 - [Build & Deploy Guide](docs/build-and-deploy.md) - Avoiding SumcheckFailed, deployment checklist
+- [Testnet Deploy Guide](docs/testnet-deploy.md) - Monad testnet and Celo testnet deployment checklist
 - [Deposit/Withdraw Demo](docs/demo-deposit-withdraw.md) - Step-by-step CLI demo
 - [Testing Guide](docs/test-deposit-withdraw.md) - Anonymity validation, proof generation

@@ -75,7 +75,8 @@ export async function generateWithdrawProof(
     verifierTarget: "evm",
   });
 
-  const proofHex = `0x${Buffer.from(proofData.proof).toString("hex")}`;
+  const proofBytes = Buffer.from(proofData.proof);
+  const proofHex = `0x${proofBytes.toString("hex")}`;
 
   return { proofHex };
 }
