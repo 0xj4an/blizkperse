@@ -1,5 +1,5 @@
 # Multi-stage build: install ZK toolchain + build Next.js standalone app
-# nargo 1.0.0-beta.18 + bb 0.63.1 (must match local versions)
+# nargo 1.0.0-beta.19 + bb 1.2.0 (must match local versions)
 
 # ── Stage 1: Builder ─────────────────────────────────────
 # Use Ubuntu 24.04 so glibc is new enough for bb
@@ -26,12 +26,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
 # Install nargo (Noir compiler/executor)
 RUN curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
 ENV PATH="/root/.nargo/bin:${PATH}"
-RUN noirup -v 1.0.0-beta.18
+RUN noirup -v 1.0.0-beta.19
 
 # Install bb (Barretenberg prover)
 RUN curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/master/barretenberg/cpp/installation/install | bash
 ENV PATH="/root/.bb:${PATH}"
-RUN bbup -v 0.63.1
+RUN bbup -v 1.2.0
 
 # Pre-compile circuit to cache git dependencies (main.nr must be the withdraw circuit)
 WORKDIR /app
