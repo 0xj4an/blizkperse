@@ -434,6 +434,7 @@ export default function CreatePayoutPage() {
                 <TxStatus
                   state={txState}
                   txHash={txHash}
+                  explorerUrl={chain.explorerUrl}
                   successMessage="Payout created and funds deposited!"
                   progressMessage={progressMsg}
                 />

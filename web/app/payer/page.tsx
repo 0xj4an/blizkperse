@@ -56,18 +56,20 @@ export default function PayerDashboard() {
   const store = useStore();
   const { chainId: selectedChainId } = useChain();
 
-  // Filter my orgs to those active on the selected chain (or with no payments yet)
+  // Filter my orgs to those active on the selected chain (or with no chain-linked payments yet)
   const orgIdsOnChain = new Set<string>();
-  const orgIdsWithPayments = new Set<string>();
+  const orgIdsWithChainPayments = new Set<string>();
   for (const p of store.payments) {
-    orgIdsWithPayments.add(p.organizerId);
-    if (p.chainId === selectedChainId) orgIdsOnChain.add(p.organizerId);
+    if (p.chainId != null) {
+      orgIdsWithChainPayments.add(p.organizerId);
+      if (p.chainId === selectedChainId) orgIdsOnChain.add(p.organizerId);
+    }
   }
 
   const myOrganizers = store.organizers.filter(
     (o) =>
       o.address.toLowerCase() === address.toLowerCase() &&
-      (orgIdsOnChain.has(o.id) || !orgIdsWithPayments.has(o.id))
+      (orgIdsOnChain.has(o.id) || !orgIdsWithChainPayments.has(o.id))
   );
 
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
