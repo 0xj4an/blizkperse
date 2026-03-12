@@ -116,47 +116,51 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  try {
   await ensureSchema();
 
-  const client = createPublicClient({
-    chain: toViemChain(config),
-    transport: http(config.rpcUrl),
-  });
+  // RPC scan: catch errors so we still return cached data if the RPC is down/rate-limited
+  try {
+    const client = createPublicClient({
+      chain: toViemChain(config),
+      transport: http(config.rpcUrl),
+    });
 
-  const latest = await client.getBlockNumber();
+    const latest = await client.getBlockNumber();
 
-  // Get cached cursor (where we left off scanning)
-  const [cursorRow] = await sql`
-    SELECT last_block FROM scan_cursor WHERE chain_id = ${chainId}
-  `;
-  const lastScanned = cursorRow ? BigInt(cursorRow.last_block) : null;
-  const scanFrom = lastScanned != null ? lastScanned + BigInt(1) : config.deployBlock;
+    const [cursorRow] = await sql`
+      SELECT last_block FROM scan_cursor WHERE chain_id = ${chainId}
+    `;
+    const lastScanned = cursorRow ? BigInt(cursorRow.last_block) : null;
+    const scanFrom = lastScanned != null ? lastScanned + BigInt(1) : config.deployBlock;
 
-  // Scan only new blocks (if any)
-  if (scanFrom <= latest) {
-    const newLogs = await scanRange(client, config.contracts.pool, scanFrom, latest);
+    if (scanFrom <= latest) {
+      const newLogs = await scanRange(client, config.contracts.pool, scanFrom, latest);
 
-    if (newLogs.length > 0) {
+      if (newLogs.length > 0) {
+        await sql`
+          INSERT INTO deposit_events_cache ${sql(
+            newLogs.map((l) => ({
+              chain_id: chainId,
+              block_number: l.blockNumber,
+              sender: l.sender,
+              commitment: l.commitment,
+            })),
+          )}
+          ON CONFLICT (chain_id, commitment) DO NOTHING
+        `;
+      }
+
       await sql`
-        INSERT INTO deposit_events_cache ${sql(
-          newLogs.map((l) => ({
-            chain_id: chainId,
-            block_number: l.blockNumber,
-            sender: l.sender,
-            commitment: l.commitment,
-          })),
-        )}
-        ON CONFLICT (chain_id, commitment) DO NOTHING
+        INSERT INTO scan_cursor (chain_id, last_block)
+        VALUES (${chainId}, ${String(latest)})
+        ON CONFLICT (chain_id)
+        DO UPDATE SET last_block = ${String(latest)}
       `;
     }
-
-    // Update cursor
-    await sql`
-      INSERT INTO scan_cursor (chain_id, last_block)
-      VALUES (${chainId}, ${String(latest)})
-      ON CONFLICT (chain_id)
-      DO UPDATE SET last_block = ${String(latest)}
-    `;
+  } catch (scanErr) {
+    // Log but don't fail — return cached data below
+    console.error(`RPC scan failed for chain ${chainId}:`, scanErr instanceof Error ? scanErr.message : scanErr);
   }
 
   // Primary source: notes table (every deposit from the app is stored here)
@@ -201,4 +205,9 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json(events);
+  } catch (err) {
+    console.error("deposit-events error:", err);
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
