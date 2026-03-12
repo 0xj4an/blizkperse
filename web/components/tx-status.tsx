@@ -1,13 +1,15 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
 
 export type TxState = "idle" | "pending" | "success" | "error";
 
 interface TxStatusProps {
   state: TxState;
   txHash?: string;
+  /** Base explorer URL (e.g. "https://celoscan.io"). When provided, txHash becomes a clickable link. */
+  explorerUrl?: string;
   /** When set, shown below successMessage instead of txHash (e.g. "Received by: 0x1234...5678") */
   successDetail?: string;
   successMessage?: string;
@@ -18,6 +20,7 @@ interface TxStatusProps {
 export function TxStatus({
   state,
   txHash,
+  explorerUrl,
   successDetail,
   successMessage = "Transaction confirmed",
   errorMessage = "Transaction failed",
@@ -58,9 +61,21 @@ export function TxStatus({
               <p className="font-mono text-xs text-muted-foreground">{successDetail}</p>
             )}
             {!successDetail && txHash && (
-              <p className="font-mono text-xs text-muted-foreground">
-                {txHash.slice(0, 10)}...{txHash.slice(-8)}
-              </p>
+              explorerUrl ? (
+                <a
+                  href={`${explorerUrl}/tx/${txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 font-mono text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {txHash.slice(0, 10)}...{txHash.slice(-8)}
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              ) : (
+                <p className="font-mono text-xs text-muted-foreground">
+                  {txHash.slice(0, 10)}...{txHash.slice(-8)}
+                </p>
+              )
             )}
           </>
         )}

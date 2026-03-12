@@ -48,7 +48,7 @@ create table if not exists payments (
   organizer_id uuid references organizers(id) on delete cascade,
   subscriber_id uuid references subscribers(id) on delete cascade,
   amount numeric not null,
-  status text default 'claimable' check (status in ('claimable', 'claimed', 'expired')),
+  status text default 'pending' check (status in ('pending', 'claimable', 'claimed', 'expired')),
   claimed_at timestamptz,
   tx_hash text,
   created_at timestamptz default now()
@@ -58,6 +58,8 @@ create table if not exists payments (
 create table if not exists notes (
   id uuid primary key default gen_random_uuid(),
   payment_id uuid references payments(id) on delete cascade,
+  subscriber_id text,
+  chain_id integer not null,
   commitment text not null,
   value text not null,
   holder_pk text not null,
@@ -67,6 +69,16 @@ create table if not exists notes (
   created_at timestamptz default now()
 );
 
+alter table notes drop constraint if exists notes_chain_id_check;
+-- Choose the constraint that matches the target environment.
+-- Production DBs: mainnet only.
+-- Development DBs: testnet only.
+-- The app runtime (`web/lib/db.ts`) applies the correct variant automatically using `BLIZ_ENV`.
+-- alter table notes add constraint notes_chain_id_check
+-- check (chain_id in (143, 42220));
+-- alter table notes add constraint notes_chain_id_check
+-- check (chain_id in (10143, 11142220));
+
 -- Indexes for common queries
 create index if not exists idx_organizers_owner on organizers(owner_address);
 create index if not exists idx_subscribers_address on subscribers(address);
@@ -75,6 +87,9 @@ create index if not exists idx_subscriptions_sub on subscriptions(subscriber_id)
 create index if not exists idx_payouts_org on payouts(organizer_id);
 create index if not exists idx_payments_sub on payments(subscriber_id);
 create index if not exists idx_payments_payout on payments(payout_id);
+create unique index if not exists idx_notes_payment_unique on notes(payment_id);
+create index if not exists idx_notes_subscriber_chain on notes(subscriber_id, chain_id, created_at);
+create index if not exists idx_notes_chain_payment on notes(chain_id, payment_id);
 
 -- Seed: Monad Test organizer
 insert into organizers (name, owner_address)

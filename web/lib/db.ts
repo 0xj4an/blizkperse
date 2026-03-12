@@ -1,6 +1,14 @@
 import postgres from "postgres";
 
 const connectionString = process.env.DATABASE_URL;
+const appEnv =
+  process.env.BLIZ_ENV === "development" ||
+  process.env.NEXT_PUBLIC_BLIZ_ENV === "development"
+    ? "development"
+    : "production";
+const validNoteChainIds =
+  appEnv === "development" ? [10143, 11142220] : [143, 42220];
+const validNoteChainIdsSql = validNoteChainIds.join(", ");
 
 if (!connectionString) {
   console.warn("DATABASE_URL not set - API routes will fail");
@@ -65,18 +73,24 @@ export function ensureSchema() {
         organizer_id uuid REFERENCES organizers(id) ON DELETE CASCADE,
         subscriber_id uuid REFERENCES subscribers(id) ON DELETE CASCADE,
         amount numeric NOT NULL,
-        status text DEFAULT 'claimable' CHECK (status IN ('claimable', 'claimed', 'expired')),
+        status text DEFAULT 'pending' CHECK (status IN ('pending', 'claimable', 'claimed', 'expired')),
         claimed_at timestamptz,
         tx_hash text,
         created_at timestamptz DEFAULT now()
       )
+    `;
+    await sql`ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_status_check`;
+    await sql`
+      ALTER TABLE payments
+      ADD CONSTRAINT payments_status_check
+      CHECK (status IN ('pending', 'claimable', 'claimed', 'expired'))
     `;
 
     await sql`
       CREATE TABLE IF NOT EXISTS notes (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         payment_id uuid REFERENCES payments(id) ON DELETE CASCADE,
-        chain_id integer NOT NULL DEFAULT 143,
+        chain_id integer NOT NULL,
         commitment text NOT NULL,
         value text NOT NULL,
         holder_pk text NOT NULL,
@@ -88,6 +102,13 @@ export function ensureSchema() {
     `;
     // Ensure newer column exists even on older databases
     await sql`ALTER TABLE notes ADD COLUMN IF NOT EXISTS subscriber_id text`;
+    await sql`ALTER TABLE notes ALTER COLUMN chain_id DROP DEFAULT`;
+    await sql`ALTER TABLE notes DROP CONSTRAINT IF EXISTS notes_chain_id_check`;
+    await sql.unsafe(`
+      ALTER TABLE notes
+      ADD CONSTRAINT notes_chain_id_check
+      CHECK (chain_id IN (${validNoteChainIdsSql}))
+    `);
 
     await sql`
       CREATE TABLE IF NOT EXISTS deposit_events_cache (
@@ -114,9 +135,14 @@ export function ensureSchema() {
     await sql`CREATE INDEX IF NOT EXISTS idx_payouts_org ON payouts(organizer_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_payments_sub ON payments(subscriber_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_payments_payout ON payments(payout_id)`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_payment_unique ON notes(payment_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_notes_subscriber_chain ON notes(subscriber_id, chain_id, created_at)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_notes_chain_payment ON notes(chain_id, payment_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_deposit_cache_chain ON deposit_events_cache(chain_id)`;
 
-    console.log("Database schema initialized");
+    console.log(
+      `Database schema initialized (${appEnv}; note chain ids: ${validNoteChainIdsSql})`,
+    );
   })();
   return schemaReady;
 }

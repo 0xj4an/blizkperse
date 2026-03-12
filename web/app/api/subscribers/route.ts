@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import sql, { ensureSchema } from "@/lib/db";
+import { requireWalletAuth } from "@/lib/server-auth";
 
 export async function GET(req: NextRequest) {
   await ensureSchema();
@@ -14,7 +15,8 @@ export async function GET(req: NextRequest) {
   `;
 
   if (!row) {
-    return NextResponse.json(null, { status: 404 });
+    // Missing subscriber is a valid onboarding state, not an API error.
+    return NextResponse.json(null);
   }
 
   return NextResponse.json(row);
@@ -23,7 +25,13 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   await ensureSchema();
 
+  const auth = await requireWalletAuth(req);
+  if ("error" in auth) return auth.error;
+
   const { address, name, email } = await req.json();
+  if (String(address).toLowerCase() !== auth.address) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const [row] = await sql`
     INSERT INTO subscribers (address, name, email)

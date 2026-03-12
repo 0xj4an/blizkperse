@@ -43,6 +43,7 @@ const POOL_ABI = parseAbi([
   "event TransferIntent(bytes32 indexed root, bytes32 indexed nullifier, bytes32 indexed newCommitment)",
   "event Withdraw(address indexed recipient, bytes32 indexed nullifier)",
   "error ProofLengthWrong()",
+  "error ProofLengthWrongWithLogN(uint256 logN, uint256 actualLength, uint256 expectedLength)",
   "error PublicInputsLengthWrong()",
   "error SumcheckFailed()",
   "error ShpleminiFailed()",
@@ -73,6 +74,14 @@ export function getPublicClient(config: ChainConfig): PublicClient {
   return client;
 }
 
+function getWalletAccount(walletClient: WalletClient) {
+  const { account } = walletClient;
+  if (!account) {
+    throw new Error("Wallet client account is not available");
+  }
+  return account;
+}
+
 // ── Write functions ─────────────────────────────────────
 
 export async function approvePoolToken(
@@ -81,6 +90,7 @@ export async function approvePoolToken(
   amount: bigint = config.poolDenomination,
 ): Promise<Hash> {
   return walletClient.writeContract({
+    account: getWalletAccount(walletClient),
     address: config.contracts.stablecoin,
     abi: ERC20_ABI,
     functionName: "approve",
@@ -95,6 +105,7 @@ export async function depositToPool(
   commitment: Hex,
 ): Promise<Hash> {
   return walletClient.writeContract({
+    account: getWalletAccount(walletClient),
     address: config.contracts.pool,
     abi: POOL_ABI,
     functionName: "deposit",
@@ -163,6 +174,7 @@ export async function registerRoot(
   root: Hex,
 ): Promise<Hash> {
   return walletClient.writeContract({
+    account: getWalletAccount(walletClient),
     address: config.contracts.pool,
     abi: POOL_ABI,
     functionName: "registerRoot",
@@ -182,6 +194,7 @@ export async function withdrawFromPool(
   },
 ): Promise<Hash> {
   return walletClient.writeContract({
+    account: getWalletAccount(walletClient),
     address: config.contracts.pool,
     abi: POOL_ABI,
     functionName: "withdraw",
@@ -264,8 +277,8 @@ const DEPOSIT_EVENT = {
   ],
 };
 
-/** Max block range per getLogs call. Monad rejects >= 1000 blocks */
-const MAX_BLOCK_RANGE = BigInt(999);
+/** Max block range per getLogs call. Monad rejects >= 100 blocks */
+const MAX_BLOCK_RANGE = BigInt(99);
 
 export async function getDepositEvents(
   config: ChainConfig,

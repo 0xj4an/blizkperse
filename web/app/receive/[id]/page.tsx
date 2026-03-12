@@ -35,6 +35,7 @@ import {
 } from "@/lib/zk";
 import { buildTreeFromEvents, rootToHex } from "@/lib/merkle";
 import { registerRoot, getPublicClient, isRootKnown } from "@/lib/contracts";
+import { createWalletAuthHeadersGetter, useApiAuth } from "@/lib/api-auth";
 
 const STEP_MESSAGES: Record<string, string> = {
   "loading-notes": "Loading payment data...",
@@ -60,6 +61,12 @@ export default function ClaimPage() {
   const [claimExplorerUrl, setClaimExplorerUrl] = useState<string>("");
   const [claimRecipient, setClaimRecipient] = useState<string>("");
   const { walletClient, address, isReady } = useParaWalletClient();
+  const apiAuth = useApiAuth();
+  const getAuthHeaders = createWalletAuthHeadersGetter({
+    ...apiAuth,
+    walletClient,
+    address,
+  });
   const { chainId: selectedChainId } = useChain();
   const [destinationAddress, setDestinationAddress] = useState("");
 
@@ -107,10 +114,13 @@ export default function ClaimPage() {
       let noteData: { commitment?: string; value?: string; holder_pk?: string; randomness?: string; chain_id?: number } | null = null;
 
       // Chain we'll use for this claim (needed before fallback so we pick a note for this chain)
-      const noteChainId = (payment.chainId ?? selectedChainId ?? 143) as SupportedChainId;
+      const noteChainId = (payment.chainId ?? selectedChainId) as SupportedChainId;
 
       // Prefer notes explicitly linked to this payment
-      const noteRes = await fetch(`/api/notes?payment_id=${paymentId}`);
+      const authHeaders = await getAuthHeaders();
+      const noteRes = await fetch(`/api/notes?payment_id=${paymentId}`, {
+        headers: authHeaders,
+      });
       if (noteRes.ok) {
         const notes = await noteRes.json();
         noteData = Array.isArray(notes) ? notes[0] : notes;
@@ -120,11 +130,14 @@ export default function ClaimPage() {
       if (!noteData?.commitment && payment.subscriberId) {
         const fallbackRes = await fetch(
           `/api/notes?subscriber_id=${payment.subscriberId}`,
+          {
+            headers: authHeaders,
+          },
         );
         if (fallbackRes.ok) {
           const fallbackNotes = await fallbackRes.json();
           const list = Array.isArray(fallbackNotes) ? fallbackNotes : [];
-          const forChain = list.filter((n: { chain_id?: number }) => (n.chain_id ?? 143) === noteChainId);
+          const forChain = list.filter((n: { chain_id?: number }) => (n.chain_id ?? selectedChainId) === noteChainId);
           if (forChain.length > 0) {
             noteData = forChain[forChain.length - 1];
           }
@@ -137,7 +150,7 @@ export default function ClaimPage() {
         );
       }
 
-      // Use chain we already decided (payment.chainId ?? selectedChainId ?? 143)
+      // Use chain we already decided (payment.chainId ?? selectedChainId)
       const noteChain = CHAINS[noteChainId];
       if (!noteChain || noteChain.placeholder) {
         throw new Error(`Contracts not deployed on ${noteChain?.name ?? "unknown chain"} yet.`);
@@ -213,7 +226,13 @@ export default function ClaimPage() {
 
       // Step 5: Submit withdrawal
       setClaimStep("withdrawing");
-      const result = await claimPayment(paymentId, walletClient, proofResult, noteChain);
+      const result = await claimPayment(
+        paymentId,
+        walletClient,
+        proofResult,
+        noteChain,
+        { ...apiAuth, walletClient, address },
+      );
       setTxHash(result.txHash);
       setClaimExplorerUrl(noteChain.explorerUrl);
       setClaimRecipient(destinationAddress);
@@ -228,6 +247,10 @@ export default function ClaimPage() {
         try {
           await fetch(`/api/payments/${paymentId}/claim`, {
             method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              ...(await getAuthHeaders()),
+            },
             body: JSON.stringify({}),
           });
           await invalidateAndRefetchStore();
@@ -317,7 +340,7 @@ export default function ClaimPage() {
                 <div className="flex items-center justify-between text-sm gap-2">
                   <span className="text-muted-foreground shrink-0">Tx Hash</span>
                   <a
-                    href={`${claimExplorerUrl || CHAINS[143].explorerUrl}/tx/${txHash || payment.txHash || ""}`}
+                    href={`${claimExplorerUrl || CHAINS[selectedChainId].explorerUrl}/tx/${txHash || payment.txHash || ""}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-mono text-xs text-primary hover:underline truncate"

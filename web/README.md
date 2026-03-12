@@ -15,7 +15,7 @@ Next.js 16 frontend for the Blizkperse private payments platform.
 ```bash
 npm install
 cp .env.example .env.local
-# Fill in NEXT_PUBLIC_PARA_API_KEY and DATABASE_URL
+# Fill in NEXT_PUBLIC_PARA_API_KEY, DATABASE_URL, and chain env vars
 npm run dev -- --webpack
 ```
 
@@ -29,19 +29,32 @@ Open [http://localhost:3000](http://localhost:3000).
 |---|---|
 | `NEXT_PUBLIC_PARA_API_KEY` | Para SDK API key |
 | `DATABASE_URL` | PostgreSQL connection string |
+| `BLIZ_ENV` | Server-side environment selector for DB/runtime checks: `production` or `development` |
+| `NEXT_PUBLIC_BLIZ_ENV` | `production` for mainnet deploys, `development` for testnet deploys |
+| `NEXT_PUBLIC_DEFAULT_CHAIN` | Initial chain slug: `celo` or `monad` |
+| `NEXT_PUBLIC_MONAD_*` | Monad RPC, explorer, chain id, deployed contracts, token, deploy block |
+| `NEXT_PUBLIC_CELO_*` | Celo RPC, explorer, chain id, deployed contracts, token, deploy block |
 
 ## Project Structure
 
 ```
 app/
   page.tsx              # Landing page
+  client-shell.tsx      # Client-side app shell
+  dashboard/            # Role selector (payer vs receiver)
   payer/                # Organizer dashboard + payout creation
   receive/              # Subscriber dashboard + claim pages
-  api/                  # API routes (generate-proof, etc.)
+  api/                  # API routes (generate-proof, deposit-events, CRUD, etc.)
+  lib/                  # Server-side helpers (withdrawProver.ts)
 components/
   header.tsx            # Nav bar with chain selector
   providers.tsx         # ParaProvider + QueryClient
   auth-guard.tsx        # Route protection
+  chain-selector.tsx    # Chain switcher (Monad/Celo)
+  page-shell.tsx        # Page layout wrapper
+  para-wrapper.tsx      # Para SDK modal wrapper
+  tx-status.tsx         # Transaction status with explorer link
+  wallet-display.tsx    # Wallet address display
   ui/                   # shadcn/ui components
 lib/
   constants.ts          # Chain registry (source of truth for addresses)
@@ -51,6 +64,10 @@ lib/
   zk.ts                 # Noir proof generation
   store.ts              # Reactive store (useSyncExternalStore + PostgreSQL)
   db.ts                 # PostgreSQL client
+  server-auth.ts        # Server-side auth helpers
+  api-auth.ts           # API route auth middleware
+  wallet.ts             # Wallet utilities
+  utils.ts              # Shared utilities
 ```
 
 ## Architecture Overview
@@ -65,8 +82,8 @@ Authentication is handled by Para SDK, which provides social login and embedded 
 
 | Package | Version | Purpose |
 |---|---|---|
-| `@noir-lang/noir_js` | `1.0.0-beta.0` | Noir circuit compilation and witness generation |
-| `@aztec/bb.js` | `0.63.1` | Barretenberg WASM prover (UltraHonk) |
+| `@noir-lang/noir_js` | `1.0.0-beta.19` | Noir circuit compilation and witness generation |
+| `@aztec/bb.js` | `4.0.4` | Barretenberg WASM prover (UltraHonk) |
 | `@getpara/react-sdk` | latest | Social login + embedded wallets |
 | `viem` | latest | EVM contract interactions |
 | `postgres` | latest | PostgreSQL client (no ORM) |
@@ -83,7 +100,7 @@ Authentication is handled by Para SDK, which provides social login and embedded 
 
 1. Connect GitHub repo for automated deployments
 2. Add PostgreSQL service in Railway
-3. Set environment variables (`NEXT_PUBLIC_PARA_API_KEY`)
+3. Set environment variables for the target environment (`NEXT_PUBLIC_PARA_API_KEY`, `NEXT_PUBLIC_BLIZ_ENV`, `NEXT_PUBLIC_MONAD_*`, `NEXT_PUBLIC_CELO_*`)
 4. Railway auto-injects `DATABASE_URL`
 
 Build uses `output: "standalone"` in `next.config.ts`.

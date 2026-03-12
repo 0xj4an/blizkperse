@@ -38,7 +38,7 @@ fn main(
         merkle_proof_indices,
         merkle_proof_siblings,
     );
-
+    
     assert(merkle_root == expected_merkle_root);
 
     // 4. Constrain recipient to prevent front-running

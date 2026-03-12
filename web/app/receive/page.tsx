@@ -26,18 +26,24 @@ import {
 } from "@/lib/store";
 import { useChain } from "@/lib/chain-context";
 import { CHAINS, type SupportedChainId } from "@/lib/constants";
+import { useParaWalletClient } from "@/lib/wallet";
+import { useApiAuth } from "@/lib/api-auth";
 
 export default function ReceiveDashboard() {
   const { embedded } = useAccount();
   const address = embedded?.wallets?.[0]?.address ?? "";
+  const { walletClient } = useParaWalletClient();
+  const apiAuth = useApiAuth();
   const store = useStore();
 
   // ensure current user exists as subscriber
   const [subId, setSubId] = useState("");
   useEffect(() => {
     if (!address) return;
-    ensureSubscriber(address).then((sub) => setSubId(sub.id));
-  }, [address]);
+    ensureSubscriber(address, undefined, undefined, { ...apiAuth, walletClient, address })
+      .then((sub) => setSubId(sub.id))
+      .catch(() => {});
+  }, [address, walletClient, apiAuth]);
 
   const { chainId: selectedChainId } = useChain();
   const mySubscriptions = store.subscriptions.filter(
@@ -46,11 +52,28 @@ export default function ReceiveDashboard() {
   const myPaymentsAll = store.payments.filter(
     (p) => p.subscriberId === subId
   );
-  // Show payments on the selected chain, or payments with no note yet (chain_id null) so they aren’t hidden
+  // Show payments on the selected chain. Payments without a chain_id (note not yet
+  // deposited on-chain) are shown on all chains so recipients can see pending payouts.
   const myPayments = myPaymentsAll.filter(
-    (p) => p.chainId == null || p.chainId === selectedChainId
+    (p) => p.chainId === selectedChainId || p.chainId == null
   );
+  // Derive which organizers are active on the selected chain (have any payment on it).
+  // Orgs with zero payments are shown on all chains (new orgs).
+  const orgIdsOnChain = new Set<string>();
+  const orgIdsWithPayments = new Set<string>();
+  for (const p of store.payments) {
+    orgIdsWithPayments.add(p.organizerId);
+    if (p.chainId === selectedChainId) orgIdsOnChain.add(p.organizerId);
+  }
+  const visibleOrganizers = store.organizers.filter(
+    (o) => orgIdsOnChain.has(o.id) || !orgIdsWithPayments.has(o.id)
+  );
+  const visibleOrgIds = new Set(visibleOrganizers.map((o) => o.id));
+
   const subscribedOrgIds = new Set(mySubscriptions.map((s) => s.organizerId));
+  const mySubscriptionsFiltered = mySubscriptions.filter(
+    (s) => visibleOrgIds.has(s.organizerId)
+  );
 
   const [joining, setJoining] = useState<string | null>(null);
 
@@ -63,7 +86,7 @@ export default function ReceiveDashboard() {
     if (!subId) return;
     setJoining(organizerId);
     try {
-      await joinOrganizer(organizerId, subId);
+      await joinOrganizer(organizerId, subId, { ...apiAuth, walletClient, address });
       toast.success("Joined successfully!");
     } catch {
       toast.error("Failed to join. Please try again.");
@@ -92,7 +115,7 @@ export default function ReceiveDashboard() {
       {/* Browse Organizers */}
       <TabsContent value="browse" className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {store.organizers.map((org) => {
+          {visibleOrganizers.map((org) => {
             const isJoined = subscribedOrgIds.has(org.id);
             return (
               <Card key={org.id} className="group transition-colors hover:border-foreground/20">
@@ -135,9 +158,9 @@ export default function ReceiveDashboard() {
               </Card>
             );
           })}
-          {store.organizers.length === 0 && (
+          {visibleOrganizers.length === 0 && (
             <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
-              No organizers available yet.
+              No organizers on {CHAINS[selectedChainId]?.name ?? "this network"}.
             </p>
           )}
         </div>
@@ -155,7 +178,7 @@ export default function ReceiveDashboard() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mySubscriptions.map((sub) => {
+              {mySubscriptionsFiltered.map((sub) => {
                 const org = getOrganizerById(sub.organizerId);
                 return (
                   <TableRow key={sub.id}>
@@ -175,13 +198,13 @@ export default function ReceiveDashboard() {
                   </TableRow>
                 );
               })}
-              {mySubscriptions.length === 0 && (
+              {mySubscriptionsFiltered.length === 0 && (
                 <TableRow>
                   <TableCell
                     colSpan={3}
                     className="py-8 text-center text-sm text-muted-foreground"
                   >
-                    No subscriptions yet. Browse organizers to get started.
+                    No subscriptions on {CHAINS[selectedChainId]?.name ?? "this network"}. Browse organizers to get started.
                   </TableCell>
                 </TableRow>
               )}
@@ -216,9 +239,9 @@ export default function ReceiveDashboard() {
             <TableBody>
               {myPayments.map((payment) => {
                 const org = getOrganizerById(payment.organizerId);
-                const explorerUrl = (payment.chainId === 143 || payment.chainId === 42220)
-                  ? CHAINS[payment.chainId as SupportedChainId].explorerUrl
-                  : CHAINS[143].explorerUrl;
+                const explorerUrl =
+                  CHAINS[payment.chainId as SupportedChainId]?.explorerUrl ??
+                  CHAINS[selectedChainId].explorerUrl;
                 return (
                   <TableRow key={payment.id}>
                     <TableCell className="font-medium">

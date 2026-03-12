@@ -8,6 +8,15 @@ Guide to validate the deposit → withdraw flow and which data is anonymous on-c
 
 **Yes.** After deploy:
 
+### Toolchain & prover versions (current)
+
+- **Noir / Nargo CLI**: `1.0.0-beta.18` (used in Docker build to compile the circuits).
+- **Barretenberg CLI (`bb`)**: `0.63.1` (used in legacy CLI scripts like `prove_withdraw.sh`).
+- **NoirJS (Node)**: `@noir-lang/noir_js@^1.0.0-beta.19` (used from the backend / scripts to execute the withdraw circuit and generate the witness).
+- **bb.js (UltraHonk backend)**: `@aztec/bb.js@^4.0.4` (Node/WASM prover matching the withdraw verifier deployed on Monad/Celo).
+
+All scripts and the web backend should use these versions together; mixing other versions of Noir, `bb` or `@aztec/bb.js` can result in proofs that the on-chain verifier treats as invalid (hash/layout mismatches).
+
 | Step | What to do |
 |------|-----------|
 | 1. Deploy | `source .env && forge script script/Deploy.s.sol:DeployPool --rpc-url "$MONAD_RPC" --broadcast` |
