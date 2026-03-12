@@ -39,7 +39,7 @@ We generate proofs in the browser using `@noir-lang/noir_js` and `@aztec/bb.js`.
 ### A. Dependencies
 ```bash
 cd web
-npm install @noir-lang/noir_js@1.0.0-beta.0 @aztec/bb.js@0.63.1
+npm install @noir-lang/noir_js@1.0.0-beta.19 @aztec/bb.js@4.0.4
 ```
 
 ### B. Compile Circuit (Artifact Generation)

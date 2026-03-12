@@ -96,9 +96,9 @@ const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
     explorerName: "Monad Explorer",
     nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
     contracts: {
-      pool: "0x8d44379c778Cb714B72FcaD80dcb5EC7c031343c",
-      verifier: "0x6b11b3eB54Bbda485D616150A4C85E8629e1A552",
-      withdrawVerifier: "0x4d900D53514140755fe842eb3e0d53b12BBcCD24",
+      pool: "0x97268f95e49bC5C7C8711111cCFe509D76C00674",
+      verifier: "0x4eE52aEb000B91853A5a6f9db9B1f969f1b0c393",
+      withdrawVerifier: "0x0D70d098085CeD93864B41cD0fF506C2CD329D94",
       stablecoin: MONAD_USDC,
     },
     poolTokenDecimals: 6,
@@ -108,7 +108,7 @@ const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
     extraTokens: [
       { symbol: "USDT", name: "Tether USD", decimals: 6, address: MONAD_USDT },
     ],
-    deployBlock: BigInt(58_002_970),
+    deployBlock: BigInt(60_840_463),
   },
   celo: {
     id: ChainId.CELO,
@@ -118,9 +118,9 @@ const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
     explorerName: "CeloScan",
     nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
     contracts: {
-      pool: "0xcE61001eb3Cd531784D2Cee9DDAbB17a3fc6B16A",
-      verifier: "0x085BD9c0C568BE5093130E2359B00e46cb0800d1",
-      withdrawVerifier: "0xfe231dd394Df5863B02BfA9CFA50f4877961d5b7",
+      pool: "0x1aBee1E0205BB4E6d0b95a2C1F5072d9f3064778",
+      verifier: "0x3D76FC7Ce515aB1d69A4e734354c6EC94c22CCb9",
+      withdrawVerifier: "0x6e4794166dE8Af43D1720f66bA39f561F2C0eD95",
       stablecoin: CELO_USDC,
     },
     poolTokenDecimals: 6,
@@ -130,7 +130,7 @@ const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
     extraTokens: [
       { symbol: "USDT", name: "Tether USD", decimals: 6, address: CELO_USDT },
     ],
-    deployBlock: BigInt(60_249_143),
+    deployBlock: BigInt(61_379_350),
   },
 };
 

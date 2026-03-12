@@ -98,9 +98,8 @@ blizkperse/
 │   ├── lib/                # Constants, contracts, merkle, ZK, store, DB
 │   └── public/circuits/    # Compiled circuit artifact (circuit.json)
 ├── zk/                     # ZK circuits + Solidity contracts
-│   ├── circuits/           # Noir circuits (main.nr, withdraw.nr) + scripts
-│   ├── contract/           # Generated verifier contracts
-│   ├── src/                # ShieldedPool.sol
+│   ├── circuits/           # Noir circuits (main.nr, withdraw.nr, pay.nr)
+│   ├── contract/           # ShieldedPool.sol + generated verifier contracts
 │   ├── script/             # Foundry deploy scripts
 │   └── docs/               # Build, deploy, and testing guides
 ├── sql/                    # Database schema
