@@ -5,6 +5,14 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@getpara/react-sdk"],
   typescript: { ignoreBuildErrors: true },
 
+  // Include WASM files that Next.js file tracing misses (dynamically loaded by bb.js)
+  outputFileTracingIncludes: {
+    "/api/generate-proof": [
+      "./node_modules/@aztec/bb.js/**/*",
+      "./node_modules/@noir-lang/noir_js/**/*",
+    ],
+  },
+
   // WASM support for Noir/Barretenberg proof generation
   webpack: (config, { isServer }) => {
     if (!isServer) {
