@@ -6,8 +6,8 @@ export const maxDuration = 60;
 import { CHAINS, type SupportedChainId, type ChainConfig } from "@/lib/constants";
 import sql, { ensureSchema } from "@/lib/db";
 
-// Monad RPC: max 100 blocks per getLogs, rate-limited
-const CHUNK_SIZE = BigInt(99);
+// Block range per getLogs call. Start with 2000; fall back to smaller chunks on error.
+const CHUNK_SIZE = BigInt(2000);
 const CONCURRENCY = 3;
 const RETRY_DELAY_MS = 2000;
 const MAX_RETRIES = 3;
@@ -53,6 +53,15 @@ async function fetchLogsWithRetry(
       }));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
+      // If range too large for this RPC, split in half and retry
+      if ((msg.includes("range") || msg.includes("block")) && to - from > BigInt(100)) {
+        const mid = from + (to - from) / BigInt(2);
+        const [left, right] = await Promise.all([
+          fetchLogsWithRetry(client, pool, from, mid),
+          fetchLogsWithRetry(client, pool, mid + BigInt(1), to),
+        ]);
+        return [...left, ...right];
+      }
       if (msg.includes("rate limit") && attempt < MAX_RETRIES) {
         await sleep(RETRY_DELAY_MS * (attempt + 1));
         continue;
