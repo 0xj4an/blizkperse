@@ -51,10 +51,9 @@ zk/
     scripts/            # CLI scripts for deposit, withdraw, proof generation
     WithdrawProver.toml # Prover inputs for the withdraw circuit
   contract/
+    ShieldedPool.sol    # Main pool contract (deposit, withdraw, Merkle tree)
     Verifier.sol        # HonkVerifier (transfer)
     WithdrawVerifier.sol # WithdrawVerifier (5 public inputs)
-  src/
-    ShieldedPool.sol    # Main pool contract (deposit, withdraw, Merkle tree)
   script/
     Deploy.s.sol        # Deployment script (deploys all 3 contracts)
   docs/                 # Build, deploy, and testing guides
@@ -101,10 +100,19 @@ For testnet deployment guidance, see [docs/testnet-deploy.md](docs/testnet-deplo
 
 ## Deployed Contracts
 
+### Mainnet
+
 | Chain | ShieldedPool | HonkVerifier | WithdrawVerifier |
 | --- | --- | --- | --- |
-| **Monad** (143) | `0x8d44379c778Cb714B72FcaD80dcb5EC7c031343c` | `0x6b11b3eB54Bbda485D616150A4C85E8629e1A552` | `0x4d900D53514140755fe842eb3e0d53b12BBcCD24` |
-| **Celo** (42220) | `0xcE61001eb3Cd531784D2Cee9DDAbB17a3fc6B16A` | `0x085BD9c0C568BE5093130E2359B00e46cb0800d1` | `0xfe231dd394Df5863B02BfA9CFA50f4877961d5b7` |
+| **Monad** (143) | `0x97268f95e49bC5C7C8711111cCFe509D76C00674` | `0x4eE52aEb000B91853A5a6f9db9B1f969f1b0c393` | `0x0D70d098085CeD93864B41cD0fF506C2CD329D94` |
+| **Celo** (42220) | `0x1aBee1E0205BB4E6d0b95a2C1F5072d9f3064778` | `0x3D76FC7Ce515aB1d69A4e734354c6EC94c22CCb9` | `0x6e4794166dE8Af43D1720f66bA39f561F2C0eD95` |
+
+### Testnet
+
+| Chain | ShieldedPool | Verifier | WithdrawVerifier |
+| --- | --- | --- | --- |
+| **Monad Testnet** (10143) | `0xcdc6ade9d348572f302690bd39ba8120f8e91db3` | `0x8d10ad45b21d4db2e7270e519a757c764c6501ac` | `0xd9aee9351f7685b05a6b7bd8c1ca509d24be1e57` |
+| **Celo Testnet** (11142220) | `0x038803a40130734e6ab711489060ea55f05bb475` | `0x0f86796c3f3254442debd0705a56bdd82c69f4a6` | `0xd850af48bddf6e568a994a870aa684b86bb5054f` |
 
 ## Documentation
 
