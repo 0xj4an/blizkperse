@@ -4,7 +4,10 @@ import dynamic from "next/dynamic";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 
-const PARA_API_KEY = process.env.NEXT_PUBLIC_PARA_API_KEY ?? "";
+const IS_PROD = process.env.NEXT_PUBLIC_BLIZ_ENV === "production";
+const PARA_API_KEY = IS_PROD
+  ? (process.env.NEXT_PUBLIC_PARA_API_KEY ?? "")
+  : (process.env.NEXT_PUBLIC_PARA_API_KEY_BETA ?? process.env.NEXT_PUBLIC_PARA_API_KEY ?? "");
 
 const ParaWrapper = dynamic(
   () => import("./para-wrapper").then((m) => m.ParaWrapper),
