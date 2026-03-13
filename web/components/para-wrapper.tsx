@@ -37,11 +37,18 @@ export function ParaWrapper({
           : undefined,
       }}
       paraModalConfig={{
-        logo: "https://app.blizkperse.com/logo.svg",
+        logo:
+          typeof window !== "undefined"
+            ? `${window.location.origin}/logo.svg`
+            : "/logo.svg",
         theme: {
+          mode: "dark",
           foregroundColor: "#FFFFFF",
           backgroundColor: "#0D0B14",
           accentColor: "#7C3AED",
+          darkForegroundColor: "#FFFFFF",
+          darkBackgroundColor: "#0D0B14",
+          darkAccentColor: "#7C3AED",
           font: "Inter",
           borderRadius: "md",
         },
