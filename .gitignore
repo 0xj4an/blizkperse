@@ -38,6 +38,9 @@ plonk_vk.sol
 # ── Noir Circuits ───────────────────────────────────
 zk/circuits/target/
 
+# ── Applications / Private Docs ────────────────────
+docs/nitro-application.md
+
 # ── IDE ─────────────────────────────────────────────
 .idea/
 .vscode/
