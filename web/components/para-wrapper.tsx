@@ -14,7 +14,7 @@ export function ParaWrapper({
     <ParaProvider
       paraClientConfig={{
         apiKey,
-        env: Environment.BETA,
+        env: Environment.PROD,
       }}
       config={{ appName: "Blizkperse" }}
       paraModalConfig={{
