@@ -64,12 +64,21 @@ graph TB
 
 ## Supported Chains
 
-| Chain | ID | Status | Pool | USDC | Explorer |
-| --- | --- | --- | --- | --- | --- |
-| **Monad** | 143 | Live | [`0x8d44…343c`](https://monadexplorer.com/address/0x8d44379c778Cb714B72FcaD80dcb5EC7c031343c) | [`0x7547…F603`](https://monadexplorer.com/address/0x754704Bc059F8C67012fEd69BC8A327a5aafb603) | [monadexplorer.com](https://monadexplorer.com) |
-| **Celo** | 42220 | Live | [`0xcE61…B16A`](https://celoscan.io/address/0xcE61001eb3Cd531784D2Cee9DDAbB17a3fc6B16A) | [`0xcebA…18C`](https://celoscan.io/address/0xcebA9300f2b948710d2653dD7B07f33A8B32118C) | [celoscan.io](https://celoscan.io) |
+### Mainnet
 
-> Full contract addresses and verifier details in the [Technical Spec](docs/technical_spec.md#4-smart-contracts) and [ZK README](zk/README.md#deployed-contracts).
+| Chain | ID | ShieldedPool | HonkVerifier | WithdrawVerifier | USDC |
+| --- | --- | --- | --- | --- | --- |
+| **Monad** | 143 | [`0x9726…0674`](https://monadexplorer.com/address/0x97268f95e49bC5C7C8711111cCFe509D76C00674) | [`0x4eE5…c393`](https://monadexplorer.com/address/0x4eE52aEb000B91853A5a6f9db9B1f969f1b0c393) | [`0x0D70…9D94`](https://monadexplorer.com/address/0x0D70d098085CeD93864B41cD0fF506C2CD329D94) | [`0x7547…F603`](https://monadexplorer.com/address/0x754704Bc059F8C67012fEd69BC8A327a5aafb603) |
+| **Celo** | 42220 | [`0x1aBe…3778`](https://celoscan.io/address/0x1aBee1E0205BB4E6d0b95a2C1F5072d9f3064778) | [`0x3D76…CCb9`](https://celoscan.io/address/0x3D76FC7Ce515aB1d69A4e734354c6EC94c22CCb9) | [`0x6e47…eD95`](https://celoscan.io/address/0x6e4794166dE8Af43D1720f66bA39f561F2C0eD95) | [`0xcebA…18C`](https://celoscan.io/address/0xcebA9300f2b948710d2653dD7B07f33A8B32118C) |
+
+### Testnet
+
+| Chain | ID | ShieldedPool | Verifier | WithdrawVerifier | USDC |
+| --- | --- | --- | --- | --- | --- |
+| **Monad Testnet** | 10143 | [`0xcdc6…1db3`](https://testnet.monadvision.com/address/0xcdc6ade9d348572f302690bd39ba8120f8e91db3) | [`0x8d10…01ac`](https://testnet.monadvision.com/address/0x8d10ad45b21d4db2e7270e519a757c764c6501ac) | [`0xd9ae…1e57`](https://testnet.monadvision.com/address/0xd9aee9351f7685b05a6b7bd8c1ca509d24be1e57) | [`0x534b…d7A3`](https://testnet.monadvision.com/address/0x534b2f3A21130d7a60830c2Df862319e593943A3) |
+| **Celo Testnet** | 11142220 | [`0x0388…b475`](https://celo-sepolia.blockscout.com/address/0x038803a40130734e6ab711489060ea55f05bb475) | [`0x0f86…f4a6`](https://celo-sepolia.blockscout.com/address/0x0f86796c3f3254442debd0705a56bdd82c69f4a6) | [`0xd850…054f`](https://celo-sepolia.blockscout.com/address/0xd850af48bddf6e568a994a870aa684b86bb5054f) | [`0x01C5…B44E`](https://celo-sepolia.blockscout.com/address/0x01C5C0122039549AD1493B8220cABEdD739BC44E) |
+
+> Source of truth: [`web/lib/constants.ts`](web/lib/constants.ts). Deploy blocks and full addresses also in [ZK README](zk/README.md#deployed-contracts).
 
 ---
 
