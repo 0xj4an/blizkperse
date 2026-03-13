@@ -28,9 +28,8 @@ export function ParaWrapper({
           "METAMASK",
           "WALLETCONNECT",
           "ZERION",
-          "PHANTOM",
-          "RABBY",
           "COINBASE",
+          "RABBY",
         ],
         walletConnect: walletConnectProjectId
           ? { projectId: walletConnectProjectId }
@@ -57,6 +56,7 @@ export function ParaWrapper({
         twoFactorAuthEnabled: true,
         recoverySecretStepEnabled: true,
         onRampTestMode: true,
+        isGuestModeEnabled: true,
       }}
     >
       {children}
