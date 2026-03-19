@@ -1,7 +1,6 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Header } from "@/components/header";
 import { useChain } from "@/lib/chain-context";
 import { CHAINS, CHAIN_IDS, type SupportedChainId } from "@/lib/constants";
 
@@ -36,8 +35,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Header />
-      <main className="flex items-center justify-center" style={{ minHeight: "calc(100vh - 4rem)" }}>
+      <main className="flex items-center justify-center min-h-screen">
         <div className="mx-4 w-full max-w-lg space-y-8 text-center">
           <div className="space-y-4">
             <pre
