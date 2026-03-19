@@ -159,7 +159,7 @@ export async function GET(req: NextRequest) {
       `;
     }
   } catch (scanErr) {
-    // Log but don't fail — return cached data below
+    // Log but don't fail, return cached data below
     console.error(`RPC scan failed for chain ${chainId}:`, scanErr instanceof Error ? scanErr.message : scanErr);
   }
 

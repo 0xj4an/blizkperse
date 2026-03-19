@@ -213,7 +213,7 @@ export default function ReceiveDashboard() {
         </Card>
       </TabsContent>
 
-      {/* Payment History — only payments whose note is on the selected chain */}
+      {/* Payment History - only payments whose note is on the selected chain */}
       <TabsContent value="history">
         <Card className="overflow-hidden">
           <CardHeader className="pb-2">
@@ -251,10 +251,10 @@ export default function ReceiveDashboard() {
                       ${payment.amount.toLocaleString()}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground" title={payment.payoutId}>
-                      {payment.payoutId.slice(0, 8)}…
+                      {payment.payoutId.slice(0, 8)}...
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground" title={payment.noteId ?? ""}>
-                      {payment.noteId ? `${payment.noteId.slice(0, 8)}…` : "—"}
+                      {payment.noteId ? `${payment.noteId.slice(0, 8)}...` : "-"}
                     </TableCell>
                     <TableCell>
                       <Badge
@@ -291,7 +291,7 @@ export default function ReceiveDashboard() {
                               className="font-mono text-primary hover:underline"
                               title={payment.txHash}
                             >
-                              {payment.txHash.slice(0, 10)}…{payment.txHash.slice(-8)}
+                              {payment.txHash.slice(0, 10)}...{payment.txHash.slice(-8)}
                             </a>
                           )}
                         </div>
