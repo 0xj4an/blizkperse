@@ -92,4 +92,8 @@
     box-shadow: 0 0 60px oklch(1 0 0 / 0.06),
       0 0 120px oklch(1 0 0 / 0.03);
   }
+  .glow-hero {
+    text-shadow: 0 0 80px oklch(1 0 0 / 0.15),
+      0 0 160px oklch(1 0 0 / 0.05);
+  }
 }

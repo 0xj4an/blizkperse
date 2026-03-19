@@ -318,16 +318,16 @@ export default function ClaimPage() {
               </div>
               <div className="flex items-center justify-between text-sm gap-2">
                 <span className="text-muted-foreground shrink-0">Payment ID</span>
-                <span className="font-mono text-xs truncate" title={payment.id}>{payment.id.slice(0, 8)}…{payment.id.slice(-6)}</span>
+                <span className="font-mono text-xs truncate" title={payment.id}>{payment.id.slice(0, 8)}...{payment.id.slice(-6)}</span>
               </div>
               <div className="flex items-center justify-between text-sm gap-2">
                 <span className="text-muted-foreground shrink-0">Payout ID</span>
-                <span className="font-mono text-xs truncate" title={payment.payoutId}>{payment.payoutId.slice(0, 8)}…{payment.payoutId.slice(-6)}</span>
+                <span className="font-mono text-xs truncate" title={payment.payoutId}>{payment.payoutId.slice(0, 8)}...{payment.payoutId.slice(-6)}</span>
               </div>
               {payment.noteId && (
                 <div className="flex items-center justify-between text-sm gap-2">
                   <span className="text-muted-foreground shrink-0">Note ID</span>
-                  <span className="font-mono text-xs truncate" title={payment.noteId}>{payment.noteId.slice(0, 8)}…{payment.noteId.slice(-6)}</span>
+                  <span className="font-mono text-xs truncate" title={payment.noteId}>{payment.noteId.slice(0, 8)}...{payment.noteId.slice(-6)}</span>
                 </div>
               )}
               <div className="flex items-center justify-between text-sm">
@@ -346,7 +346,7 @@ export default function ClaimPage() {
                     className="font-mono text-xs text-primary hover:underline truncate"
                     title={txHash || payment.txHash || ""}
                   >
-                    {(txHash || payment.txHash || "").slice(0, 10)}…{(txHash || payment.txHash || "").slice(-8)}
+                    {(txHash || payment.txHash || "").slice(0, 10)}...{(txHash || payment.txHash || "").slice(-8)}
                   </a>
                 </div>
               )}

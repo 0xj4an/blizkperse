@@ -40,6 +40,13 @@ const ASCII_ART = `
 ██║     ███████╗██║  ██║███████║███████╗
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝`;
 
+const STATS = [
+  { value: "2", label: "chains live" },
+  { value: "100%", label: "on-chain" },
+  { value: "0", label: "KYC required" },
+  { value: "OSS", label: "open source" },
+];
+
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-background">
@@ -78,7 +85,7 @@ export default function LandingPage() {
       </header>
 
       {/* ── Hero ─────────────────────────────────────────── */}
-      <section className="flex flex-col items-center px-4 pb-24 pt-20 md:pt-28">
+      <section className="flex flex-col items-center px-4 pb-16 pt-20 md:pt-28">
         <motion.div
           initial="hidden"
           animate="visible"
@@ -87,7 +94,7 @@ export default function LandingPage() {
           <motion.pre
             variants={fadeIn}
             custom={0}
-            className="hidden select-none overflow-hidden text-center font-mono text-[0.45rem] leading-[1.1] text-foreground/30 sm:block sm:text-[0.55rem] md:text-xs"
+            className="glow-hero hidden select-none overflow-hidden text-center font-mono text-[0.45rem] leading-[1.1] text-foreground/50 sm:block sm:text-[0.55rem] md:text-xs"
             aria-hidden="true"
           >
             {ASCII_ART}
@@ -106,8 +113,9 @@ export default function LandingPage() {
             custom={1}
             className="mt-10 max-w-2xl text-center text-lg leading-relaxed text-muted-foreground md:text-xl"
           >
-            A zero-knowledge payment layer where your transfers stay private,
-            and always on-chain.
+            Send stablecoins privately. No exposed wallets. No leaked amounts.
+            <br className="hidden sm:block" />
+            Just zero-knowledge math on-chain.
           </motion.p>
 
           <motion.div
@@ -116,11 +124,7 @@ export default function LandingPage() {
             className="mt-10 flex items-center gap-4"
           >
             <a href={APP_URL}>
-              <Button
-                variant="outline"
-                size="lg"
-                className="gap-2 border-foreground/20 text-base hover:bg-foreground/5"
-              >
+              <Button size="lg" className="gap-2 text-base">
                 Launch App
                 <ArrowRight className="h-4 w-4" />
               </Button>
@@ -137,51 +141,31 @@ export default function LandingPage() {
         </motion.div>
       </section>
 
-      <div className="mx-auto max-w-4xl border-t border-border/50" />
-
-      {/* ── Problem ───────────────────────────────────────── */}
-      <section className="px-4 py-24">
-        <div className="mx-auto max-w-3xl">
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, margin: "-80px" }}
-          >
-            <motion.h2
-              variants={fadeIn}
-              custom={0}
-              className="mb-6 text-2xl font-semibold md:text-3xl"
-            >
-              The blockchain made money transparent.
-              <br />
-              <span className="text-muted-foreground">Too transparent.</span>
-            </motion.h2>
-
+      {/* ── Stats Strip ──────────────────────────────────── */}
+      <section className="border-y border-border/50 px-4 py-6">
+        <motion.div
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+          className="mx-auto flex max-w-3xl items-center justify-between gap-6"
+        >
+          {STATS.map((stat, i) => (
             <motion.div
+              key={stat.label}
               variants={fadeIn}
-              custom={1}
-              className="space-y-4 text-base leading-relaxed text-muted-foreground md:text-lg"
+              custom={i}
+              className="flex flex-col items-center gap-1 text-center"
             >
-              <p>
-                Every on-chain transfer is public. When you distribute payments,
-                anyone with a block explorer can see exactly who got paid, how
-                much, and when. Salaries, grants, rewards — all laid bare.
-              </p>
-              <p>
-                Financial transparency is not financial safety. Your recipients
-                deserve the same confidentiality they&apos;d get from a bank
-                transfer.
-              </p>
-              <p className="text-foreground">
-                Blizkperse uses zero-knowledge proofs to bring privacy to
-                on-chain payments — without compromising auditability.
-              </p>
+              <span className="font-mono text-xl font-bold tracking-tight md:text-2xl">
+                {stat.value}
+              </span>
+              <span className="text-[0.65rem] uppercase tracking-widest text-muted-foreground md:text-xs">
+                {stat.label}
+              </span>
             </motion.div>
-          </motion.div>
-        </div>
+          ))}
+        </motion.div>
       </section>
-
-      <div className="mx-auto max-w-4xl border-t border-border/50" />
 
       {/* ── Explorer Comparison ───────────────────────────── */}
       <section className="px-4 py-24">
@@ -307,6 +291,42 @@ export default function LandingPage() {
 
       <div className="mx-auto max-w-4xl border-t border-border/50" />
 
+      {/* ── Problem (condensed) ──────────────────────────── */}
+      <section className="px-4 py-24">
+        <div className="mx-auto max-w-3xl">
+          <motion.div
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, margin: "-80px" }}
+          >
+            <motion.h2
+              variants={fadeIn}
+              custom={0}
+              className="mb-6 text-2xl font-semibold md:text-3xl"
+            >
+              The blockchain made money transparent.
+              <br />
+              <span className="text-muted-foreground">Too transparent.</span>
+            </motion.h2>
+
+            <motion.p
+              variants={fadeIn}
+              custom={1}
+              className="text-base leading-relaxed text-muted-foreground md:text-lg"
+            >
+              Every on-chain transfer is public. Salaries, grants, rewards, all
+              visible to anyone with a block explorer. Your recipients deserve
+              the same confidentiality they&apos;d get from a bank transfer.{" "}
+              <span className="text-foreground">
+                Blizkperse uses zero-knowledge proofs to fix that.
+              </span>
+            </motion.p>
+          </motion.div>
+        </div>
+      </section>
+
+      <div className="mx-auto max-w-4xl border-t border-border/50" />
+
       {/* ── How It Works ──────────────────────────────────── */}
       <section className="px-4 py-24">
         <div className="mx-auto max-w-3xl">
@@ -397,7 +417,7 @@ export default function LandingPage() {
                 {
                   icon: Lock,
                   title: "Zero-knowledge privacy",
-                  text: "Noir circuits generate proofs client-side. Amounts are committed as Poseidon2 hashes. Nobody — not even the contract — sees plaintext values.",
+                  text: "Noir circuits generate proofs client-side. Amounts are committed as Poseidon2 hashes. Nobody, not even the contract, sees plaintext values.",
                 },
                 {
                   icon: Shield,
@@ -435,7 +455,7 @@ export default function LandingPage() {
 
       <div className="mx-auto max-w-4xl border-t border-border/50" />
 
-      {/* ── Use Cases ─────────────────────────────────────── */}
+      {/* ── Use Cases (trimmed to 3) ─────────────────────── */}
       <section className="px-4 py-24">
         <div className="mx-auto max-w-3xl">
           <motion.div
@@ -455,8 +475,7 @@ export default function LandingPage() {
               custom={1}
               className="mb-10 text-muted-foreground"
             >
-              Not evasion. Not secrecy. Just the same confidentiality you expect
-              from a bank — on-chain.
+              The same confidentiality you expect from a bank, but on-chain.
             </motion.p>
 
             <div className="space-y-4">
@@ -470,15 +489,7 @@ export default function LandingPage() {
                   text: "Distribute funding without revealing individual award amounts.",
                 },
                 {
-                  title: "Rewards & airdrops",
-                  text: "Send stablecoins without letting recipients compare amounts.",
-                },
-                {
-                  title: "DAO treasury",
-                  text: "Execute distributions without leaking allocation decisions.",
-                },
-                {
-                  title: "x402 agent payments",
+                  title: "Agent payments (x402)",
                   text: "AI agents pay for API access using shielded stablecoin transfers. No exposed wallets, no trackable spending patterns.",
                 },
               ].map((uc, i) => (
@@ -501,13 +512,137 @@ export default function LandingPage() {
 
       <div className="mx-auto max-w-4xl border-t border-border/50" />
 
-      {/* ── CTA ───────────────────────────────────────────── */}
+      {/* ── Built On ─────────────────────────────────────── */}
+      <section className="px-4 py-12">
+        <motion.div
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+          className="mx-auto max-w-3xl"
+        >
+          <motion.p
+            variants={fadeIn}
+            custom={0}
+            className="mb-6 text-center font-mono text-xs uppercase tracking-widest text-muted-foreground/60"
+          >
+            Built on
+          </motion.p>
+          <motion.div
+            variants={fadeIn}
+            custom={1}
+            className="flex items-center justify-center gap-10 md:gap-16"
+          >
+            {[
+              { name: "Noir", desc: "ZK circuits" },
+              { name: "Monad", desc: "EVM L1" },
+              { name: "Celo", desc: "EVM L1" },
+            ].map((tech) => (
+              <div
+                key={tech.name}
+                className="flex flex-col items-center gap-1.5"
+              >
+                <span className="font-mono text-sm font-semibold tracking-tight text-foreground/70">
+                  {tech.name}
+                </span>
+                <span className="text-[0.6rem] uppercase tracking-widest text-muted-foreground/40">
+                  {tech.desc}
+                </span>
+              </div>
+            ))}
+          </motion.div>
+        </motion.div>
+      </section>
+
+      <div className="mx-auto max-w-4xl border-t border-border/50" />
+
+      {/* ── Partners ─────────────────────────────────────── */}
       <section className="px-4 py-24">
+        <div className="mx-auto max-w-3xl">
+          <motion.div
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, margin: "-80px" }}
+          >
+            <motion.p
+              variants={fadeIn}
+              custom={0}
+              className="mb-2 font-mono text-xs uppercase tracking-widest text-muted-foreground"
+            >
+              Trusted by
+            </motion.p>
+            <motion.h2
+              variants={fadeIn}
+              custom={1}
+              className="mb-10 text-2xl font-semibold md:text-3xl"
+            >
+              Projects using Blizkperse
+            </motion.h2>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {/* TuCOP */}
+              <motion.a
+                href="https://tucop.xyz/"
+                target="_blank"
+                rel="noopener noreferrer"
+                variants={fadeIn}
+                custom={3}
+                className="group rounded-lg border border-border/50 bg-card p-6 transition-all hover:border-foreground/20 hover:shadow-lg"
+              >
+                <Image
+                  src="/partners/tucop-color.png"
+                  alt="TuCOP"
+                  width={160}
+                  height={40}
+                  className="mb-4 h-8 w-auto opacity-50 grayscale transition-all group-hover:opacity-80 group-hover:grayscale-0"
+                />
+                <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
+                  Digital wallet for saving and managing money in pesos and dollars, with fast transfers and on-chain rails.
+                </p>
+                <span className="text-xs text-muted-foreground/60 transition-colors group-hover:text-foreground/60">
+                  tucop.xyz &rarr;
+                </span>
+              </motion.a>
+
+              {/* Celo Colombia */}
+              <motion.a
+                href="https://www.celocolombia.org/"
+                target="_blank"
+                rel="noopener noreferrer"
+                variants={fadeIn}
+                custom={4}
+                className="group rounded-lg border border-border/50 bg-card p-6 transition-all hover:border-foreground/20 hover:shadow-lg"
+              >
+                <Image
+                  src="/partners/celocolombia.png"
+                  alt="Celo Colombia"
+                  width={200}
+                  height={54}
+                  className="mb-4 h-8 w-auto opacity-50 grayscale transition-all group-hover:opacity-80 group-hover:grayscale-0"
+                />
+                <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
+                  Supporting entrepreneurs and builders in Colombia&apos;s Celo ecosystem with resources and community.
+                </p>
+                <span className="text-xs text-muted-foreground/60 transition-colors group-hover:text-foreground/60">
+                  celocolombia.org &rarr;
+                </span>
+              </motion.a>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      <div className="mx-auto max-w-4xl border-t border-border/50" />
+
+      {/* ── CTA ───────────────────────────────────────────── */}
+      <section className="relative overflow-hidden px-4 py-24">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="h-[400px] w-[600px] rounded-full bg-foreground/[0.03] blur-[100px]" />
+        </div>
         <motion.div
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, margin: "-80px" }}
-          className="mx-auto max-w-3xl text-center"
+          className="relative mx-auto max-w-3xl text-center"
         >
           <motion.p
             variants={fadeIn}
@@ -538,11 +673,7 @@ export default function LandingPage() {
             className="flex items-center justify-center gap-4"
           >
             <a href={APP_URL}>
-              <Button
-                variant="outline"
-                size="lg"
-                className="gap-2 border-foreground/20 text-base hover:bg-foreground/5"
-              >
+              <Button size="lg" className="gap-2 text-base">
                 Launch App
                 <ArrowRight className="h-4 w-4" />
               </Button>
