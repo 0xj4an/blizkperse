@@ -101,18 +101,103 @@ graph TB
 
 ```text
 blizkperse/
-├── web/                    # Next.js frontend
-│   ├── app/                # App Router pages (landing, payer, receive)
-│   ├── components/         # Header, auth guard, chain selector, UI
-│   ├── lib/                # Constants, contracts, merkle, ZK, store, DB
-│   └── public/circuits/    # Compiled circuit artifact (circuit.json)
-├── zk/                     # ZK circuits + Solidity contracts
-│   ├── circuits/           # Noir circuits (main.nr, withdraw.nr, pay.nr)
-│   ├── contract/           # ShieldedPool.sol + generated verifier contracts
-│   ├── script/             # Foundry deploy scripts
-│   └── docs/               # Build, deploy, and testing guides
-├── sql/                    # Database schema
-└── docs/                   # Architecture, integration, brand
+├── docs/                           # Architecture, integration, brand docs
+│   ├── technical_spec.md           # Full architecture, contracts, DB schema, deployment
+│   ├── integration_guide.md        # Frontend <-> ZK <-> Contract wiring
+│   └── brand_kit.md                # Color palette, typography, chain-adaptive theming
+│
+├── landing/                        # Marketing landing page (separate Next.js project)
+│   ├── app/
+│   │   ├── fonts/                  # Geist Sans + Mono (woff2)
+│   │   ├── globals.css             # Neutral-only theme (no chain switching)
+│   │   ├── layout.tsx              # Root layout: dark theme, Geist font
+│   │   └── page.tsx                # Landing page (hero, stats, features, CTA)
+│   ├── components/ui/button.tsx    # Minimal UI (button only)
+│   ├── lib/utils.ts                # cn() helper
+│   └── public/                     # Logo, partner images
+│
+├── sql/
+│   └── schema.sql                  # PostgreSQL schema (6 tables + indexes + seed data)
+│
+├── web/                            # App frontend (Next.js + Para SDK + ZK)
+│   ├── app/
+│   │   ├── api/                    # API routes
+│   │   │   ├── data/               # GET: fetch all store data
+│   │   │   ├── deposit-events/     # GET: fetch deposit events by chain
+│   │   │   ├── generate-proof/     # POST: server-side proof generation
+│   │   │   ├── notes/              # POST: store ZK notes
+│   │   │   ├── organizers/         # CRUD: organizer management
+│   │   │   ├── payments/           # PATCH: claim payment
+│   │   │   ├── payouts/            # CRUD: payout management
+│   │   │   ├── subscribers/        # CRUD: subscriber management
+│   │   │   └── subscriptions/      # POST: subscribe to organizer
+│   │   ├── dashboard/page.tsx      # Role selector (payer vs receiver)
+│   │   ├── lib/withdrawProver.ts   # Server-side withdrawal proof helper
+│   │   ├── payer/
+│   │   │   ├── page.tsx            # Organizer dashboard (orgs, stats, subscribers)
+│   │   │   └── create/page.tsx     # Multi-step payout creation flow
+│   │   ├── receive/
+│   │   │   ├── [id]/page.tsx       # Claim page (ZK proof + withdrawal)
+│   │   │   └── page.tsx            # Subscriber dashboard (browse orgs, payments)
+│   │   ├── client-shell.tsx        # Providers + ChainProvider wrapper
+│   │   ├── globals.css             # Chain-adaptive themes (neutral, Monad, Celo)
+│   │   ├── layout.tsx              # Root layout: dark theme, Geist font
+│   │   └── page.tsx                # Chain selector (network selection entry)
+│   ├── components/
+│   │   ├── ui/                     # shadcn/ui components
+│   │   ├── auth-guard.tsx          # Route protection
+│   │   ├── chain-selector.tsx      # Chain switcher (Monad/Celo)
+│   │   ├── header.tsx              # Nav bar with chain selector + wallet
+│   │   ├── page-shell.tsx          # Page layout wrapper
+│   │   ├── para-wrapper.tsx        # Para SDK modal wrapper
+│   │   ├── providers.tsx           # ParaProvider + QueryClient
+│   │   ├── tx-status.tsx           # Transaction status with explorer link
+│   │   └── wallet-display.tsx      # Wallet address display
+│   ├── lib/
+│   │   ├── api-auth.ts             # API route auth middleware
+│   │   ├── chain-context.tsx       # ChainProvider + useChain() hook
+│   │   ├── constants.ts            # Chain registry (source of truth for addresses)
+│   │   ├── contracts.ts            # Viem contract interactions
+│   │   ├── db.ts                   # PostgreSQL client + auto-schema
+│   │   ├── merkle.ts               # Client-side Merkle tree from on-chain events
+│   │   ├── server-auth.ts          # Server-side auth helpers
+│   │   ├── store.ts                # Reactive store (useSyncExternalStore + PostgreSQL)
+│   │   ├── utils.ts                # Shared utilities
+│   │   ├── wallet.ts               # Wallet utilities
+│   │   └── zk.ts                   # Noir proof generation + crypto primitives
+│   └── public/circuits/circuit.json # Compiled Noir circuit artifact
+│
+├── zk/                             # ZK circuits + Solidity contracts (Foundry)
+│   ├── circuits/
+│   │   ├── src/
+│   │   │   ├── main.nr             # Withdraw circuit (5 public inputs)
+│   │   │   ├── pay.nr              # Transfer circuit (4 public inputs)
+│   │   │   └── withdraw.nr         # Withdraw alias
+│   │   └── Nargo.toml              # Noir package config (with_foundry, >=0.31.0)
+│   ├── contract/
+│   │   ├── ShieldedPool.sol        # Main pool: deposit, transfer, withdraw
+│   │   ├── Verifier.sol            # HonkVerifier (transfer circuit)
+│   │   └── WithdrawVerifier.sol    # WithdrawHonkVerifier (withdraw circuit)
+│   ├── docs/
+│   │   ├── build-and-deploy.md     # Verifier compilation + deployment checklist
+│   │   ├── demo-deposit-withdraw.md # Step-by-step CLI demo
+│   │   ├── test-deposit-withdraw.md # On-chain testing guide
+│   │   └── testnet-deploy.md       # Testnet deployment guide
+│   └── script/
+│       ├── Deploy.s.sol            # Deploy all contracts
+│       └── Verify.s.sol            # Verification script
+│
+├── .dockerignore                   # Docker ignore rules
+├── .gitignore                      # Git ignore rules
+├── .gitmodules                     # Git submodules (Foundry deps)
+├── anvil.log                       # Local Foundry devnet log
+├── Dockerfile                      # App deployment (web/)
+├── Dockerfile.landing              # Landing page deployment (landing/)
+├── fetch_proof.mjs                 # Utility: fetch proof from chain
+├── railway.toml                    # Railway deployment config
+├── README.md                       # This file
+├── simulate_error.mjs              # Utility: simulate contract errors
+└── slice_test.mjs                  # Utility: proof slice testing
 ```
 
 ---
@@ -130,28 +215,44 @@ blizkperse/
 ### Quick Start
 
 ```bash
-# 1. Clone and install frontend
-cd web && npm install
+# 1. Landing page (static marketing site)
+cd landing && npm install && npm run dev -- -p 3002
+```
 
+Open [http://localhost:3002](http://localhost:3002).
+
+```bash
 # 2. Install contract dependencies
 cd ../zk && forge install
 
-# 3. Configure environment
-cp ../web/.env.example ../web/.env.local
+# 3. Install app frontend
+cd ../web && npm install
+
+# 4. Configure environment
+cp .env.example .env.local
 # Fill in NEXT_PUBLIC_PARA_API_KEY and DATABASE_URL
 
-# 4. Start dev server (--webpack required for WASM compatibility)
-cd ../web && npm run dev -- --webpack
+# 5. Start app dev server (--webpack required for WASM compatibility)
+npm run dev -- --webpack
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
 ### Deploy to Railway
 
+**Landing** (`blizkperse.com`):
+
+1. Create a Railway service pointing to `Dockerfile.landing`
+2. Set `NEXT_PUBLIC_APP_URL=https://app.blizkperse.com`
+3. **Watch path**: Set to `/landing/**`
+
+**App** (`app.blizkperse.com`):
+
 1. **Create project**: [railway.app](https://railway.app) > New Project > Deploy from GitHub
 2. **Add PostgreSQL**: Click "New" > "Database" > "PostgreSQL"
 3. **Set env vars**: Add `NEXT_PUBLIC_PARA_API_KEY` (Railway auto-injects `DATABASE_URL`)
-4. **Deploy**: Push to GitHub; Railway builds and deploys automatically
+4. **Watch path**: Set to `/web/**` to avoid rebuilds on landing changes
+5. **Deploy**: Push to GitHub; Railway builds and deploys automatically
 
 ---
 
