@@ -13,6 +13,13 @@ import {
   Zap,
   Eye,
   EyeOff,
+  Coins,
+  Wallet,
+  Key,
+  CircleDollarSign,
+  Fuel,
+  Fingerprint,
+  Check,
 } from "lucide-react";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.blizkperse.com";
@@ -43,7 +50,7 @@ const ASCII_ART = `
 const STATS = [
   { value: "2", label: "chains live" },
   { value: "100%", label: "on-chain" },
-  { value: "0", label: "KYC required" },
+  { value: "0", label: "gas for claims" },
   { value: "OSS", label: "open source" },
 ];
 
@@ -627,6 +634,182 @@ export default function LandingPage() {
                 </span>
               </motion.a>
             </div>
+          </motion.div>
+        </div>
+      </section>
+
+      <div className="mx-auto max-w-4xl border-t border-border/50" />
+
+      {/* ── Roadmap ─────────────────────────────────────── */}
+      <section className="relative overflow-hidden px-4 py-24">
+        {/* Subtle background glow */}
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="h-[600px] w-[800px] rounded-full bg-foreground/[0.02] blur-[120px]" />
+        </div>
+
+        <div className="relative mx-auto max-w-5xl">
+          <motion.div
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, margin: "-80px" }}
+          >
+            <motion.p
+              variants={fadeIn}
+              custom={0}
+              className="mb-2 font-mono text-xs uppercase tracking-widest text-muted-foreground"
+            >
+              What&apos;s next
+            </motion.p>
+            <motion.h2
+              variants={fadeIn}
+              custom={1}
+              className="mb-4 text-2xl font-semibold md:text-3xl"
+            >
+              Building in public
+            </motion.h2>
+            <motion.p
+              variants={fadeIn}
+              custom={2}
+              className="mb-14 max-w-xl text-muted-foreground"
+            >
+              Blizkperse is live today. Here&apos;s the path from private payments to a full financial privacy layer.
+            </motion.p>
+
+            {/* ── Phase headers (horizontal progress) ──── */}
+            <motion.div
+              variants={fadeIn}
+              custom={3}
+              className="mb-10 flex items-center gap-0"
+            >
+              {[
+                { label: "Now", active: true },
+                { label: "Next", active: false },
+                { label: "Later", active: false },
+              ].map((phase, i) => (
+                <div key={phase.label} className="flex flex-1 items-center">
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className={`flex h-7 w-7 items-center justify-center rounded-full font-mono text-xs font-bold ${
+                        phase.active
+                          ? "bg-foreground text-background"
+                          : "border border-border/80 text-muted-foreground"
+                      }`}
+                    >
+                      {i + 1}
+                    </div>
+                    <span
+                      className={`font-mono text-xs uppercase tracking-widest ${
+                        phase.active ? "text-foreground" : "text-muted-foreground/60"
+                      }`}
+                    >
+                      {phase.label}
+                    </span>
+                  </div>
+                  {i < 2 && (
+                    <div className="mx-4 h-px flex-1 bg-border/40" />
+                  )}
+                </div>
+              ))}
+            </motion.div>
+
+            {/* ── Phase 1: NOW ─────────────────────────── */}
+            <motion.div variants={fadeIn} custom={4} className="mb-8">
+              <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.03] p-6 md:p-8">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400">
+                    <Check className="h-3 w-3 text-background" />
+                  </div>
+                  <span className="font-mono text-xs uppercase tracking-widest text-emerald-400">
+                    Live on mainnet
+                  </span>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
+                  {[
+                    { icon: Shield, label: "Private payouts", desc: "ZK-shielded on Monad & Celo" },
+                    { icon: Lock, label: "On-chain proofs", desc: "Noir circuits + Honk verifier" },
+                    { icon: Users, label: "Social login", desc: "Email or Google, instant wallet" },
+                    { icon: Zap, label: "Claim in seconds", desc: "No MetaMask, no seed phrases" },
+                  ].map((item) => (
+                    <div key={item.label} className="flex gap-3">
+                      <item.icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400/60" />
+                      <div>
+                        <p className="text-sm font-medium text-foreground/90">{item.label}</p>
+                        <p className="text-xs text-muted-foreground">{item.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+
+            {/* ── Phase 2: NEXT ────────────────────────── */}
+            <motion.div variants={fadeIn} custom={5} className="mb-8">
+              <div className="mb-4 flex items-center gap-2.5">
+                <div className="h-1.5 w-1.5 rounded-full bg-foreground/60" />
+                <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+                  In development
+                </span>
+              </div>
+              <div className="grid gap-px overflow-hidden rounded-xl border border-border/50 sm:grid-cols-3">
+                {[
+                  {
+                    icon: Coins,
+                    title: "Multi-currency",
+                    items: ["COPm on Celo", "Variable amounts", "Pool per token"],
+                  },
+                  {
+                    icon: Lock,
+                    title: "Hardened core",
+                    items: ["On-chain Merkle tree", "Trustless root verification", "Security audit"],
+                  },
+                  {
+                    icon: Wallet,
+                    title: "Treasury access",
+                    items: ["Safe multisig", "Smart accounts", "Multi-approver flows"],
+                  },
+                ].map((card) => (
+                  <div key={card.title} className="bg-card p-5 md:p-6">
+                    <card.icon className="mb-3 h-4 w-4 text-foreground/40" />
+                    <h3 className="mb-3 text-sm font-semibold">{card.title}</h3>
+                    <ul className="space-y-1.5">
+                      {card.items.map((item) => (
+                        <li
+                          key={item}
+                          className="flex items-center gap-2 text-xs text-muted-foreground"
+                        >
+                          <span className="h-px w-2.5 bg-border" />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+
+            {/* ── Phase 3: LATER ───────────────────────── */}
+            <motion.div variants={fadeIn} custom={6}>
+              <div className="mb-4 flex items-center gap-2.5">
+                <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30" />
+                <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground/50">
+                  On the horizon
+                </span>
+              </div>
+              <div className="grid gap-px overflow-hidden rounded-xl border border-border/30 sm:grid-cols-4">
+                {[
+                  { icon: Key, title: "Open API", desc: "REST endpoints, webhooks & API keys for agents and partners" },
+                  { icon: Fuel, title: "Gasless claims", desc: "Sponsored withdrawals — recipients never pay gas" },
+                  { icon: Fingerprint, title: "Identity layer", desc: "Pluggable KYC with Self Protocol & vlayer for LATAM" },
+                  { icon: CircleDollarSign, title: "FHE research", desc: "Exploring fully homomorphic encryption for enhanced confidentiality" },
+                ].map((card) => (
+                  <div key={card.title} className="bg-card/50 p-5">
+                    <card.icon className="mb-2.5 h-4 w-4 text-foreground/20" />
+                    <h3 className="mb-1.5 text-sm font-semibold text-foreground/60">{card.title}</h3>
+                    <p className="text-xs leading-relaxed text-muted-foreground/60">{card.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
           </motion.div>
         </div>
       </section>

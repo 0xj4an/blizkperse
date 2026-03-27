@@ -104,7 +104,14 @@ All contract functions live in `web/lib/contracts.ts` and accept a `ChainConfig`
     ```typescript
     import { withdrawFromPool } from "@/lib/contracts";
 
-    await withdrawFromPool(walletClient, chainConfig, proof);
+    await withdrawFromPool(walletClient, chainConfig, {
+      proof: proofResult.proof,
+      publicInputs: [
+        proofResult.publicInputs.value,
+        proofResult.publicInputs.nullifier,
+        // merkleProofLength, expectedRoot, recipient are also included
+      ],
+    });
     ```
 
 ---

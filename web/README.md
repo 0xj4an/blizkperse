@@ -37,37 +37,54 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Project Structure
 
+> For the full repo structure (landing, zk, docs, sql) see the [root README](../README.md#project-structure).
+
 ```
 app/
-  page.tsx              # Landing page
-  client-shell.tsx      # Client-side app shell
-  dashboard/            # Role selector (payer vs receiver)
-  payer/                # Organizer dashboard + payout creation
-  receive/              # Subscriber dashboard + claim pages
-  api/                  # API routes (generate-proof, deposit-events, CRUD, etc.)
-  lib/                  # Server-side helpers (withdrawProver.ts)
+  api/                    # API routes
+    data/                 # GET: fetch all store data
+    deposit-events/       # GET: fetch deposit events by chain
+    generate-proof/       # POST: server-side proof generation
+    notes/                # POST: store generated ZK notes
+    organizers/           # POST/GET: create/fetch organizers
+    payments/             # PATCH: claim payment
+    payouts/              # POST/GET: create/fetch payouts
+    subscribers/          # POST/GET: create/fetch subscribers
+    subscriptions/        # POST: subscribe to organizer
+  dashboard/              # Role selector (payer vs receiver)
+  lib/                    # Server-side helpers (withdrawProver.ts)
+  payer/                  # Organizer dashboard + payout creation
+    create/               # Multi-step payout creation flow
+  receive/                # Subscriber dashboard + claim pages
+    [id]/                 # Claim page (ZK proof generation + withdrawal)
+  client-shell.tsx        # Client-side app shell (providers + ChainProvider)
+  globals.css             # Chain-adaptive themes (neutral default, per-chain overrides)
+  layout.tsx              # Root layout: dark theme, Geist font
+  page.tsx                # Chain selector (network selection entry)
 components/
-  header.tsx            # Nav bar with chain selector
-  providers.tsx         # ParaProvider + QueryClient
-  auth-guard.tsx        # Route protection
-  chain-selector.tsx    # Chain switcher (Monad/Celo)
-  page-shell.tsx        # Page layout wrapper
-  para-wrapper.tsx      # Para SDK modal wrapper
-  tx-status.tsx         # Transaction status with explorer link
-  wallet-display.tsx    # Wallet address display
-  ui/                   # shadcn/ui components
+  ui/                     # shadcn/ui components
+  auth-guard.tsx          # Route protection
+  chain-selector.tsx      # Chain switcher (Monad/Celo)
+  header.tsx              # Nav bar with chain selector
+  page-shell.tsx          # Page layout wrapper
+  para-wrapper.tsx        # Para SDK modal wrapper
+  providers.tsx           # ParaProvider + QueryClient
+  tx-status.tsx           # Transaction status with explorer link
+  wallet-display.tsx      # Wallet address display
 lib/
-  constants.ts          # Chain registry (source of truth for addresses)
-  chain-context.tsx     # ChainProvider + useChain() hook
-  contracts.ts          # Viem contract interactions
-  merkle.ts             # Client-side Merkle tree from on-chain events
-  zk.ts                 # Noir proof generation
-  store.ts              # Reactive store (useSyncExternalStore + PostgreSQL)
-  db.ts                 # PostgreSQL client
-  server-auth.ts        # Server-side auth helpers
-  api-auth.ts           # API route auth middleware
-  wallet.ts             # Wallet utilities
-  utils.ts              # Shared utilities
+  api-auth.ts             # API route auth middleware
+  auth-shared.ts          # Shared auth logic
+  chain-context.tsx       # ChainProvider + useChain() hook
+  constants.ts            # Chain registry (source of truth for addresses)
+  contracts.ts            # Viem contract interactions
+  database.types.ts       # TypeScript types for DB tables
+  db.ts                   # PostgreSQL client + auto-schema
+  merkle.ts               # Client-side Merkle tree from on-chain events
+  server-auth.ts          # Server-side auth helpers
+  store.ts                # Reactive store (useSyncExternalStore + PostgreSQL)
+  utils.ts                # Shared utilities (cn helper)
+  wallet.ts               # Wallet utilities
+  zk.ts                   # Noir proof generation + crypto primitives
 ```
 
 ## Architecture Overview
@@ -104,6 +121,10 @@ Authentication is handled by Para SDK, which provides social login and embedded 
 4. Railway auto-injects `DATABASE_URL`
 
 Build uses `output: "standalone"` in `next.config.ts`.
+
+## Landing Page
+
+The marketing landing page is a separate Next.js project in `landing/` at the repo root. It has its own `package.json`, no Para SDK, no ZK, and no database. See the [root README](../README.md#project-structure) for details.
 
 ## Related Documentation
 

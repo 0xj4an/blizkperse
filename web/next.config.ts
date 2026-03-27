@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  reactStrictMode: false,
   output: "standalone",
   transpilePackages: ["@getpara/react-sdk"],
   typescript: { ignoreBuildErrors: true },
