@@ -41,6 +41,7 @@ zk/circuits/target/
 # ── Applications / Private Docs ────────────────────
 docs/nitro-application.md
 docs/roadmap.md
+docs/para-vulnerability-report.md
 tasks/
 
 # ── IDE ─────────────────────────────────────────────
