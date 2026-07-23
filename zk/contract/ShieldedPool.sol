@@ -2,66 +2,133 @@
 pragma solidity ^0.8.19;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IVerifier} from "./Verifier.sol";
 
+/// @notice Shielded pool for a single ERC-20 token with arbitrary note amounts.
+///         Deposit requires a ZK proof binding commitment to `value == amount`.
 contract ShieldedPool is ReentrancyGuard, Ownable {
-    // 1 USDC (6 decimals)
-    uint256 public constant DENOMINATION = 1e6;
+    using SafeERC20 for IERC20;
 
-    IERC20 public immutable usdc;
+    IERC20 public immutable token;
     IVerifier public immutable verifier;
-    /// @notice Withdraw circuit verifier (5 public inputs). If address(0), withdraw is disabled.
+    /// @notice Withdraw circuit verifier (5 public inputs).
     IVerifier public immutable withdrawVerifier;
+    /// @notice Deposit circuit verifier (2 public inputs: value, commitment).
+    IVerifier public immutable depositVerifier;
 
-    // root registry (MVP): allow roots computed offchain
+    /// @notice Authorized router that may deposit on behalf of a user.
+    address public router;
+
     mapping(bytes32 => bool) public isKnownRoot;
-
-    // spent nullifiers
     mapping(bytes32 => bool) public nullifiers;
-
-    // each commitment can only be deposited once (one note = one commitment)
     mapping(bytes32 => bool) public usedCommitments;
 
     event RootRegistered(bytes32 indexed root);
-    event Deposit(address indexed sender, bytes32 indexed commitment);
+    event Deposit(address indexed depositor, bytes32 indexed commitment, uint256 amount);
     event TransferIntent(bytes32 indexed root, bytes32 indexed nullifier, bytes32 indexed newCommitment);
-    event Withdraw(address indexed recipient, bytes32 indexed nullifier);
+    event Withdraw(address indexed recipient, bytes32 indexed nullifier, uint256 amount);
+    event RouterUpdated(address indexed router);
 
-    constructor(address _usdc, address _verifier, bytes32 _genesisRoot, address _withdrawVerifier)
-        Ownable(msg.sender)
-    {
-        usdc = IERC20(_usdc);
+    constructor(
+        address _token,
+        address _verifier,
+        bytes32 _genesisRoot,
+        address _withdrawVerifier,
+        address _depositVerifier
+    ) Ownable(msg.sender) {
+        require(_token != address(0), "token=0");
+        require(_depositVerifier != address(0), "depositVerifier=0");
+        require(_withdrawVerifier != address(0), "withdrawVerifier=0");
+        token = IERC20(_token);
         verifier = IVerifier(_verifier);
         withdrawVerifier = IVerifier(_withdrawVerifier);
+        depositVerifier = IVerifier(_depositVerifier);
 
-        // genesis root (for empty tree / initial state you use offchain)
         isKnownRoot[_genesisRoot] = true;
         emit RootRegistered(_genesisRoot);
     }
 
-    /// @notice Register a new Merkle root. Enables withdrawals that prove inclusion under this root.
-    ///         Permissionless so any user can register when claiming (no need for owner to run scripts).
-    ///         First claimer with a new root pays the gas; idempotent (reverts if root already known).
+    function setRouter(address _router) external onlyOwner {
+        router = _router;
+        emit RouterUpdated(_router);
+    }
+
+    /// @notice Backward-compatible alias (legacy name).
+    function usdc() external view returns (IERC20) {
+        return token;
+    }
+
     function registerRoot(bytes32 root) external {
         require(!isKnownRoot[root], "root already known");
         isKnownRoot[root] = true;
         emit RootRegistered(root);
     }
 
-    /// @notice Deposit exactly 1 USDC to mint a note commitment (commitment computed offchain)
-    /// Each commitment can only be used once (ensures one note per commitment).
-    function deposit(bytes32 commitment) external nonReentrant {
-        require(!usedCommitments[commitment], "commitment already used");
-        require(usdc.transferFrom(msg.sender, address(this), DENOMINATION), "transferFrom failed");
-        usedCommitments[commitment] = true;
-        emit Deposit(msg.sender, commitment);
+    /// @notice Deposit `amount` of `token` with a proof that commitment binds to that amount.
+    /// Public inputs (deposit circuit): [value, commitment].
+    function deposit(
+        bytes32 commitment,
+        uint256 amount,
+        bytes calldata proof,
+        bytes32[] calldata publicInputs
+    ) external nonReentrant {
+        _deposit(msg.sender, msg.sender, commitment, amount, proof, publicInputs);
     }
 
-    /// @notice Private note -> note transfer (no token moves; state is enforced by nullifiers + commitments offchain)
-    /// publicInputs order MUST match Noir circuit:
-    /// [0]=new_commitment, [1]=nullifier_in, [2]=merkle_proof_length, [3]=expected_merkle_root
+    /// @notice Router-only deposit on behalf of `depositor`. Pulls tokens from `depositor`
+    ///         (depositor must have approved this pool) or accepts pre-funded balance from router.
+    function depositFor(
+        address depositor,
+        bytes32 commitment,
+        uint256 amount,
+        bytes calldata proof,
+        bytes32[] calldata publicInputs
+    ) external nonReentrant {
+        require(msg.sender == router, "only router");
+        require(depositor != address(0), "depositor=0");
+        _deposit(depositor, depositor, commitment, amount, proof, publicInputs);
+    }
+
+    /// @notice Router deposits after pulling tokens to this pool itself (msg.sender == router funded the pool).
+    function depositFromRouter(
+        address depositor,
+        bytes32 commitment,
+        uint256 amount,
+        bytes calldata proof,
+        bytes32[] calldata publicInputs
+    ) external nonReentrant {
+        require(msg.sender == router, "only router");
+        require(depositor != address(0), "depositor=0");
+        _deposit(depositor, address(0), commitment, amount, proof, publicInputs);
+    }
+
+    function _deposit(
+        address depositor,
+        address pullFrom,
+        bytes32 commitment,
+        uint256 amount,
+        bytes calldata proof,
+        bytes32[] calldata publicInputs
+    ) internal {
+        require(amount > 0, "amount=0");
+        require(!usedCommitments[commitment], "commitment already used");
+        require(publicInputs.length == 2, "wrong number of public inputs");
+        require(publicInputs[0] == bytes32(amount), "value != amount");
+        require(publicInputs[1] == commitment, "commitment mismatch");
+        require(depositVerifier.verify(proof, publicInputs), "invalid deposit proof");
+
+        if (pullFrom != address(0)) {
+            token.safeTransferFrom(pullFrom, address(this), amount);
+        }
+        // else: tokens already sitting on this contract (router pre-funded)
+
+        usedCommitments[commitment] = true;
+        emit Deposit(depositor, commitment, amount);
+    }
+
     function transferIntent(
         bytes32 expectedRoot,
         bytes32 nullifierIn,
@@ -79,36 +146,30 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
         publicInputs[3] = expectedRoot;
 
         require(verifier.verify(proof, publicInputs), "invalid proof");
-
-        // effects
         nullifiers[nullifierIn] = true;
-
         emit TransferIntent(expectedRoot, nullifierIn, newCommitment);
     }
 
-    /// @notice Withdraw 1 USDC to the recipient proved in the circuit.
-    /// Public inputs (withdraw circuit order): [value, nullifier, merkle_proof_length, expected_merkle_root, recipient].
-    /// recipient is the address as Field (32 bytes, address in lower 20 bytes). Requires withdrawVerifier != address(0).
+    /// @notice Withdraw arbitrary amount to the recipient in the proof.
+    /// Public inputs: [value, nullifier, merkle_proof_length, expected_merkle_root, recipient].
     function withdraw(bytes calldata proof, bytes32[] calldata publicInputs) external nonReentrant {
-        require(address(withdrawVerifier) != address(0), "withdraw not enabled");
         require(publicInputs.length == 5, "wrong number of public inputs");
 
-        bytes32 valueField = publicInputs[0];
+        uint256 amount = uint256(publicInputs[0]);
         bytes32 nullifierIn = publicInputs[1];
         bytes32 expectedRoot = publicInputs[3];
         bytes32 recipientField = publicInputs[4];
 
-        require(valueField == bytes32(uint256(1)), "only 1 USDC per note");
+        require(amount > 0, "amount=0");
         require(isKnownRoot[expectedRoot], "unknown root");
         require(!nullifiers[nullifierIn], "nullifier used");
-
         require(withdrawVerifier.verify(proof, publicInputs), "invalid proof");
 
         nullifiers[nullifierIn] = true;
-        // Mask to 160 bits to avoid overflow when converting bytes32 to address (Solidity 0.8 reverts on uint160(x) if x > 2^160-1)
         address recipient = address(uint160(uint256(recipientField) & type(uint160).max));
-        require(usdc.transfer(recipient, DENOMINATION), "transfer failed");
+        require(recipient != address(0), "recipient=0");
+        token.safeTransfer(recipient, amount);
 
-        emit Withdraw(recipient, nullifierIn);
+        emit Withdraw(recipient, nullifierIn, amount);
     }
 }
