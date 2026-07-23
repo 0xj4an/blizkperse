@@ -2,10 +2,10 @@
 
 import { useSyncExternalStore } from "react";
 import { BaseError, ContractFunctionRevertedError, type WalletClient, type Hex } from "viem";
-import type { ChainConfig } from "./constants";
+import { type ChainConfig, getPoolConfig, toTokenRawAmount } from "./constants";
 import {
-  approvePoolToken,
-  depositToPool,
+  approveRouterToken,
+  depositViaRouter,
   getDepositRevertReason,
   decodeRevertDataFromError,
   withdrawFromPool,
@@ -18,6 +18,7 @@ import {
   addressToFieldPk,
   generateRandomField,
   bigintToBytes32,
+  generateDepositProof,
   type ProofResult,
 } from "./zk";
 import { getWalletAuthHeaders, type WalletAuth } from "./api-auth";
@@ -446,17 +447,13 @@ export async function createPayout(params: {
   onProgress?: (step: string, current: number, total: number) => void;
 }): Promise<Payout> {
   const token = params.token ?? params.chainConfig.defaultToken.symbol;
-  const expandedRecipients = params.recipients.flatMap((recipient) =>
-    Array.from({ length: Math.floor(recipient.amount) }, () => ({
-      subscriberId: recipient.subscriberId,
-      amount: 1,
-    })),
-  );
-  const totalNotes = expandedRecipients.length;
-  const totalAmount = totalNotes;
+  const poolCfg = getPoolConfig(params.chainConfig, token);
+  const recipients = params.recipients.filter((r) => r.amount > 0);
+  const totalAmount = recipients.reduce((sum, r) => sum + r.amount, 0);
+  const totalNotes = recipients.length;
 
   if (totalNotes === 0) {
-    throw new Error("Payout must include at least one whole-token note");
+    throw new Error("Payout must include at least one positive amount");
   }
 
   const payoutSeed = await authedApi<{
@@ -473,7 +470,7 @@ export async function createPayout(params: {
         token,
         tx_hash: null,
         status: "pending",
-        recipients: expandedRecipients.map((r) => ({
+        recipients: recipients.map((r) => ({
           subscriber_id: r.subscriberId,
           amount: r.amount,
         })),
@@ -510,72 +507,87 @@ export async function createPayout(params: {
   if (params.walletClient) {
     const publicClient = getPublicClient(params.chainConfig);
     const config = params.chainConfig;
-    const required = BigInt(totalNotes) * config.poolDenomination;
+    const tokenCfg = poolCfg.token;
+    const rawAmounts = recipients.map((r) => toTokenRawAmount(r.amount, tokenCfg.decimals));
+    const required = rawAmounts.reduce((a, b) => a + b, 0n);
 
     if (params.ownerAddress) {
-      const balance = await getTokenBalance(config, params.ownerAddress, config.defaultToken);
+      const balance = await getTokenBalance(config, params.ownerAddress, tokenCfg);
       if (balance < required) {
-        const symbol = config.defaultToken.symbol;
-        const perNote = Number(config.poolDenomination) / Math.pow(10, config.defaultToken.decimals);
         throw new Error(
-          `Insufficient ${symbol} balance on ${config.name}. You need at least ${totalNotes} ${symbol} (${perNote} ${symbol} per note).`
+          `Insufficient ${tokenCfg.symbol} balance on ${config.name}. Need ${required.toString()} raw units.`,
         );
       }
     }
 
-    // Step 1: Approve only if current allowance is insufficient
-    const requiredAllowance = BigInt(totalNotes) * config.poolDenomination;
     let lastTxHash: Hex | null = null;
-    if (params.ownerAddress) {
-      const currentAllowance = await getPoolAllowance(config, params.ownerAddress);
-      if (currentAllowance < requiredAllowance) {
-        params.onProgress?.("Approving token", 0, totalNotes);
-        if (config.slug === "celo") {
-          const resetTx = await approvePoolToken(params.walletClient, params.chainConfig, 0n);
-          await publicClient.waitForTransactionReceipt({ hash: resetTx });
+    if (!tokenCfg.wrapsNative) {
+      if (params.ownerAddress) {
+        const currentAllowance = await getPoolAllowance(config, params.ownerAddress, tokenCfg);
+        if (currentAllowance < required) {
+          params.onProgress?.("Approving token", 0, totalNotes);
+          if (config.slug === "celo") {
+            const resetTx = await approveRouterToken(params.walletClient, config, tokenCfg, 0n);
+            await publicClient.waitForTransactionReceipt({ hash: resetTx });
+          }
+          const approveTx = await approveRouterToken(
+            params.walletClient,
+            config,
+            tokenCfg,
+            required,
+          );
+          await publicClient.waitForTransactionReceipt({ hash: approveTx });
+          lastTxHash = approveTx;
         }
-        const approveTx = await approvePoolToken(
+      } else {
+        params.onProgress?.("Approving token", 0, totalNotes);
+        const approveTx = await approveRouterToken(
           params.walletClient,
-          params.chainConfig,
-          requiredAllowance,
+          config,
+          tokenCfg,
+          required,
         );
         await publicClient.waitForTransactionReceipt({ hash: approveTx });
         lastTxHash = approveTx;
       }
-    } else {
-      params.onProgress?.("Approving token", 0, totalNotes);
-      if (config.slug === "celo") {
-        const resetTx = await approvePoolToken(params.walletClient, params.chainConfig, 0n);
-        await publicClient.waitForTransactionReceipt({ hash: resetTx });
-      }
-      const approveTx = await approvePoolToken(
-        params.walletClient,
-        params.chainConfig,
-        requiredAllowance,
-      );
-      await publicClient.waitForTransactionReceipt({ hash: approveTx });
-      lastTxHash = approveTx;
     }
     const approveTxHash = lastTxHash;
 
-    // Step 2: Deposit notes one by one
     let noteIndex = 0;
 
-    for (const [index, recipient] of expandedRecipients.entries()) {
+    for (const [index, recipient] of recipients.entries()) {
       const sub = getSubscriberById(recipient.subscriberId);
       if (!sub) continue;
 
       const pk_b = addressToFieldPk(sub.address);
+      const amountRaw = rawAmounts[index];
       noteIndex++;
-      params.onProgress?.("Depositing note", noteIndex, totalNotes);
+      params.onProgress?.("Proving deposit", noteIndex, totalNotes);
 
       const randomness = generateRandomField();
-      const note = await createNote(1n, pk_b, randomness);
+      const note = await createNote(amountRaw, pk_b, randomness);
       const commitment = bigintToBytes32(note.commitment) as Hex;
+
+      const depositProof = await generateDepositProof({
+        value: bigintToBytes32(note.value),
+        commitment,
+        pk_b: bigintToBytes32(note.holder),
+        random: bigintToBytes32(note.random),
+        nullifier: bigintToBytes32(note.nullifier),
+      });
+
+      params.onProgress?.("Depositing note", noteIndex, totalNotes);
 
       let depositTx: Hex;
       try {
-        depositTx = await depositToPool(params.walletClient, config, commitment);
+        depositTx = await depositViaRouter(params.walletClient, config, {
+          tokenSymbol: token,
+          commitment,
+          amount: amountRaw,
+          proof: depositProof.proof,
+          publicInputs: depositProof.publicInputs,
+          useNative: Boolean(tokenCfg.wrapsNative),
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         let contractReason: string | null = decodeRevertDataFromError(err);
@@ -586,23 +598,20 @@ export async function createPayout(params: {
           }
         }
         if (!contractReason && params.ownerAddress) {
-          contractReason = await getDepositRevertReason(config, params.ownerAddress, commitment);
+          contractReason = await getDepositRevertReason(
+            config,
+            params.ownerAddress,
+            commitment,
+            amountRaw,
+            depositProof.proof,
+            depositProof.publicInputs,
+            token,
+          );
         }
         if (contractReason || msg.includes("revert") || msg.includes("unknown reason")) {
-          const poolAddr = config.contracts.pool;
-          const reasonLine = contractReason ? `Contract revert: "${contractReason}". ` : "";
-          let detail = `Pool: ${poolAddr}. ${reasonLine}`;
-          if (params.ownerAddress && !contractReason) {
-            const allowance = await getPoolAllowance(config, params.ownerAddress);
-            const need = requiredAllowance;
-            detail += `Your allowance: ${allowance.toString()} (need ${need.toString()}). ${allowance < need ? "Approve more to the pool address above." : "Revert reason could not be decoded. Likely: 'transferFrom failed' (check balance, try approve 0 then approve amount) or 'commitment already used' (duplicate note)."}`;
-          } else if (params.ownerAddress && contractReason === "transferFrom failed") {
-            const balance = await getTokenBalance(config, params.ownerAddress, config.defaultToken);
-            detail += `Your ${config.defaultToken.symbol} balance: ${balance.toString()}. The pool pulls exactly 1 ${config.defaultToken.symbol} per deposit; ensure you have enough and the token is not paused. Try approve(pool, 0) then approve(pool, amount) if you had a previous approval.`;
-          } else if (params.ownerAddress && contractReason === "commitment already used") {
-            detail += "This note was already deposited (e.g. duplicate or previous run). Create a new payout.";
-          }
-          throw new Error(`Deposit failed on ${config.name}. ${detail}`);
+          throw new Error(
+            `Deposit failed on ${config.name}. Pool: ${poolCfg.pool}. Router: ${config.router}. ${contractReason ? `Contract revert: "${contractReason}". ` : ""}${msg}`,
+          );
         }
         throw err;
       }
@@ -627,6 +636,8 @@ export async function createPayout(params: {
             holder_pk: bigintToBytes32(note.holder),
             randomness: bigintToBytes32(note.random),
             nullifier: bigintToBytes32(note.nullifier),
+            token_symbol: token,
+            pool_address: poolCfg.pool,
           }),
         },
       );
@@ -682,6 +693,7 @@ export async function claimPayment(
   proofResult?: ProofResult,
   chainConfig?: ChainConfig,
   auth?: WalletAuth,
+  tokenSymbol?: string,
 ): Promise<{ txHash: string }> {
   let txHash: string;
 
@@ -698,6 +710,7 @@ export async function claimPayment(
         pi.expectedRoot,
         pi.recipient,
       ],
+      tokenSymbol: tokenSymbol ?? chainConfig.defaultToken.symbol,
     });
     await publicClient.waitForTransactionReceipt({ hash: withdrawTx });
     txHash = withdrawTx;

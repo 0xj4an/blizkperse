@@ -37,8 +37,9 @@ export interface ProofResult {
   };
 }
 
-// ── Poseidon hash (matches circuit's poseidon::bn254::hash_2) ──
-// poseidon-lite is a pure-JS BN254 Poseidon implementation (browser-safe, no native deps).
+// ── Poseidon hash (matches circuit's poseidon::poseidon::bn254::hash_2) ──
+// poseidon-lite must stay in sync with noir-lang/poseidon used by deposit/withdraw circuits.
+// Verified against nargo 1.0.0-beta.19 + deposit_circuit.json (witness execute succeeds).
 
 export async function poseidon2(a: bigint, b: bigint): Promise<bigint> {
   const { poseidon2: poseidonHash } = await import("poseidon-lite");
@@ -142,5 +143,35 @@ export async function generateProof(
       expectedRoot: bigintToBytes32(BigInt(input.expected_merkle_root)),
       recipient: bigintToBytes32(BigInt(input.recipient)),
     },
+  };
+}
+
+export type DepositProofInput = {
+  value: string;
+  commitment: string;
+  pk_b: string;
+  random: string;
+  nullifier: string;
+};
+
+export async function generateDepositProof(input: DepositProofInput): Promise<{
+  proof: Hex;
+  publicInputs: Hex[];
+}> {
+  const response = await fetch("/api/generate-deposit-proof", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(error.error || `Deposit proof generation failed: ${response.status}`);
+  }
+
+  const { proof, publicInputs } = await response.json();
+  return {
+    proof: proof as Hex,
+    publicInputs: (publicInputs as string[]).map((x) => bigintToBytes32(BigInt(x))) as Hex[],
   };
 }

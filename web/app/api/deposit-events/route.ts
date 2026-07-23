@@ -13,6 +13,9 @@ const RETRY_DELAY_MS = 2000;
 const MAX_RETRIES = 3;
 
 const depositEvent = parseAbiItem(
+  "event Deposit(address indexed depositor, bytes32 indexed commitment, uint256 amount)",
+);
+const depositEventLegacy = parseAbiItem(
   "event Deposit(address indexed sender, bytes32 indexed commitment)",
 );
 
@@ -40,17 +43,31 @@ async function fetchLogsWithRetry(
 ): Promise<DepositLog[]> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const logs = await client.getLogs({
-        address: pool,
-        event: depositEvent,
-        fromBlock: from,
-        toBlock: to,
-      });
-      return logs.map((log) => ({
-        sender: log.args.sender ?? "",
-        commitment: log.args.commitment ?? "",
-        blockNumber: String(log.blockNumber),
-      }));
+      try {
+        const logs = await client.getLogs({
+          address: pool,
+          event: depositEvent,
+          fromBlock: from,
+          toBlock: to,
+        });
+        return logs.map((log) => ({
+          sender: log.args.depositor ?? "",
+          commitment: log.args.commitment ?? "",
+          blockNumber: String(log.blockNumber),
+        }));
+      } catch {
+        const logs = await client.getLogs({
+          address: pool,
+          event: depositEventLegacy,
+          fromBlock: from,
+          toBlock: to,
+        });
+        return logs.map((log) => ({
+          sender: log.args.sender ?? "",
+          commitment: log.args.commitment ?? "",
+          blockNumber: String(log.blockNumber),
+        }));
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
       // If range too large for this RPC, split in half and retry
@@ -106,6 +123,8 @@ async function scanRange(
 
 export async function GET(req: NextRequest) {
   const chainIdParam = req.nextUrl.searchParams.get("chain_id");
+  const poolParam = req.nextUrl.searchParams.get("pool_address");
+  const tokenSymbol = req.nextUrl.searchParams.get("token_symbol");
   const chainId = Number(chainIdParam) as SupportedChainId;
   const config = CHAINS[chainId];
 
@@ -115,6 +134,11 @@ export async function GET(req: NextRequest) {
       { status: 400 },
     );
   }
+
+  const poolAddress = (poolParam as `0x${string}` | null)
+    ?? (tokenSymbol && config.pools[tokenSymbol]?.pool)
+    ?? config.contracts.pool;
+  const poolKey = poolAddress.toLowerCase();
 
   try {
   await ensureSchema();
@@ -129,32 +153,34 @@ export async function GET(req: NextRequest) {
     const latest = await client.getBlockNumber();
 
     const [cursorRow] = await sql`
-      SELECT last_block FROM scan_cursor WHERE chain_id = ${chainId}
+      SELECT last_block FROM scan_cursor
+      WHERE chain_id = ${chainId} AND pool_address = ${poolKey}
     `;
     const lastScanned = cursorRow ? BigInt(cursorRow.last_block) : null;
     const scanFrom = lastScanned != null ? lastScanned + BigInt(1) : config.deployBlock;
 
     if (scanFrom <= latest) {
-      const newLogs = await scanRange(client, config.contracts.pool, scanFrom, latest);
+      const newLogs = await scanRange(client, poolAddress, scanFrom, latest);
 
       if (newLogs.length > 0) {
         await sql`
           INSERT INTO deposit_events_cache ${sql(
             newLogs.map((l) => ({
               chain_id: chainId,
+              pool_address: poolKey,
               block_number: l.blockNumber,
               sender: l.sender,
               commitment: l.commitment,
             })),
           )}
-          ON CONFLICT (chain_id, commitment) DO NOTHING
+          ON CONFLICT (chain_id, pool_address, commitment) DO NOTHING
         `;
       }
 
       await sql`
-        INSERT INTO scan_cursor (chain_id, last_block)
-        VALUES (${chainId}, ${String(latest)})
-        ON CONFLICT (chain_id)
+        INSERT INTO scan_cursor (chain_id, pool_address, last_block)
+        VALUES (${chainId}, ${poolKey}, ${String(latest)})
+        ON CONFLICT (chain_id, pool_address)
         DO UPDATE SET last_block = ${String(latest)}
       `;
     }
@@ -163,10 +189,12 @@ export async function GET(req: NextRequest) {
     console.error(`RPC scan failed for chain ${chainId}:`, scanErr instanceof Error ? scanErr.message : scanErr);
   }
 
-  // Primary source: notes table (every deposit from the app is stored here)
+  // Primary source: notes table for this pool (or all notes on chain if pool unknown in notes)
   const noteRows = await sql`
     SELECT commitment FROM notes
-    WHERE chain_id = ${chainId} AND commitment IS NOT NULL AND commitment != ''
+    WHERE chain_id = ${chainId}
+      AND commitment IS NOT NULL AND commitment != ''
+      AND (pool_address IS NULL OR lower(pool_address) = ${poolKey} OR pool_address = '')
     ORDER BY created_at ASC
   `;
 
@@ -184,12 +212,10 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Optional: add any commitment from on-chain scan cache that we don't have in notes
-  // (e.g. deposits made via script / external)
   const cachedEvents = await sql`
     SELECT sender, commitment, block_number as "blockNumber"
     FROM deposit_events_cache
-    WHERE chain_id = ${chainId}
+    WHERE chain_id = ${chainId} AND pool_address = ${poolKey}
     ORDER BY id ASC
   `;
   for (const e of cachedEvents) {

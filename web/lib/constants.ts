@@ -3,6 +3,14 @@ export interface TokenConfig {
   name: string;
   decimals: number;
   address: `0x${string}`;
+  /** If true, this ERC-20 is a WETH-style wrapper (e.g. WMON). Not used for Celo CELO (token duality). */
+  wrapsNative?: boolean;
+}
+
+export interface PoolConfig {
+  pool: `0x${string}`;
+  token: TokenConfig;
+  deployBlock: bigint;
 }
 
 export type ChainSlug = "monad" | "celo";
@@ -24,13 +32,20 @@ export interface ChainConfig {
   explorerUrl: string;
   explorerName: string;
   nativeCurrency: { name: string; symbol: string; decimals: number };
+  /** Single entrypoint for deposits/withdrawals. */
+  router: `0x${string}`;
   contracts: {
+    /** Default (USDC) pool — kept for backward-compatible indexing. */
     pool: `0x${string}`;
     verifier: `0x${string}`;
     withdrawVerifier: `0x${string}`;
+    depositVerifier: `0x${string}`;
     stablecoin: `0x${string}`;
   };
+  /** Map of symbol → pool config (USDC, USDT, COPm, WMON, CELO, …). */
+  pools: Record<string, PoolConfig>;
   poolTokenDecimals: number;
+  /** @deprecated Prefer pools[symbol].token amounts in raw units. Kept for legacy UI. */
   poolDenomination: bigint;
   tokens: TokenConfig[];
   defaultToken: TokenConfig;
@@ -47,17 +62,19 @@ interface ChainDefaults {
   explorerUrl: string;
   explorerName: string;
   nativeCurrency: { name: string; symbol: string; decimals: number };
+  router: `0x${string}`;
   contracts: {
     pool: `0x${string}`;
     verifier: `0x${string}`;
     withdrawVerifier: `0x${string}`;
+    depositVerifier: `0x${string}`;
     stablecoin: `0x${string}`;
   };
   poolTokenDecimals: number;
   poolDenomination: bigint;
   stablecoinSymbol: string;
   stablecoinName: string;
-  extraTokens: TokenConfig[];
+  poolTokens: TokenConfig[];
   deployBlock: bigint;
 }
 
@@ -82,10 +99,15 @@ const ALL_CHAIN_IDS = new Set<SupportedChainId>([
 
 const MONAD_USDC = "0x754704Bc059F8C67012fEd69BC8A327a5aafb603" as const;
 const MONAD_USDT = "0xe7cd86e13AC4309349F30B3435a9d337750fC82D" as const;
+/** Wrapped MON (WETH-style) on Monad mainnet. */
+const MONAD_WMON = "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A" as const;
 
 const CELO_USDC = "0xcebA9300f2b948710d2653dD7B07f33A8B32118C" as const;
 const CELO_USDT = "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e" as const;
-
+/** Celo Colombian peso stablecoin — override via env if needed. */
+const CELO_COPM = "0x8A567e2aE79CA692BD748aB832081C45de4041eA" as const;
+/** Celo GoldToken: native CELO ↔ ERC-20 duality (no wrap/unwrap). */
+const CELO_TOKEN = "0x471EcE3750Da237f93B8E339c536989b8978a438" as const;
 
 const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
   monad: {
@@ -95,18 +117,22 @@ const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
     explorerUrl: "https://monadexplorer.com",
     explorerName: "Monad Explorer",
     nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
+    router: ZERO_ADDR,
     contracts: {
       pool: "0x97268f95e49bC5C7C8711111cCFe509D76C00674",
       verifier: "0x4eE52aEb000B91853A5a6f9db9B1f969f1b0c393",
       withdrawVerifier: "0x0D70d098085CeD93864B41cD0fF506C2CD329D94",
+      depositVerifier: ZERO_ADDR,
       stablecoin: MONAD_USDC,
     },
     poolTokenDecimals: 6,
     poolDenomination: BigInt(1_000_000),
     stablecoinSymbol: "USDC",
     stablecoinName: "USD Coin",
-    extraTokens: [
+    poolTokens: [
+      { symbol: "USDC", name: "USD Coin", decimals: 6, address: MONAD_USDC },
       { symbol: "USDT", name: "Tether USD", decimals: 6, address: MONAD_USDT },
+      { symbol: "WMON", name: "Wrapped MON", decimals: 18, address: MONAD_WMON, wrapsNative: true },
     ],
     deployBlock: BigInt(60_840_463),
   },
@@ -117,18 +143,23 @@ const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
     explorerUrl: "https://celoscan.io",
     explorerName: "CeloScan",
     nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
+    router: ZERO_ADDR,
     contracts: {
       pool: "0x1aBee1E0205BB4E6d0b95a2C1F5072d9f3064778",
       verifier: "0x3D76FC7Ce515aB1d69A4e734354c6EC94c22CCb9",
       withdrawVerifier: "0x6e4794166dE8Af43D1720f66bA39f561F2C0eD95",
+      depositVerifier: ZERO_ADDR,
       stablecoin: CELO_USDC,
     },
     poolTokenDecimals: 6,
     poolDenomination: BigInt(1_000_000),
     stablecoinSymbol: "USDC",
     stablecoinName: "USD Coin",
-    extraTokens: [
+    poolTokens: [
+      { symbol: "USDC", name: "USD Coin", decimals: 6, address: CELO_USDC },
       { symbol: "USDT", name: "Tether USD", decimals: 6, address: CELO_USDT },
+      { symbol: "COPm", name: "Celo Colombian Peso", decimals: 18, address: CELO_COPM },
+      { symbol: "CELO", name: "Celo", decimals: 18, address: CELO_TOKEN },
     ],
     deployBlock: BigInt(61_379_350),
   },
@@ -142,17 +173,26 @@ const DEV_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
     explorerUrl: "https://testnet.monadvision.com/",
     explorerName: "Monad Explorer",
     nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
+    router: ZERO_ADDR,
     contracts: {
       pool: "0xcdc6ade9d348572f302690bd39ba8120f8e91db3",
       verifier: "0x8d10ad45b21d4db2e7270e519a757c764c6501ac",
       withdrawVerifier: "0xd9aee9351f7685b05a6b7bd8c1ca509d24be1e57",
+      depositVerifier: ZERO_ADDR,
       stablecoin: "0x534b2f3A21130d7a60830c2Df862319e593943A3",
     },
     poolTokenDecimals: 6,
     poolDenomination: BigInt(1_000_000),
     stablecoinSymbol: "USDC",
     stablecoinName: "USD Coin",
-    extraTokens: [],
+    poolTokens: [
+      {
+        symbol: "USDC",
+        name: "USD Coin",
+        decimals: 6,
+        address: "0x534b2f3A21130d7a60830c2Df862319e593943A3",
+      },
+    ],
     deployBlock: BigInt(17992500),
   },
   celo: {
@@ -162,17 +202,26 @@ const DEV_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
     explorerUrl: "https://celo-sepolia.blockscout.com",
     explorerName: "Celo Explorer",
     nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
+    router: ZERO_ADDR,
     contracts: {
       pool: "0x038803a40130734e6ab711489060ea55f05bb475",
       verifier: "0x0f86796c3f3254442debd0705a56bdd82c69f4a6",
       withdrawVerifier: "0xd850af48bddf6e568a994a870aa684b86bb5054f",
+      depositVerifier: ZERO_ADDR,
       stablecoin: "0x01C5C0122039549AD1493B8220cABEdD739BC44E",
     },
     poolTokenDecimals: 6,
     poolDenomination: BigInt(1_000_000),
     stablecoinSymbol: "USDC",
     stablecoinName: "USD Coin",
-    extraTokens: [],
+    poolTokens: [
+      {
+        symbol: "USDC",
+        name: "USD Coin",
+        decimals: 6,
+        address: "0x01C5C0122039549AD1493B8220cABEdD739BC44E",
+      },
+    ],
     deployBlock: BigInt(19901100),
   },
 };
@@ -268,11 +317,48 @@ function buildChainConfig(slug: ChainSlug): ChainConfig {
     address: stablecoin,
   };
 
+  const router = getEnvAddress(`${prefix}_ROUTER_ADDRESS`, defaults.router);
+  const usdcPool = getEnvAddress(`${prefix}_POOL_ADDRESS`, defaults.contracts.pool);
+  const depositVerifier = getEnvAddress(
+    `${prefix}_DEPOSIT_VERIFIER_ADDRESS`,
+    defaults.contracts.depositVerifier,
+  );
+
+  const pools: Record<string, PoolConfig> = {};
+  for (const t of defaults.poolTokens) {
+    const tokenAddr = getEnvAddress(
+      `${prefix}_TOKEN_${t.symbol.toUpperCase()}_ADDRESS`,
+      t.symbol === defaults.stablecoinSymbol ? stablecoin : t.address,
+    );
+    const poolAddr = getEnvAddress(
+      `${prefix}_POOL_${t.symbol.toUpperCase()}_ADDRESS`,
+      t.symbol === defaults.stablecoinSymbol ? usdcPool : ZERO_ADDR,
+    );
+    const token: TokenConfig = {
+      ...t,
+      address: tokenAddr,
+    };
+    pools[t.symbol] = {
+      pool: poolAddr,
+      token,
+      deployBlock: getEnvBigInt(`${prefix}_DEPLOY_BLOCK`, defaults.deployBlock),
+    };
+  }
+
+  // Ensure default token pool exists
+  if (!pools[defaultToken.symbol]) {
+    pools[defaultToken.symbol] = {
+      pool: usdcPool,
+      token: defaultToken,
+      deployBlock: defaults.deployBlock,
+    };
+  }
+
   const computedPlaceholder =
     !rpcUrl ||
     !explorerUrl ||
     stablecoin === ZERO_ADDR ||
-    getEnvAddress(`${prefix}_POOL_ADDRESS`, defaults.contracts.pool) === ZERO_ADDR ||
+    usdcPool === ZERO_ADDR ||
     getEnvAddress(`${prefix}_VERIFIER_ADDRESS`, defaults.contracts.verifier) === ZERO_ADDR ||
     getEnvAddress(
       `${prefix}_WITHDRAW_VERIFIER_ADDRESS`,
@@ -283,10 +369,9 @@ function buildChainConfig(slug: ChainSlug): ChainConfig {
   const placeholder =
     getEnvBoolean(`${prefix}_PLACEHOLDER`) ?? computedPlaceholder;
 
-  const tokens =
-    DEPLOY_ENV === "production"
-      ? [defaultToken, ...defaults.extraTokens]
-      : [defaultToken];
+  const tokens = Object.values(pools)
+    .map((p) => p.token)
+    .filter((t) => t.address !== ZERO_ADDR || t.symbol === defaultToken.symbol);
 
   return {
     id,
@@ -296,15 +381,18 @@ function buildChainConfig(slug: ChainSlug): ChainConfig {
     explorerUrl,
     explorerName,
     nativeCurrency: defaults.nativeCurrency,
+    router,
     contracts: {
-      pool: getEnvAddress(`${prefix}_POOL_ADDRESS`, defaults.contracts.pool),
+      pool: usdcPool,
       verifier: getEnvAddress(`${prefix}_VERIFIER_ADDRESS`, defaults.contracts.verifier),
       withdrawVerifier: getEnvAddress(
         `${prefix}_WITHDRAW_VERIFIER_ADDRESS`,
         defaults.contracts.withdrawVerifier,
       ),
+      depositVerifier,
       stablecoin,
     },
+    pools,
     poolTokenDecimals,
     poolDenomination,
     tokens,
@@ -344,4 +432,24 @@ export function isSupportedChainId(value: unknown): value is SupportedChainId {
     isKnownChainId(value) &&
     value in CHAINS
   );
+}
+
+export function getPoolConfig(config: ChainConfig, symbol: string): PoolConfig {
+  const pool = config.pools[symbol];
+  if (!pool) {
+    throw new Error(`No pool configured for token ${symbol} on ${config.name}`);
+  }
+  return pool;
+}
+
+/** Convert a human decimal amount string/number to raw token units. */
+export function toTokenRawAmount(amount: number, decimals: number): bigint {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Amount must be a positive number");
+  }
+  const [whole, frac = ""] = amount.toString().split(".");
+  const fracPadded = (frac + "0".repeat(decimals)).slice(0, decimals);
+  const raw = BigInt(whole || "0") * 10n ** BigInt(decimals) + BigInt(fracPadded || "0");
+  if (raw <= 0n) throw new Error("Amount too small for token decimals");
+  return raw;
 }

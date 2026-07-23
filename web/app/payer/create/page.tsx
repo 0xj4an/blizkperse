@@ -351,7 +351,7 @@ export default function CreatePayoutPage() {
               </span>
             </div>
             <p className="text-xs text-muted-foreground">
-              Only whole token amounts are supported. Values are rounded down to 1-token notes.
+              Amounts use the token decimals (e.g. 1.5 USDC). Each recipient gets one note for the exact amount.
             </p>
 
             <div className="flex justify-between">

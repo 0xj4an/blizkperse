@@ -102,6 +102,8 @@ export function ensureSchema() {
     `;
     // Ensure newer column exists even on older databases
     await sql`ALTER TABLE notes ADD COLUMN IF NOT EXISTS subscriber_id text`;
+    await sql`ALTER TABLE notes ADD COLUMN IF NOT EXISTS token_symbol text`;
+    await sql`ALTER TABLE notes ADD COLUMN IF NOT EXISTS pool_address text`;
     await sql`ALTER TABLE notes ALTER COLUMN chain_id DROP DEFAULT`;
     await sql`ALTER TABLE notes DROP CONSTRAINT IF EXISTS notes_chain_id_check`;
     await sql.unsafe(`
@@ -114,17 +116,32 @@ export function ensureSchema() {
       CREATE TABLE IF NOT EXISTS deposit_events_cache (
         id serial PRIMARY KEY,
         chain_id integer NOT NULL,
+        pool_address text NOT NULL DEFAULT '',
         block_number bigint NOT NULL,
         sender text NOT NULL,
         commitment text NOT NULL,
-        UNIQUE(chain_id, commitment)
+        amount text,
+        UNIQUE(chain_id, pool_address, commitment)
       )
+    `;
+    await sql`ALTER TABLE deposit_events_cache ADD COLUMN IF NOT EXISTS pool_address text NOT NULL DEFAULT ''`;
+    await sql`ALTER TABLE deposit_events_cache ADD COLUMN IF NOT EXISTS amount text`;
+    await sql`ALTER TABLE deposit_events_cache DROP CONSTRAINT IF EXISTS deposit_events_cache_chain_id_commitment_key`;
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS deposit_events_cache_chain_pool_commitment_uidx
+      ON deposit_events_cache (chain_id, pool_address, commitment)
     `;
     await sql`
       CREATE TABLE IF NOT EXISTS scan_cursor (
-        chain_id integer PRIMARY KEY,
+        chain_id integer NOT NULL,
+        pool_address text NOT NULL DEFAULT '',
         last_block bigint NOT NULL
       )
+    `;
+    await sql`ALTER TABLE scan_cursor ADD COLUMN IF NOT EXISTS pool_address text NOT NULL DEFAULT ''`;
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS scan_cursor_chain_pool_uidx
+      ON scan_cursor (chain_id, pool_address)
     `;
 
     // Indexes

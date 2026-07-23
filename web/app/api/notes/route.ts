@@ -74,6 +74,8 @@ export async function POST(req: NextRequest) {
     holder_pk,
     randomness,
     nullifier,
+    token_symbol,
+    pool_address,
   } = await req.json();
 
   if (!payment_id) {
@@ -105,8 +107,8 @@ export async function POST(req: NextRequest) {
   }
 
   const [row] = await sql`
-    INSERT INTO notes (payment_id, subscriber_id, chain_id, commitment, value, holder_pk, randomness, nullifier)
-    VALUES (${payment.id}, ${payment.subscriber_id}, ${normalizedChainId}, ${commitment}, ${value}, ${holder_pk}, ${randomness}, ${nullifier})
+    INSERT INTO notes (payment_id, subscriber_id, chain_id, commitment, value, holder_pk, randomness, nullifier, token_symbol, pool_address)
+    VALUES (${payment.id}, ${payment.subscriber_id}, ${normalizedChainId}, ${commitment}, ${value}, ${holder_pk}, ${randomness}, ${nullifier}, ${token_symbol ?? null}, ${pool_address ?? null})
     ON CONFLICT (payment_id) DO UPDATE SET
       subscriber_id = EXCLUDED.subscriber_id,
       chain_id = EXCLUDED.chain_id,
@@ -114,7 +116,9 @@ export async function POST(req: NextRequest) {
       value = EXCLUDED.value,
       holder_pk = EXCLUDED.holder_pk,
       randomness = EXCLUDED.randomness,
-      nullifier = EXCLUDED.nullifier
+      nullifier = EXCLUDED.nullifier,
+      token_symbol = EXCLUDED.token_symbol,
+      pool_address = EXCLUDED.pool_address
     RETURNING *
   `;
 

@@ -111,7 +111,15 @@ export default function ClaimPage() {
     try {
       // Step 1: Fetch note data for this payment
       setClaimStep("loading-notes");
-      let noteData: { commitment?: string; value?: string; holder_pk?: string; randomness?: string; chain_id?: number } | null = null;
+      let noteData: {
+        commitment?: string;
+        value?: string;
+        holder_pk?: string;
+        randomness?: string;
+        chain_id?: number;
+        token_symbol?: string;
+        pool_address?: string;
+      } | null = null;
 
       // Chain we'll use for this claim (needed before fallback so we pick a note for this chain)
       const noteChainId = (payment.chainId ?? selectedChainId) as SupportedChainId;
@@ -182,7 +190,10 @@ export default function ClaimPage() {
       );
 
       // Build Merkle tree from on-chain deposits and find this note's path
-      const tree = await buildTreeFromEvents(noteChain);
+      const tree = await buildTreeFromEvents(noteChain, {
+        tokenSymbol: noteData.token_symbol,
+        poolAddress: noteData.pool_address as `0x${string}` | undefined,
+      });
       const leafIndex = tree.indexOf(commitment);
       if (leafIndex === -1) {
         throw new Error(
@@ -192,7 +203,7 @@ export default function ClaimPage() {
       const { siblings, indices, root } = await tree.getProof(leafIndex);
 
       // Step 3: Generate ZK proof (withdraw circuit)
-      // recipient = where to send the 1 USDC; can be any address (e.g. connected wallet).
+      // recipient = where to send funds; can be any address (e.g. connected wallet).
       // pk_b = note owner (from note data); must match for nullifier/commitment.
       setClaimStep("generating-proof");
       const recipientField = fieldToHex(BigInt(destinationAddress));
@@ -210,13 +221,15 @@ export default function ClaimPage() {
       };
       const proofResult = await generateProof(proofInput);
 
+      const tokenSymbol = noteData.token_symbol ?? noteChain.defaultToken.symbol;
+
       // Step 4: Register root on-chain only if not already known (e.g. retry after "nonce too low" skips this)
       setClaimStep("registering-root");
       const rootHex = rootToHex(root);
-      const known = await isRootKnown(noteChain, rootHex);
+      const known = await isRootKnown(noteChain, rootHex, tokenSymbol);
       if (!known) {
         try {
-          const registerTxHash = await registerRoot(walletClient, noteChain, rootHex);
+          const registerTxHash = await registerRoot(walletClient, noteChain, rootHex, tokenSymbol);
           const publicClient = getPublicClient(noteChain);
           await publicClient.waitForTransactionReceipt({ hash: registerTxHash });
         } catch {
@@ -232,6 +245,7 @@ export default function ClaimPage() {
         proofResult,
         noteChain,
         { ...apiAuth, walletClient, address },
+        tokenSymbol,
       );
       setTxHash(result.txHash);
       setClaimExplorerUrl(noteChain.explorerUrl);
