@@ -122,5 +122,26 @@ export async function POST(req: NextRequest) {
     RETURNING *
   `;
 
+  // Best-effort: register Merkle tip after deposit (serialized per pool in syncPoolRoot).
+  const poolForSync =
+    (typeof pool_address === "string" && pool_address.startsWith("0x")
+      ? (pool_address as `0x${string}`)
+      : null) ??
+    (token_symbol ? CHAINS[normalizedChainId]?.pools[token_symbol]?.pool : null) ??
+    CHAINS[normalizedChainId]?.contracts.pool;
+
+  if (poolForSync && poolForSync !== "0x0000000000000000000000000000000000000000") {
+    void import("../../lib/rootRegistrar")
+      .then(({ syncPoolRoot }) =>
+        syncPoolRoot({
+          chainId: normalizedChainId,
+          poolAddress: poolForSync as `0x${string}`,
+        }),
+      )
+      .catch((err) => {
+        console.error("post-deposit root sync failed:", err);
+      });
+  }
+
   return NextResponse.json(row, { status: 201 });
 }

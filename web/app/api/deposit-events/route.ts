@@ -43,31 +43,44 @@ async function fetchLogsWithRetry(
 ): Promise<DepositLog[]> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      try {
-        const logs = await client.getLogs({
+      // Wrong event ABI returns [] without throwing — query both formats and merge.
+      const [current, legacy] = await Promise.all([
+        client.getLogs({
           address: pool,
           event: depositEvent,
           fromBlock: from,
           toBlock: to,
-        });
-        return logs.map((log) => ({
-          sender: log.args.depositor ?? "",
-          commitment: log.args.commitment ?? "",
-          blockNumber: String(log.blockNumber),
-        }));
-      } catch {
-        const logs = await client.getLogs({
+        }),
+        client.getLogs({
           address: pool,
           event: depositEventLegacy,
           fromBlock: from,
           toBlock: to,
-        });
-        return logs.map((log) => ({
-          sender: log.args.sender ?? "",
-          commitment: log.args.commitment ?? "",
+        }),
+      ]);
+
+      const mapped: DepositLog[] = [
+        ...current.map((log) => ({
+          sender: log.args.depositor ?? "",
+          commitment: (log.args.commitment ?? "") as string,
           blockNumber: String(log.blockNumber),
-        }));
+        })),
+        ...legacy.map((log) => ({
+          sender: log.args.sender ?? "",
+          commitment: (log.args.commitment ?? "") as string,
+          blockNumber: String(log.blockNumber),
+        })),
+      ];
+
+      const seen = new Set<string>();
+      const deduped: DepositLog[] = [];
+      for (const row of mapped) {
+        const c = row.commitment?.toLowerCase();
+        if (!c || seen.has(c)) continue;
+        seen.add(c);
+        deduped.push(row);
       }
+      return deduped;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
       // If range too large for this RPC, split in half and retry
@@ -189,46 +202,23 @@ export async function GET(req: NextRequest) {
     console.error(`RPC scan failed for chain ${chainId}:`, scanErr instanceof Error ? scanErr.message : scanErr);
   }
 
-  // Primary source: notes table for this pool (or all notes on chain if pool unknown in notes)
-  const noteRows = await sql`
-    SELECT commitment FROM notes
-    WHERE chain_id = ${chainId}
-      AND commitment IS NOT NULL AND commitment != ''
-      AND (pool_address IS NULL OR lower(pool_address) = ${poolKey} OR pool_address = '')
-    ORDER BY created_at ASC
-  `;
-
-  const seenCommitments = new Set<string>();
-  const events: { sender: string; commitment: string; blockNumber: string }[] = [];
-
-  for (const row of noteRows) {
-    const c = (row.commitment as string)?.trim();
-    if (c) {
-      const key = c.toLowerCase();
-      if (!seenCommitments.has(key)) {
-        seenCommitments.add(key);
-        events.push({ sender: "", commitment: c, blockNumber: "0" });
-      }
-    }
-  }
-
+  // Merkle leaf order must match on-chain Deposit order (block, then insert id).
+  // Only this pool's deposit_events_cache rows — never notes or other pools
+  // (notes with NULL/empty pool_address must not leak into any tree).
   const cachedEvents = await sql`
     SELECT sender, commitment, block_number as "blockNumber"
     FROM deposit_events_cache
-    WHERE chain_id = ${chainId} AND pool_address = ${poolKey}
-    ORDER BY id ASC
+    WHERE chain_id = ${chainId}
+      AND pool_address = ${poolKey}
+      AND pool_address <> ''
+    ORDER BY block_number ASC, id ASC
   `;
-  for (const e of cachedEvents) {
-    const c = (e.commitment as string)?.trim();
-    if (c && !seenCommitments.has(c.toLowerCase())) {
-      seenCommitments.add(c.toLowerCase());
-      events.push({
-        sender: (e.sender as string) ?? "",
-        commitment: c,
-        blockNumber: (e.blockNumber as string) ?? "0",
-      });
-    }
-  }
+
+  const events = cachedEvents.map((e) => ({
+    sender: (e.sender as string) ?? "",
+    commitment: String(e.commitment ?? "").trim(),
+    blockNumber: (e.blockNumber as string) ?? "0",
+  })).filter((e) => e.commitment);
 
   return NextResponse.json(events);
   } catch (err) {
