@@ -2,16 +2,19 @@
 
 import { useSyncExternalStore } from "react";
 import { BaseError, ContractFunctionRevertedError, type WalletClient, type Hex } from "viem";
-import { type ChainConfig, getPoolConfig, toTokenRawAmount } from "./constants";
+import { type ChainConfig, getPoolConfig, toTokenRawAmount, quoteProtocolFee } from "./constants";
 import {
   approveRouterToken,
-  depositViaRouter,
+  depositNote,
+  hasRouter,
   getDepositRevertReason,
   decodeRevertDataFromError,
   withdrawFromPool,
+  withdrawFromPoolViaSmartAccount,
   getPublicClient,
   getTokenBalance,
   getPoolAllowance,
+  type WithdrawSmartAccount,
 } from "./contracts";
 import {
   createNote,
@@ -509,13 +512,18 @@ export async function createPayout(params: {
     const config = params.chainConfig;
     const tokenCfg = poolCfg.token;
     const rawAmounts = recipients.map((r) => toTokenRawAmount(r.amount, tokenCfg.decimals));
-    const required = rawAmounts.reduce((a, b) => a + b, 0n);
+    const netTotal = rawAmounts.reduce((a, b) => a + b, 0n);
+    // Protocol fee is charged by PoolRouter only; direct pool deposits skip it.
+    const feeTotal = hasRouter(config)
+      ? rawAmounts.reduce((a, raw) => a + quoteProtocolFee(raw), 0n)
+      : 0n;
+    const required = netTotal + feeTotal;
 
     if (params.ownerAddress) {
       const balance = await getTokenBalance(config, params.ownerAddress, tokenCfg);
       if (balance < required) {
         throw new Error(
-          `Insufficient ${tokenCfg.symbol} balance on ${config.name}. Need ${required.toString()} raw units.`,
+          `Insufficient ${tokenCfg.symbol} balance on ${config.name}. Need ${required.toString()} raw units (notes + ${feeTotal.toString()} protocol fee).`,
         );
       }
     }
@@ -580,7 +588,7 @@ export async function createPayout(params: {
 
       let depositTx: Hex;
       try {
-        depositTx = await depositViaRouter(params.walletClient, config, {
+        depositTx = await depositNote(params.walletClient, config, {
           tokenSymbol: token,
           commitment,
           amount: amountRaw,
@@ -694,26 +702,40 @@ export async function claimPayment(
   chainConfig?: ChainConfig,
   auth?: WalletAuth,
   tokenSymbol?: string,
+  /** When set (Alchemy AA ready), prefer sponsored UserOperation withdraw; else EOA walletClient. */
+  smartAccount?: WithdrawSmartAccount | null,
 ): Promise<{ txHash: string }> {
   let txHash: string;
 
   // ── On-chain withdraw flow ─────────────────────────────
-  if (walletClient && proofResult && chainConfig) {
-    const publicClient = getPublicClient(chainConfig);
+  if (proofResult && chainConfig && (smartAccount || walletClient)) {
     const pi = proofResult.publicInputs;
-    const withdrawTx = await withdrawFromPool(walletClient, chainConfig, {
+    const publicInputs: Hex[] = [
+      pi.value,
+      pi.nullifier,
+      `0x${pi.merkleProofLength.toString(16).padStart(64, "0")}` as Hex,
+      pi.expectedRoot,
+      pi.recipient,
+    ];
+    const withdrawParams = {
       proof: proofResult.proof,
-      publicInputs: [
-        pi.value,
-        pi.nullifier,
-        `0x${pi.merkleProofLength.toString(16).padStart(64, "0")}` as Hex,
-        pi.expectedRoot,
-        pi.recipient,
-      ],
+      publicInputs,
       tokenSymbol: tokenSymbol ?? chainConfig.defaultToken.symbol,
-    });
-    await publicClient.waitForTransactionReceipt({ hash: withdrawTx });
-    txHash = withdrawTx;
+    };
+
+    if (smartAccount) {
+      // AA path waits for UserOperation receipt inside sendTransaction.
+      txHash = await withdrawFromPoolViaSmartAccount(
+        smartAccount,
+        chainConfig,
+        withdrawParams,
+      );
+    } else {
+      const publicClient = getPublicClient(chainConfig);
+      const withdrawTx = await withdrawFromPool(walletClient!, chainConfig, withdrawParams);
+      await publicClient.waitForTransactionReceipt({ hash: withdrawTx });
+      txHash = withdrawTx;
+    }
   } else {
     txHash = mockTxHash();
   }

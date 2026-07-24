@@ -442,6 +442,31 @@ export function getPoolConfig(config: ChainConfig, symbol: string): PoolConfig {
   return pool;
 }
 
+/** Protocol fee in basis points (30 = 0.3%). Must match PoolRouter.feeBps after deploy. */
+export const PROTOCOL_FEE_BPS = Number(process.env.NEXT_PUBLIC_PROTOCOL_FEE_BPS ?? "30");
+export const FEE_BPS_DENOM = 10_000;
+
+/** Fee charged on top of the note/pool amount (raw units). */
+export function quoteProtocolFee(amountRaw: bigint, feeBps: number = PROTOCOL_FEE_BPS): bigint {
+  if (feeBps <= 0 || amountRaw <= 0n) return 0n;
+  return (amountRaw * BigInt(feeBps)) / BigInt(FEE_BPS_DENOM);
+}
+
+/** Gross payer cost = note amount + protocol fee. */
+export function quoteProtocolGross(amountRaw: bigint, feeBps: number = PROTOCOL_FEE_BPS): bigint {
+  return amountRaw + quoteProtocolFee(amountRaw, feeBps);
+}
+
+/** Human-readable token amount from raw units (lossy; for UI display). */
+export function fromTokenRawAmount(raw: bigint, decimals: number): number {
+  const base = 10n ** BigInt(decimals);
+  const whole = raw / base;
+  const frac = raw % base;
+  const fracStr = frac.toString().padStart(decimals, "0").replace(/0+$/, "");
+  if (!fracStr) return Number(whole);
+  return Number(`${whole}.${fracStr}`);
+}
+
 /** Convert a human decimal amount string/number to raw token units. */
 export function toTokenRawAmount(amount: number, decimals: number): bigint {
   if (!Number.isFinite(amount) || amount <= 0) {

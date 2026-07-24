@@ -2,6 +2,7 @@
 
 import {
   createPublicClient,
+  encodeFunctionData,
   http,
   parseAbi,
   decodeErrorResult,
@@ -13,7 +14,16 @@ import {
   type Hex,
   type Chain,
 } from "viem";
-import { type ChainConfig, type TokenConfig, getPoolConfig } from "./constants";
+import { type ChainConfig, type TokenConfig, getPoolConfig, quoteProtocolFee } from "./constants";
+
+/** Minimal smart-account surface used for sponsored withdraw (Para + Alchemy AA). */
+export type WithdrawSmartAccount = {
+  sendTransaction: (params: {
+    to: Hex;
+    data?: Hex;
+    value?: bigint;
+  }) => Promise<{ transactionHash: Hash }>;
+};
 
 export function buildViemChain(config: ChainConfig): Chain {
   return {
@@ -29,17 +39,23 @@ export function buildViemChain(config: ChainConfig): Chain {
 
 const ROUTER_ABI = parseAbi([
   "function deposit(address token, bytes32 commitment, uint256 amount, bytes proof, bytes32[] publicInputs) external",
-  "function depositNative(bytes32 commitment, bytes proof, bytes32[] publicInputs) payable",
+  "function depositNative(bytes32 commitment, uint256 amount, bytes proof, bytes32[] publicInputs) payable",
   "function withdraw(address token, bytes proof, bytes32[] publicInputs, bool unwrap) external",
   "function poolOf(address token) view returns (address)",
   "function wrappedNative() view returns (address)",
-  "event RoutedDeposit(address indexed user, address indexed token, address indexed pool, bytes32 commitment, uint256 amount)",
+  "function feeBps() view returns (uint256)",
+  "function treasury() view returns (address)",
+  "function quoteFee(uint256 amount) view returns (uint256)",
+  "function quoteGross(uint256 amount) view returns (uint256)",
+  "event RoutedDeposit(address indexed user, address indexed token, address indexed pool, bytes32 commitment, uint256 amount, uint256 fee)",
+  "event ProtocolFeeTaken(address indexed token, address indexed from, uint256 fee)",
   "event Deposit(address indexed depositor, bytes32 indexed commitment, uint256 amount)",
 ]);
 
 const POOL_ABI = parseAbi([
   "function deposit(bytes32 commitment, uint256 amount, bytes proof, bytes32[] publicInputs) external",
   "function registerRoot(bytes32 root) external",
+  "function rootRegistrar() view returns (address)",
   "function withdraw(bytes proof, bytes32[] publicInputs) external",
   "function isKnownRoot(bytes32) view returns (bool)",
   "function nullifiers(bytes32) view returns (bool)",
@@ -81,14 +97,27 @@ function getWalletAccount(walletClient: WalletClient) {
   return account;
 }
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+
+export function hasRouter(config: ChainConfig): boolean {
+  return Boolean(config.router && config.router !== ZERO_ADDRESS);
+}
+
+/** Spender for ERC-20 approve: router when configured, otherwise the token pool. */
+export function depositSpender(config: ChainConfig, tokenSymbol?: string): `0x${string}` {
+  if (hasRouter(config)) return config.router;
+  if (tokenSymbol) return getPoolConfig(config, tokenSymbol).pool;
+  return config.contracts.pool;
+}
+
 function routerAddress(config: ChainConfig): `0x${string}` {
-  if (!config.router || config.router === "0x0000000000000000000000000000000000000000") {
+  if (!hasRouter(config)) {
     throw new Error(`PoolRouter not configured for ${config.name}. Set NEXT_PUBLIC_*_ROUTER_ADDRESS.`);
   }
   return config.router;
 }
 
-/** Approve ERC-20 spending for the router (entrypoint). */
+/** Approve ERC-20 spending for deposit entrypoint (router or pool). */
 export async function approveRouterToken(
   walletClient: WalletClient,
   config: ChainConfig,
@@ -100,7 +129,7 @@ export async function approveRouterToken(
     address: token.address,
     abi: ERC20_ABI,
     functionName: "approve",
-    args: [routerAddress(config), amount],
+    args: [depositSpender(config, token.symbol), amount],
     chain: buildViemChain(config),
   });
 }
@@ -132,13 +161,14 @@ export async function depositViaRouter(
   const chain = buildViemChain(config);
 
   if (params.useNative || poolCfg.token.wrapsNative) {
+    const fee = quoteProtocolFee(params.amount);
     return walletClient.writeContract({
       account,
       address: routerAddress(config),
       abi: ROUTER_ABI,
       functionName: "depositNative",
-      args: [params.commitment, params.proof, params.publicInputs],
-      value: params.amount,
+      args: [params.commitment, params.amount, params.proof, params.publicInputs],
+      value: params.amount + fee,
       chain,
     });
   }
@@ -159,7 +189,7 @@ export async function depositViaRouter(
   });
 }
 
-/** @deprecated Direct pool deposit without proof — use depositViaRouter */
+/** Direct pool deposit (no protocol fee). Used when PoolRouter is not configured. */
 export async function depositToPool(
   walletClient: WalletClient,
   config: ChainConfig,
@@ -167,15 +197,51 @@ export async function depositToPool(
   amount: bigint = config.poolDenomination,
   proof: Hex = "0x",
   publicInputs: Hex[] = [],
+  tokenSymbol?: string,
 ): Promise<Hash> {
+  const pool = tokenSymbol
+    ? getPoolConfig(config, tokenSymbol).pool
+    : config.contracts.pool;
   return walletClient.writeContract({
     account: getWalletAccount(walletClient),
-    address: config.contracts.pool,
+    address: pool,
     abi: POOL_ABI,
     functionName: "deposit",
     args: [commitment, amount, proof, publicInputs],
     chain: buildViemChain(config),
   });
+}
+
+/** Deposit via router when configured; otherwise direct to the token pool. */
+export async function depositNote(
+  walletClient: WalletClient,
+  config: ChainConfig,
+  params: {
+    tokenSymbol: string;
+    commitment: Hex;
+    amount: bigint;
+    proof: Hex;
+    publicInputs: Hex[];
+    useNative?: boolean;
+  },
+): Promise<Hash> {
+  if (hasRouter(config)) {
+    return depositViaRouter(walletClient, config, params);
+  }
+  if (params.useNative || getPoolConfig(config, params.tokenSymbol).token.wrapsNative) {
+    throw new Error(
+      `Native deposits require PoolRouter on ${config.name}. Set NEXT_PUBLIC_*_ROUTER_ADDRESS.`,
+    );
+  }
+  return depositToPool(
+    walletClient,
+    config,
+    params.commitment,
+    params.amount,
+    params.proof,
+    params.publicInputs,
+    params.tokenSymbol,
+  );
 }
 
 export async function getDepositRevertReason(
@@ -191,22 +257,33 @@ export async function getDepositRevertReason(
   const symbol = tokenSymbol ?? config.defaultToken.symbol;
   const poolCfg = getPoolConfig(config, symbol);
   try {
-    if (poolCfg.token.wrapsNative) {
-      await client.simulateContract({
-        account,
-        address: routerAddress(config),
-        abi: ROUTER_ABI,
-        functionName: "depositNative",
-        args: [commitment, proof, publicInputs],
-        value: amount,
-      });
+    if (hasRouter(config)) {
+      if (poolCfg.token.wrapsNative) {
+        const fee = quoteProtocolFee(amount);
+        await client.simulateContract({
+          account,
+          address: routerAddress(config),
+          abi: ROUTER_ABI,
+          functionName: "depositNative",
+          args: [commitment, amount, proof, publicInputs],
+          value: amount + fee,
+        });
+      } else {
+        await client.simulateContract({
+          account,
+          address: routerAddress(config),
+          abi: ROUTER_ABI,
+          functionName: "deposit",
+          args: [poolCfg.token.address, commitment, amount, proof, publicInputs],
+        });
+      }
     } else {
       await client.simulateContract({
         account,
-        address: routerAddress(config),
-        abi: ROUTER_ABI,
+        address: poolCfg.pool,
+        abi: POOL_ABI,
         functionName: "deposit",
-        args: [poolCfg.token.address, commitment, amount, proof, publicInputs],
+        args: [commitment, amount, proof, publicInputs],
       });
     }
   } catch (err) {
@@ -289,6 +366,54 @@ export async function withdrawViaRouter(
   });
 }
 
+/** Encode ShieldedPool / PoolRouter withdraw calldata for AA `sendTransaction`. */
+export function encodeWithdrawCalldata(
+  config: ChainConfig,
+  params: {
+    proof: Hex;
+    publicInputs: Hex[];
+    tokenSymbol?: string;
+  },
+): { to: Hex; data: Hex } {
+  if (params.tokenSymbol && hasRouter(config)) {
+    const poolCfg = getPoolConfig(config, params.tokenSymbol);
+    return {
+      to: routerAddress(config),
+      data: encodeFunctionData({
+        abi: ROUTER_ABI,
+        functionName: "withdraw",
+        args: [poolCfg.token.address, params.proof, params.publicInputs, false],
+      }),
+    };
+  }
+  const pool = params.tokenSymbol
+    ? getPoolConfig(config, params.tokenSymbol).pool
+    : config.contracts.pool;
+  return {
+    to: pool,
+    data: encodeFunctionData({
+      abi: POOL_ABI,
+      functionName: "withdraw",
+      args: [params.proof, params.publicInputs],
+    }),
+  };
+}
+
+/** Sponsored (or unsponsored AA) withdraw via Alchemy smart account UserOperation. */
+export async function withdrawFromPoolViaSmartAccount(
+  smartAccount: WithdrawSmartAccount,
+  config: ChainConfig,
+  params: {
+    proof: Hex;
+    publicInputs: Hex[];
+    tokenSymbol?: string;
+  },
+): Promise<Hash> {
+  const { to, data } = encodeWithdrawCalldata(config, params);
+  const receipt = await smartAccount.sendTransaction({ to, data, value: 0n });
+  return receipt.transactionHash;
+}
+
 export async function withdrawFromPool(
   walletClient: WalletClient,
   config: ChainConfig,
@@ -365,10 +490,7 @@ export async function getPoolAllowance(
   const t = token ?? config.defaultToken;
   if (t.wrapsNative) return 0n;
   const client = getPublicClient(config);
-  const spender =
-    config.router && config.router !== "0x0000000000000000000000000000000000000000"
-      ? config.router
-      : config.contracts.pool;
+  const spender = depositSpender(config, t.symbol);
   return client.readContract({
     address: t.address,
     abi: ERC20_ABI,

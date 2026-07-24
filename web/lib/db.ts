@@ -139,10 +139,33 @@ export function ensureSchema() {
       )
     `;
     await sql`ALTER TABLE scan_cursor ADD COLUMN IF NOT EXISTS pool_address text NOT NULL DEFAULT ''`;
+    // Legacy schemas used PRIMARY KEY (chain_id) only — drop so multi-pool cursors can coexist.
+    await sql`ALTER TABLE scan_cursor DROP CONSTRAINT IF EXISTS scan_cursor_pkey`;
+    await sql`
+      DO $$
+      DECLARE
+        r RECORD;
+      BEGIN
+        FOR r IN
+          SELECT c.conname
+          FROM pg_constraint c
+          JOIN pg_class t ON c.conrelid = t.oid
+          WHERE t.relname = 'scan_cursor'
+            AND c.contype IN ('p', 'u')
+            AND pg_get_constraintdef(c.oid) LIKE '%(chain_id)%'
+            AND pg_get_constraintdef(c.oid) NOT LIKE '%pool_address%'
+        LOOP
+          EXECUTE format('ALTER TABLE scan_cursor DROP CONSTRAINT IF EXISTS %I', r.conname);
+        END LOOP;
+      END $$;
+    `;
     await sql`
       CREATE UNIQUE INDEX IF NOT EXISTS scan_cursor_chain_pool_uidx
       ON scan_cursor (chain_id, pool_address)
     `;
+    // Drop legacy single-column unique indexes if present
+    await sql`DROP INDEX IF EXISTS scan_cursor_chain_id_key`;
+    await sql`DROP INDEX IF EXISTS scan_cursor_pkey`;
 
     // Indexes
     await sql`CREATE INDEX IF NOT EXISTS idx_organizers_owner ON organizers(owner_address)`;
