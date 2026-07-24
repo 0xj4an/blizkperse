@@ -10,6 +10,9 @@ pragma solidity ^0.8.19;
 //   TOKEN_ADDRESSES=0xUSDC,0xUSDT,...   (comma-separated ERC-20s)
 //   WRAPPED_NATIVE=0xWMON               (optional; address(0) on Celo — CELO is already ERC-20)
 //   DEPOSIT_VERIFIER_ADDRESS            (required — deploy via DeployDepositVerifier first)
+//   FEE_BPS=30                          (optional; default 30 = 0.3%)
+//   TREASURY_ADDRESS=0x...              (required if FEE_BPS > 0)
+//   ROOT_REGISTRAR_ADDRESS=0x...        (backend wallet that may call registerRoot)
 
 import "forge-std/Script.sol";
 import "forge-std/console2.sol";
@@ -25,6 +28,12 @@ contract DeployMultiPool is Script {
         address wrappedNative = vm.envOr("WRAPPED_NATIVE", address(0));
         address depositVerifier = vm.envAddress("DEPOSIT_VERIFIER_ADDRESS");
         require(depositVerifier != address(0), "DEPOSIT_VERIFIER_ADDRESS=0");
+        uint256 feeBps = vm.envOr("FEE_BPS", uint256(30));
+        address treasury = vm.envOr("TREASURY_ADDRESS", address(0));
+        if (feeBps > 0) {
+            require(treasury != address(0), "TREASURY_ADDRESS required when FEE_BPS>0");
+        }
+        address rootRegistrar = vm.envOr("ROOT_REGISTRAR_ADDRESS", address(0));
         string memory tokensCsv = vm.envString("TOKEN_ADDRESSES");
 
         vm.startBroadcast(pk);
@@ -32,7 +41,7 @@ contract DeployMultiPool is Script {
         HonkVerifier transferVerifier = new HonkVerifier();
         WithdrawHonkVerifier withdrawVerifier = new WithdrawHonkVerifier();
 
-        PoolRouter router = new PoolRouter(wrappedNative);
+        PoolRouter router = new PoolRouter(wrappedNative, feeBps, treasury);
 
         bytes32 genesisRoot = bytes32(0);
         string[] memory parts = _splitCsv(tokensCsv);
@@ -46,6 +55,9 @@ contract DeployMultiPool is Script {
                 depositVerifier
             );
             pool.setRouter(address(router));
+            if (rootRegistrar != address(0)) {
+                pool.setRootRegistrar(rootRegistrar);
+            }
             router.setPool(token, address(pool));
             console2.log("token", token);
             console2.log("pool", address(pool));
@@ -59,6 +71,9 @@ contract DeployMultiPool is Script {
         console2.log("DepositVerifier", depositVerifier);
         console2.log("PoolRouter", address(router));
         console2.log("wrappedNative", wrappedNative);
+        console2.log("feeBps", feeBps);
+        console2.log("treasury", treasury);
+        console2.log("rootRegistrar", rootRegistrar);
     }
 
     function _splitCsv(string memory csv) internal pure returns (string[] memory) {
@@ -91,6 +106,12 @@ contract DeployPool is Script {
         address usdc = vm.envAddress("USDC_ADDRESS");
         address depositVerifier = vm.envAddress("DEPOSIT_VERIFIER_ADDRESS");
         require(depositVerifier != address(0), "DEPOSIT_VERIFIER_ADDRESS=0");
+        uint256 feeBps = vm.envOr("FEE_BPS", uint256(30));
+        address treasury = vm.envOr("TREASURY_ADDRESS", address(0));
+        if (feeBps > 0) {
+            require(treasury != address(0), "TREASURY_ADDRESS required when FEE_BPS>0");
+        }
+        address rootRegistrar = vm.envOr("ROOT_REGISTRAR_ADDRESS", address(0));
 
         vm.startBroadcast(pk);
 
@@ -100,8 +121,11 @@ contract DeployPool is Script {
         ShieldedPool pool =
             new ShieldedPool(usdc, address(verifier), genesisRoot, address(withdrawVerifier), depositVerifier);
 
-        PoolRouter router = new PoolRouter(address(0));
+        PoolRouter router = new PoolRouter(address(0), feeBps, treasury);
         pool.setRouter(address(router));
+        if (rootRegistrar != address(0)) {
+            pool.setRootRegistrar(rootRegistrar);
+        }
         router.setPool(usdc, address(pool));
 
         vm.stopBroadcast();
@@ -113,6 +137,7 @@ contract DeployPool is Script {
         console2.log("DepositVerifier", depositVerifier);
         console2.log("ShieldedPool", address(pool));
         console2.log("PoolRouter", address(router));
+        console2.log("rootRegistrar", rootRegistrar);
 
         return (address(verifier), address(withdrawVerifier), address(pool));
     }

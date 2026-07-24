@@ -6,6 +6,8 @@
 - **`PoolRouter`** is the single front-end entrypoint: it routes `deposit` / `withdraw` to the correct pool.
 - **Monad native (MON):** deposit via `router.depositNative` (wraps to WMON in the same tx). Withdraw can unwrap.
 - **Celo native (CELO):** no wrapper. Celo [token duality](https://docs.celo.org/home/protocol/celo-token) means CELO is both gas and ERC-20 at `0x471EcE…a438`. Use a normal ERC-20 pool + `router.deposit` / `approve` — do **not** set `WRAPPED_NATIVE` to the CELO token or call `depositNative` on Celo.
+- **Protocol fee:** `PoolRouter` charges `feeBps` (default **30 = 0.3%**) **on top** of the note amount. Payer sends `amount + fee`; pool credit / ZK note = `amount`; treasury receives `fee`. Set `FEE_BPS` + `TREASURY_ADDRESS` at deploy (or `setFeeConfig`).
+- **Root registration:** `ShieldedPool.registerRoot` is **registrar-only** (`setRootRegistrar`). Backend `POST /api/sync-pool-root` rebuilds the tip from on-chain `Deposit` events (ordered by block) and registers it with `ROOT_REGISTRAR_PRIVATE_KEY`. Serialized per pool to avoid races under high deposit flow. Claims wait for the root; they no longer call `registerRoot` from the user wallet.
 - **`value` in circuits** = raw token units (e.g. `1_500_000` for 1.5 USDC with 6 decimals).
 
 ## Deposit safety
@@ -55,7 +57,17 @@ export DEPOSIT_VERIFIER_ADDRESS=0x...   # from script log
 # Comma-separated ERC-20s (WMON on Monad; CELO GoldToken on Celo)
 export TOKEN_ADDRESSES=0xUSDC,0xUSDT,0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A
 export WRAPPED_NATIVE=0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A  # Monad only; leave unset on Celo
+export FEE_BPS=30
+export TREASURY_ADDRESS=0xYourTreasury
+export ROOT_REGISTRAR_ADDRESS=0xYourRegistrarWallet
 forge script script/Deploy.s.sol:DeployMultiPool --rpc-url "$RPC_URL" --broadcast
+```
+
+Web env for the registrar service:
+
+```bash
+ROOT_REGISTRAR_PRIVATE_KEY=0x...   # same wallet as ROOT_REGISTRAR_ADDRESS
+ROOT_REGISTRAR_API_SECRET=...      # optional; for cron Authorization: Bearer …
 ```
 
 Then set in the web env (per chain):
@@ -69,10 +81,10 @@ Then set in the web env (per chain):
 1. User picks token + amount (human decimals).
 2. App creates **one note** with `createNote(amountRaw, ...)`.
 3. App requests `/api/generate-deposit-proof`.
-4. Approve router (ERC-20). On Monad+WMON only: send `msg.value` via `depositNative`.
-5. `router.deposit` (or `depositNative` for WMON).
-6. Note stored with `token_symbol` + `pool_address`.
-7. Claim builds Merkle tree **for that pool only**, generates withdraw proof, calls `router.withdraw`.
+4. Approve router for **gross** (`notes + fee`). On Monad+WMON: `msg.value = amount + fee`.
+5. `router.deposit` / `depositNative` — pool gets note `amount`, treasury gets fee.
+6. Note stored with `token_symbol` + `pool_address` → backend syncs Merkle tip (`registerRoot`).
+7. Claim builds Merkle tree **for that pool only** (on-chain deposit order), waits until root is known, generates withdraw proof, calls `router.withdraw`.
 
 ## Migration note
 
