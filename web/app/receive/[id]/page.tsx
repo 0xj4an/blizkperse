@@ -24,6 +24,7 @@ import {
   invalidateAndRefetchStore,
 } from "@/lib/store";
 import { useParaWalletClient } from "@/lib/wallet";
+import { useClaimSmartAccount } from "@/lib/alchemy-smart-account";
 import { useChain } from "@/lib/chain-context";
 import { CHAINS, type SupportedChainId } from "@/lib/constants";
 import {
@@ -34,7 +35,7 @@ import {
   type ProofInput,
 } from "@/lib/zk";
 import { buildTreeFromEvents, rootToHex } from "@/lib/merkle";
-import { registerRoot, getPublicClient, isRootKnown } from "@/lib/contracts";
+import { isRootKnown } from "@/lib/contracts";
 import { createWalletAuthHeadersGetter, useApiAuth } from "@/lib/api-auth";
 
 const STEP_MESSAGES: Record<string, string> = {
@@ -61,6 +62,12 @@ export default function ClaimPage() {
   const [claimExplorerUrl, setClaimExplorerUrl] = useState<string>("");
   const [claimRecipient, setClaimRecipient] = useState<string>("");
   const { walletClient, address, isReady } = useParaWalletClient();
+  const {
+    smartAccount,
+    alchemyReady,
+    sponsorshipReady,
+    isGasSponsorshipConfigured,
+  } = useClaimSmartAccount();
   const apiAuth = useApiAuth();
   const getAuthHeaders = createWalletAuthHeadersGetter({
     ...apiAuth,
@@ -69,6 +76,7 @@ export default function ClaimPage() {
   });
   const { chainId: selectedChainId } = useChain();
   const [destinationAddress, setDestinationAddress] = useState("");
+  const canSubmitClaim = isReady && (alchemyReady || !!walletClient);
 
   useEffect(() => {
     if (address && !destinationAddress) setDestinationAddress(address);
@@ -98,7 +106,7 @@ export default function ClaimPage() {
   }
 
   const handleClaim = async () => {
-    if (!walletClient || !isReady) {
+    if (!isReady || (!walletClient && !alchemyReady)) {
       toast.error("Connect your wallet first");
       return;
     }
@@ -223,29 +231,53 @@ export default function ClaimPage() {
 
       const tokenSymbol = noteData.token_symbol ?? noteChain.defaultToken.symbol;
 
-      // Step 4: Register root on-chain only if not already known (e.g. retry after "nonce too low" skips this)
+      // Step 4: Wait for backend root registrar (permissioned). Trigger sync if needed.
       setClaimStep("registering-root");
       const rootHex = rootToHex(root);
-      const known = await isRootKnown(noteChain, rootHex, tokenSymbol);
+      const poolAddress =
+        (noteData.pool_address as `0x${string}` | undefined) ??
+        noteChain.pools[tokenSymbol]?.pool ??
+        noteChain.contracts.pool;
+
+      let known = await isRootKnown(noteChain, rootHex, tokenSymbol);
       if (!known) {
         try {
-          const registerTxHash = await registerRoot(walletClient, noteChain, rootHex, tokenSymbol);
-          const publicClient = getPublicClient(noteChain);
-          await publicClient.waitForTransactionReceipt({ hash: registerTxHash });
+          await fetch("/api/sync-pool-root", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(await getAuthHeaders()),
+            },
+            body: JSON.stringify({
+              chain_id: noteChain.id,
+              pool_address: poolAddress,
+              token_symbol: tokenSymbol,
+            }),
+          });
         } catch {
-          // Root may have been registered by another tx - proceed to withdraw
+          // continue polling — sync may already be in flight from deposit
+        }
+        for (let i = 0; i < 30 && !known; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          known = await isRootKnown(noteChain, rootHex, tokenSymbol);
         }
       }
+      if (!known) {
+        throw new Error(
+          "Merkle root is not registered yet. The backend registrar may still be syncing — retry in a moment.",
+        );
+      }
 
-      // Step 5: Submit withdrawal
+      // Step 5: Submit withdrawal (Alchemy AA when ready, else Para EOA)
       setClaimStep("withdrawing");
       const result = await claimPayment(
         paymentId,
-        walletClient,
+        walletClient ?? undefined,
         proofResult,
         noteChain,
         { ...apiAuth, walletClient, address },
         tokenSymbol,
+        alchemyReady ? smartAccount : null,
       );
       setTxHash(result.txHash);
       setClaimExplorerUrl(noteChain.explorerUrl);
@@ -392,11 +424,18 @@ export default function ClaimPage() {
                   size="lg"
                   className="w-full gap-2"
                   onClick={handleClaim}
-                  disabled={!isReady}
+                  disabled={!canSubmitClaim}
                 >
                   <Wallet className="h-5 w-5" />
-                  {isReady ? "Claim Payment" : "Connect wallet to claim"}
+                  {canSubmitClaim ? "Claim Payment" : "Connect wallet to claim"}
                 </Button>
+                {isGasSponsorshipConfigured && (
+                  <p className="text-center text-xs text-muted-foreground">
+                    {sponsorshipReady
+                      ? "Gas may be sponsored via Alchemy Gas Manager."
+                      : "Gas sponsorship configured — waiting for smart account…"}
+                  </p>
+                )}
               </div>
             )}
 
