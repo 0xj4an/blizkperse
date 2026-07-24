@@ -21,6 +21,8 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
 
     /// @notice Authorized router that may deposit on behalf of a user.
     address public router;
+    /// @notice Only this address may call `registerRoot` (backend indexer). Zero disables new roots until set.
+    address public rootRegistrar;
 
     mapping(bytes32 => bool) public isKnownRoot;
     mapping(bytes32 => bool) public nullifiers;
@@ -31,6 +33,7 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
     event TransferIntent(bytes32 indexed root, bytes32 indexed nullifier, bytes32 indexed newCommitment);
     event Withdraw(address indexed recipient, bytes32 indexed nullifier, uint256 amount);
     event RouterUpdated(address indexed router);
+    event RootRegistrarUpdated(address indexed registrar);
 
     constructor(
         address _token,
@@ -56,12 +59,19 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
         emit RouterUpdated(_router);
     }
 
+    function setRootRegistrar(address _registrar) external onlyOwner {
+        rootRegistrar = _registrar;
+        emit RootRegistrarUpdated(_registrar);
+    }
+
     /// @notice Backward-compatible alias (legacy name).
     function usdc() external view returns (IERC20) {
         return token;
     }
 
+    /// @notice Whitelist a Merkle root. Only `rootRegistrar` (backend) may call this.
     function registerRoot(bytes32 root) external {
+        require(msg.sender == rootRegistrar, "only root registrar");
         require(!isKnownRoot[root], "root already known");
         isKnownRoot[root] = true;
         emit RootRegistered(root);

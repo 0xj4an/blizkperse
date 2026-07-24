@@ -17,29 +17,42 @@ interface IWETH {
 
 /// @notice Facade that routes deposits/withdrawals to the ShieldedPool for a given token.
 ///         Does not merge Merkle trees or liquidity across tokens.
+///         Optional protocol fee (default 30 bps = 0.3%) charged on top of the note amount:
+///         payer sends `amount + fee`, pool receives `amount` (note value), treasury receives `fee`.
 contract PoolRouter is ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
+
+    uint256 public constant FEE_BPS_DENOM = 10_000;
+    uint256 public constant MAX_FEE_BPS = 1_000; // 10% hard cap
 
     mapping(address => address) public poolOf; // token => ShieldedPool
     /// @dev WETH-style wrapper only (e.g. WMON). Leave zero on Celo — CELO is already ERC-20 via token duality.
     address public wrappedNative;
+    /// @notice Protocol fee in basis points (30 = 0.3%). Zero disables fees.
+    uint256 public feeBps;
+    /// @notice Recipient of protocol fees. Required when feeBps > 0.
+    address public treasury;
 
     event PoolRegistered(address indexed token, address indexed pool);
     event WrappedNativeUpdated(address indexed wrapped);
+    event FeeConfigUpdated(uint256 feeBps, address treasury);
+    event ProtocolFeeTaken(address indexed token, address indexed from, uint256 fee);
     event RoutedDeposit(
         address indexed user,
         address indexed token,
         address indexed pool,
         bytes32 commitment,
-        uint256 amount
+        uint256 amount,
+        uint256 fee
     );
     event RoutedWithdraw(address indexed user, address indexed token, address indexed pool);
 
-    constructor(address _wrappedNative) Ownable(msg.sender) {
+    constructor(address _wrappedNative, uint256 _feeBps, address _treasury) Ownable(msg.sender) {
         wrappedNative = _wrappedNative;
         if (_wrappedNative != address(0)) {
             emit WrappedNativeUpdated(_wrappedNative);
         }
+        _setFeeConfig(_feeBps, _treasury);
     }
 
     receive() external payable {}
@@ -55,6 +68,21 @@ contract PoolRouter is ReentrancyGuard, Ownable {
         emit WrappedNativeUpdated(_wrappedNative);
     }
 
+    function setFeeConfig(uint256 _feeBps, address _treasury) external onlyOwner {
+        _setFeeConfig(_feeBps, _treasury);
+    }
+
+    /// @notice Fee charged on top of `amount` (note / pool credit).
+    function quoteFee(uint256 amount) public view returns (uint256) {
+        if (feeBps == 0 || amount == 0) return 0;
+        return (amount * feeBps) / FEE_BPS_DENOM;
+    }
+
+    /// @notice Total tokens (or native wei) the payer must send for a note of `amount`.
+    function quoteGross(uint256 amount) external view returns (uint256) {
+        return amount + quoteFee(amount);
+    }
+
     function deposit(
         address token,
         bytes32 commitment,
@@ -66,15 +94,25 @@ contract PoolRouter is ReentrancyGuard, Ownable {
         require(pool != address(0), "unknown token");
         require(amount > 0, "amount=0");
 
-        IERC20(token).safeTransferFrom(msg.sender, pool, amount);
+        uint256 fee = quoteFee(amount);
+        uint256 gross = amount + fee;
+
+        IERC20(token).safeTransferFrom(msg.sender, address(this), gross);
+        if (fee > 0) {
+            IERC20(token).safeTransfer(treasury, fee);
+            emit ProtocolFeeTaken(token, msg.sender, fee);
+        }
+        IERC20(token).safeTransfer(pool, amount);
         ShieldedPool(pool).depositFromRouter(msg.sender, commitment, amount, proof, publicInputs);
 
-        emit RoutedDeposit(msg.sender, token, pool, commitment, amount);
+        emit RoutedDeposit(msg.sender, token, pool, commitment, amount, fee);
     }
 
     /// @notice Wrap native currency and deposit into the wrapped-native pool.
+    ///         `msg.value` must equal `amount + fee` where `amount` is the note value.
     function depositNative(
         bytes32 commitment,
+        uint256 amount,
         bytes calldata proof,
         bytes32[] calldata publicInputs
     ) external payable nonReentrant {
@@ -82,14 +120,20 @@ contract PoolRouter is ReentrancyGuard, Ownable {
         require(wtoken != address(0), "wrapped native unset");
         address pool = poolOf[wtoken];
         require(pool != address(0), "unknown token");
-        uint256 amount = msg.value;
         require(amount > 0, "amount=0");
 
-        IWETH(wtoken).deposit{value: amount}();
+        uint256 fee = quoteFee(amount);
+        require(msg.value == amount + fee, "bad msg.value");
+
+        IWETH(wtoken).deposit{value: msg.value}();
+        if (fee > 0) {
+            require(IWETH(wtoken).transfer(treasury, fee), "fee transfer failed");
+            emit ProtocolFeeTaken(wtoken, msg.sender, fee);
+        }
         require(IWETH(wtoken).transfer(pool, amount), "wtransfer failed");
         ShieldedPool(pool).depositFromRouter(msg.sender, commitment, amount, proof, publicInputs);
 
-        emit RoutedDeposit(msg.sender, wtoken, pool, commitment, amount);
+        emit RoutedDeposit(msg.sender, wtoken, pool, commitment, amount, fee);
     }
 
     /// @notice Forward withdraw to the token pool.
@@ -121,5 +165,15 @@ contract PoolRouter is ReentrancyGuard, Ownable {
         require(ok, "native transfer failed");
 
         emit RoutedWithdraw(msg.sender, token, pool);
+    }
+
+    function _setFeeConfig(uint256 _feeBps, address _treasury) internal {
+        require(_feeBps <= MAX_FEE_BPS, "fee too high");
+        if (_feeBps > 0) {
+            require(_treasury != address(0), "treasury=0");
+        }
+        feeBps = _feeBps;
+        treasury = _treasury;
+        emit FeeConfigUpdated(_feeBps, _treasury);
     }
 }
