@@ -34,10 +34,16 @@ import {
 import { useParaWalletClient } from "@/lib/wallet";
 import { useChain } from "@/lib/chain-context";
 import type { TokenConfig } from "@/lib/constants";
+import { PROTOCOL_FEE_BPS, FEE_BPS_DENOM, toTokenRawAmount, quoteProtocolFee, fromTokenRawAmount } from "@/lib/constants";
+import { hasRouter } from "@/lib/contracts";
 import { useApiAuth } from "@/lib/api-auth";
 import { useModal } from "@getpara/react-sdk";
 
 type Step = "select" | "amounts" | "review";
+
+function formatTokenAmount(amount: number, symbol: string): string {
+  return `${amount.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${symbol}`;
+}
 
 export default function CreatePayoutPage() {
   const searchParams = useSearchParams();
@@ -73,6 +79,27 @@ export default function CreatePayoutPage() {
     (sum, id) => sum + (amounts[id] || 0),
     0
   );
+
+  const feePreview = (() => {
+    const decimals = selectedToken.decimals;
+    const applyFee = hasRouter(chain);
+    let netRaw = 0n;
+    let feeRaw = 0n;
+    for (const id of selected) {
+      const human = amounts[id] || 0;
+      if (human <= 0) continue;
+      const raw = toTokenRawAmount(human, decimals);
+      netRaw += raw;
+      if (applyFee) feeRaw += quoteProtocolFee(raw);
+    }
+    return {
+      net: fromTokenRawAmount(netRaw, decimals),
+      fee: fromTokenRawAmount(feeRaw, decimals),
+      gross: fromTokenRawAmount(netRaw + feeRaw, decimals),
+      bps: applyFee ? PROTOCOL_FEE_BPS : 0,
+      pct: applyFee ? PROTOCOL_FEE_BPS / (FEE_BPS_DENOM / 100) : 0,
+    };
+  })();
 
   const toggleSelect = (id: string) => {
     const next = new Set(selected);
@@ -400,14 +427,27 @@ export default function CreatePayoutPage() {
                       })}
                     </div>
                     <Separator />
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Users className="h-4 w-4" />
-                        {selected.size} recipients
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between text-muted-foreground">
+                        <span>Recipients total (notes)</span>
+                        <span>{formatTokenAmount(feePreview.net, selectedToken.symbol)}</span>
                       </div>
-                      <span className="text-2xl font-bold">
-                        {totalAmount.toLocaleString()} {selectedToken.symbol}
-                      </span>
+                      <div className="flex items-center justify-between text-muted-foreground">
+                        <span>Protocol fee ({feePreview.pct}%)</span>
+                        <span>{formatTokenAmount(feePreview.fee, selectedToken.symbol)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <Users className="h-4 w-4" />
+                          {selected.size} recipients
+                        </div>
+                        <span className="text-2xl font-bold">
+                          {formatTokenAmount(feePreview.gross, selectedToken.symbol)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        You pay the gross amount. Recipients claim the note amounts; the fee funds protocol ops and gas sponsorship.
+                      </p>
                     </div>
                   </CardContent>
                 </Card>
@@ -424,7 +464,7 @@ export default function CreatePayoutPage() {
                   >
                     <CircleDollarSign className="h-5 w-5" />
                     {isReady
-                      ? `Deposit ${totalAmount.toLocaleString()} ${selectedToken.symbol}`
+                      ? `Deposit ${formatTokenAmount(feePreview.gross, selectedToken.symbol)}`
                       : "Connect wallet to deposit"}
                   </Button>
                 </div>
