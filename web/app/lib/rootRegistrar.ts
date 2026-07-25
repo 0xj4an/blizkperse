@@ -72,7 +72,10 @@ function sleep(ms: number) {
 function registrarPrivateKey(): Hex | null {
   const raw = process.env.ROOT_REGISTRAR_PRIVATE_KEY?.trim();
   if (!raw) return null;
-  return (raw.startsWith("0x") ? raw : `0x${raw}`) as Hex;
+  // Accept quoted / noisy values (e.g. copied from another .env) — keep only 32-byte hex.
+  const match = raw.match(/0x?([0-9a-fA-F]{64})/);
+  if (!match) return null;
+  return `0x${match[1]}` as Hex;
 }
 
 async function fetchLogsWithRetry(
@@ -253,6 +256,10 @@ export async function syncPoolRoot(params: {
   const pk = registrarPrivateKey();
   if (!pk) {
     return { ok: false, skipped: "ROOT_REGISTRAR_PRIVATE_KEY unset" };
+  }
+  // Reject malformed values early (non-hex / wrong length after sanitize).
+  if (pk.length !== 66) {
+    return { ok: false, skipped: "ROOT_REGISTRAR_PRIVATE_KEY invalid" };
   }
 
   const poolKey = params.poolAddress.toLowerCase();

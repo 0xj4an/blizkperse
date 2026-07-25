@@ -53,6 +53,11 @@ export default function ClaimPage() {
 
   const payment = store.payments.find((p) => p.id === paymentId);
   const org = payment ? getOrganizerById(payment.organizerId) : undefined;
+  const payout = payment
+    ? store.payouts.find((p) => p.id === payment.payoutId)
+    : undefined;
+  const paymentTokenSymbol = payout?.token ?? "USDC";
+  const paymentAmountLabel = `${payment?.amount.toLocaleString() ?? "0"} ${paymentTokenSymbol}`;
 
   const [txState, setTxState] = useState<TxState>("idle");
   const [txHash, setTxHash] = useState<string>();
@@ -94,6 +99,26 @@ export default function ClaimPage() {
           <CardContent className="py-12">
             <p className="text-muted-foreground">Payment not found.</p>
             <Link href="/receive" className="mt-4 inline-block">
+              <Button variant="outline" className="gap-2">
+                <ArrowLeft className="h-4 w-4" />
+                Back to Dashboard
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (payment.status === "failed" || payment.status === "pending" || payment.status === "expired") {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Card className="max-w-md w-full text-center">
+          <CardContent className="py-12 space-y-3">
+            <p className="text-muted-foreground">
+              This payment is not claimable ({payment.status}).
+            </p>
+            <Link href="/receive" className="inline-block">
               <Button variant="outline" className="gap-2">
                 <ArrowLeft className="h-4 w-4" />
                 Back to Dashboard
@@ -240,9 +265,10 @@ export default function ClaimPage() {
         noteChain.contracts.pool;
 
       let known = await isRootKnown(noteChain, rootHex, tokenSymbol);
+      let syncHint = "";
       if (!known) {
         try {
-          await fetch("/api/sync-pool-root", {
+          const syncRes = await fetch("/api/sync-pool-root", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -254,6 +280,18 @@ export default function ClaimPage() {
               token_symbol: tokenSymbol,
             }),
           });
+          const syncBody = (await syncRes.json().catch(() => null)) as {
+            ok?: boolean;
+            skipped?: string;
+            error?: string;
+            alreadyKnown?: boolean;
+            txHash?: string;
+          } | null;
+          if (!syncRes.ok) {
+            syncHint = syncBody?.error ?? `sync failed (${syncRes.status})`;
+          } else if (syncBody?.skipped) {
+            syncHint = syncBody.skipped;
+          }
         } catch {
           // continue polling — sync may already be in flight from deposit
         }
@@ -263,8 +301,9 @@ export default function ClaimPage() {
         }
       }
       if (!known) {
+        const detail = syncHint ? ` (${syncHint})` : "";
         throw new Error(
-          "Merkle root is not registered yet. The backend registrar may still be syncing — retry in a moment.",
+          `Merkle root is not registered yet. The backend registrar may still be syncing — retry in a moment.${detail}`,
         );
       }
 
@@ -350,9 +389,9 @@ export default function ClaimPage() {
           <CardContent className="space-y-6">
             <div className="text-center">
               <p className="text-4xl font-bold">
-                ${payment.amount.toLocaleString()}
+                {payment.amount.toLocaleString()} {paymentTokenSymbol}
               </p>
-              <p className="mt-1 text-sm text-muted-foreground">tokens</p>
+              <p className="mt-1 text-sm text-muted-foreground">note amount</p>
             </div>
 
             <Separator />
@@ -402,7 +441,7 @@ export default function ClaimPage() {
               <div className="space-y-3">
                 <div className="space-y-2">
                   <label className="text-sm text-muted-foreground">
-                    Destination wallet (receives the 1 USDC)
+                    Destination wallet (receives {paymentAmountLabel})
                   </label>
                   <Input
                     placeholder="0x..."
@@ -429,13 +468,15 @@ export default function ClaimPage() {
                   <Wallet className="h-5 w-5" />
                   {canSubmitClaim ? "Claim Payment" : "Connect wallet to claim"}
                 </Button>
-                {isGasSponsorshipConfigured && (
-                  <p className="text-center text-xs text-muted-foreground">
-                    {sponsorshipReady
-                      ? "Gas may be sponsored via Alchemy Gas Manager."
-                      : "Gas sponsorship configured — waiting for smart account…"}
-                  </p>
-                )}
+                <p className="text-center text-xs text-muted-foreground">
+                  {sponsorshipReady
+                    ? "Gas sponsored via Alchemy Gas Manager — you do not need native CELO for this claim."
+                    : isGasSponsorshipConfigured
+                      ? "Gas sponsorship configured — waiting for smart account…"
+                      : alchemyReady
+                        ? "Smart account ready, but gas is not sponsored. Claim will use your CELO for gas."
+                        : `Claim will use your ${CHAINS[selectedChainId].nativeCurrency.symbol} for gas (EOA). Set NEXT_PUBLIC_ALCHEMY_API_KEY + NEXT_PUBLIC_ALCHEMY_GAS_POLICY_ID to enable sponsorship.`}
+                </p>
               </div>
             )}
 
