@@ -2,7 +2,7 @@
  * Server-side Poseidon2 Merkle tree (matches zk circuits + web/lib/merkle.ts).
  * Kept separate from the client module so API routes can import without "use client".
  */
-import { poseidon2 as poseidonHash } from "poseidon-lite";
+import { poseidon2 as poseidonHash } from "@/lib/poseidon2-hash";
 
 const MAX_DEPTH = 10;
 

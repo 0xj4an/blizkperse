@@ -1,6 +1,7 @@
 "use client";
 
 import type { Hex } from "viem";
+import { poseidon2 as poseidonHash } from "@/lib/poseidon2-hash";
 
 // ── Types ───────────────────────────────────────────────
 
@@ -38,11 +39,9 @@ export interface ProofResult {
 }
 
 // ── Poseidon hash (matches circuit's poseidon::poseidon::bn254::hash_2) ──
-// poseidon-lite must stay in sync with noir-lang/poseidon used by deposit/withdraw circuits.
-// Verified against nargo 1.0.0-beta.19 + deposit_circuit.json (witness execute succeeds).
+// Vendored via @/lib/poseidon2-hash (in-repo), not the npm package async chunk.
 
 export async function poseidon2(a: bigint, b: bigint): Promise<bigint> {
-  const { poseidon2: poseidonHash } = await import("poseidon-lite");
   return poseidonHash([a, b]);
 }
 
