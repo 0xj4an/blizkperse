@@ -23,57 +23,82 @@ import "../contract/ShieldedPool.sol";
 import "../contract/PoolRouter.sol";
 
 contract DeployMultiPool is Script {
+    struct DeployCfg {
+        address wrappedNative;
+        address depositVerifier;
+        uint256 feeBps;
+        address treasury;
+        address rootRegistrar;
+    }
+
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
-        address wrappedNative = vm.envOr("WRAPPED_NATIVE", address(0));
-        address depositVerifier = vm.envAddress("DEPOSIT_VERIFIER_ADDRESS");
-        require(depositVerifier != address(0), "DEPOSIT_VERIFIER_ADDRESS=0");
-        uint256 feeBps = vm.envOr("FEE_BPS", uint256(30));
-        address treasury = vm.envOr("TREASURY_ADDRESS", address(0));
-        if (feeBps > 0) {
-            require(treasury != address(0), "TREASURY_ADDRESS required when FEE_BPS>0");
+        DeployCfg memory cfg = DeployCfg({
+            wrappedNative: vm.envOr("WRAPPED_NATIVE", address(0)),
+            depositVerifier: vm.envAddress("DEPOSIT_VERIFIER_ADDRESS"),
+            feeBps: vm.envOr("FEE_BPS", uint256(30)),
+            treasury: vm.envOr("TREASURY_ADDRESS", address(0)),
+            rootRegistrar: vm.envOr("ROOT_REGISTRAR_ADDRESS", address(0))
+        });
+        require(cfg.depositVerifier != address(0), "DEPOSIT_VERIFIER_ADDRESS=0");
+        if (cfg.feeBps > 0) {
+            require(cfg.treasury != address(0), "TREASURY_ADDRESS required when FEE_BPS>0");
         }
-        address rootRegistrar = vm.envOr("ROOT_REGISTRAR_ADDRESS", address(0));
         string memory tokensCsv = vm.envString("TOKEN_ADDRESSES");
 
         vm.startBroadcast(pk);
 
-        HonkVerifier transferVerifier = new HonkVerifier();
-        WithdrawHonkVerifier withdrawVerifier = new WithdrawHonkVerifier();
+        address transferVerifier = address(new HonkVerifier());
+        address withdrawVerifier = address(new WithdrawHonkVerifier());
+        PoolRouter router = new PoolRouter(cfg.wrappedNative, cfg.feeBps, cfg.treasury);
 
-        PoolRouter router = new PoolRouter(wrappedNative, feeBps, treasury);
-
-        bytes32 genesisRoot = bytes32(0);
         string[] memory parts = _splitCsv(tokensCsv);
         for (uint256 i = 0; i < parts.length; i++) {
-            address token = vm.parseAddress(parts[i]);
-            ShieldedPool pool = new ShieldedPool(
-                token,
-                address(transferVerifier),
-                genesisRoot,
-                address(withdrawVerifier),
-                depositVerifier
+            _deployPool(
+                vm.parseAddress(parts[i]),
+                transferVerifier,
+                withdrawVerifier,
+                cfg.depositVerifier,
+                address(router),
+                cfg.rootRegistrar
             );
-            pool.setRouter(address(router));
-            if (rootRegistrar != address(0)) {
-                pool.setRootRegistrar(rootRegistrar);
-            }
-            router.setPool(token, address(pool));
-            console2.log("token", token);
-            console2.log("pool", address(pool));
         }
 
         vm.stopBroadcast();
 
         console2.log("chainId", block.chainid);
-        console2.log("HonkVerifier", address(transferVerifier));
-        console2.log("WithdrawVerifier", address(withdrawVerifier));
-        console2.log("DepositVerifier", depositVerifier);
+        console2.log("HonkVerifier", transferVerifier);
+        console2.log("WithdrawVerifier", withdrawVerifier);
+        console2.log("DepositVerifier", cfg.depositVerifier);
         console2.log("PoolRouter", address(router));
-        console2.log("wrappedNative", wrappedNative);
-        console2.log("feeBps", feeBps);
-        console2.log("treasury", treasury);
-        console2.log("rootRegistrar", rootRegistrar);
+        console2.log("wrappedNative", cfg.wrappedNative);
+        console2.log("feeBps", cfg.feeBps);
+        console2.log("treasury", cfg.treasury);
+        console2.log("rootRegistrar", cfg.rootRegistrar);
+    }
+
+    function _deployPool(
+        address token,
+        address transferVerifier,
+        address withdrawVerifier,
+        address depositVerifier,
+        address router,
+        address rootRegistrar
+    ) internal {
+        ShieldedPool pool = new ShieldedPool(
+            token,
+            transferVerifier,
+            bytes32(0),
+            withdrawVerifier,
+            depositVerifier
+        );
+        pool.setRouter(router);
+        if (rootRegistrar != address(0)) {
+            pool.setRootRegistrar(rootRegistrar);
+        }
+        PoolRouter(payable(router)).setPool(token, address(pool));
+        console2.log("token", token);
+        console2.log("pool", address(pool));
     }
 
     function _splitCsv(string memory csv) internal pure returns (string[] memory) {
