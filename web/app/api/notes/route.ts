@@ -122,6 +122,14 @@ export async function POST(req: NextRequest) {
     RETURNING *
   `;
 
+  // Note secrets are persisted only after a successful on-chain deposit — mark claimable now
+  // so a later sibling deposit failure cannot leave this payment stuck as pending.
+  await sql`
+    UPDATE payments
+    SET status = 'claimable'
+    WHERE id = ${payment.id} AND status = 'pending'
+  `;
+
   // Best-effort: register Merkle tip after deposit (serialized per pool in syncPoolRoot).
   const poolForSync =
     (typeof pool_address === "string" && pool_address.startsWith("0x")

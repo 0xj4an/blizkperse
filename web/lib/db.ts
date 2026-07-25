@@ -61,7 +61,7 @@ export function ensureSchema() {
         organizer_id uuid REFERENCES organizers(id) ON DELETE CASCADE,
         total_amount numeric NOT NULL,
         token text DEFAULT 'USDC',
-        status text DEFAULT 'pending' CHECK (status IN ('pending', 'deposited', 'distributed', 'claimed')),
+        status text DEFAULT 'pending' CHECK (status IN ('pending', 'deposited', 'distributed', 'claimed', 'failed')),
         tx_hash text,
         created_at timestamptz DEFAULT now()
       )
@@ -73,17 +73,23 @@ export function ensureSchema() {
         organizer_id uuid REFERENCES organizers(id) ON DELETE CASCADE,
         subscriber_id uuid REFERENCES subscribers(id) ON DELETE CASCADE,
         amount numeric NOT NULL,
-        status text DEFAULT 'pending' CHECK (status IN ('pending', 'claimable', 'claimed', 'expired')),
+        status text DEFAULT 'pending' CHECK (status IN ('pending', 'claimable', 'claimed', 'expired', 'failed')),
         claimed_at timestamptz,
         tx_hash text,
         created_at timestamptz DEFAULT now()
       )
     `;
+    await sql`ALTER TABLE payouts DROP CONSTRAINT IF EXISTS payouts_status_check`;
+    await sql`
+      ALTER TABLE payouts
+      ADD CONSTRAINT payouts_status_check
+      CHECK (status IN ('pending', 'deposited', 'distributed', 'claimed', 'failed'))
+    `;
     await sql`ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_status_check`;
     await sql`
       ALTER TABLE payments
       ADD CONSTRAINT payments_status_check
-      CHECK (status IN ('pending', 'claimable', 'claimed', 'expired'))
+      CHECK (status IN ('pending', 'claimable', 'claimed', 'expired', 'failed'))
     `;
 
     await sql`
@@ -106,6 +112,24 @@ export function ensureSchema() {
     await sql`ALTER TABLE notes ADD COLUMN IF NOT EXISTS pool_address text`;
     await sql`ALTER TABLE notes ALTER COLUMN chain_id DROP DEFAULT`;
     await sql`ALTER TABLE notes DROP CONSTRAINT IF EXISTS notes_chain_id_check`;
+    // Env-scoped CHECK (prod mainnet vs dev testnet). A DB reused across envs can
+    // retain stale opposite-env notes; remove only those rows so ADD CONSTRAINT
+    // succeeds without touching valid chain_id rows for the current BLIZ_ENV.
+    const removed = await sql.unsafe(`
+      DELETE FROM notes
+      WHERE chain_id NOT IN (${validNoteChainIdsSql})
+      RETURNING id, chain_id
+    `);
+    if (removed.length > 0) {
+      const byChain = removed.reduce<Record<string, number>>((acc, row) => {
+        const key = String(row.chain_id);
+        acc[key] = (acc[key] ?? 0) + 1;
+        return acc;
+      }, {});
+      console.warn(
+        `Removed ${removed.length} stale note(s) outside ${appEnv} chain ids [${validNoteChainIdsSql}]: ${JSON.stringify(byChain)}`,
+      );
+    }
     await sql.unsafe(`
       ALTER TABLE notes
       ADD CONSTRAINT notes_chain_id_check
@@ -183,7 +207,11 @@ export function ensureSchema() {
     console.log(
       `Database schema initialized (${appEnv}; note chain ids: ${validNoteChainIdsSql})`,
     );
-  })();
+  })().catch((err) => {
+    // Allow a later request to retry after a transient / migration failure.
+    schemaReady = null;
+    throw err;
+  });
   return schemaReady;
 }
 
