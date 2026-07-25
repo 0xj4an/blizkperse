@@ -469,16 +469,18 @@ export async function getTokenBalance(
   account: Hex,
   token: TokenConfig,
 ): Promise<bigint> {
+  // Lowercase avoids viem InvalidAddressError on env addresses with bad EIP-55 casing.
+  const owner = account.toLowerCase() as Hex;
   if (token.wrapsNative) {
     const client = getPublicClient(config);
-    return client.getBalance({ address: account });
+    return client.getBalance({ address: owner });
   }
   const client = getPublicClient(config);
   return client.readContract({
-    address: token.address as Hex,
+    address: token.address.toLowerCase() as Hex,
     abi: ERC20_ABI,
     functionName: "balanceOf",
-    args: [account],
+    args: [owner],
   }) as Promise<bigint>;
 }
 
@@ -492,10 +494,10 @@ export async function getPoolAllowance(
   const client = getPublicClient(config);
   const spender = depositSpender(config, t.symbol);
   return client.readContract({
-    address: t.address,
+    address: t.address.toLowerCase() as Hex,
     abi: ERC20_ABI,
     functionName: "allowance",
-    args: [owner, spender],
+    args: [owner.toLowerCase() as Hex, spender.toLowerCase() as Hex],
   }) as Promise<bigint>;
 }
 
