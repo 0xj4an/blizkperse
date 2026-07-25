@@ -23,11 +23,58 @@ import {
   getOrganizerById,
   ensureSubscriber,
   joinOrganizer,
+  type Payment,
+  type Payout,
 } from "@/lib/store";
 import { useChain } from "@/lib/chain-context";
 import { CHAINS, type SupportedChainId } from "@/lib/constants";
 import { useParaWalletClient } from "@/lib/wallet";
 import { useApiAuth } from "@/lib/api-auth";
+
+function isSpanishUi(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return navigator.language.toLowerCase().startsWith("es");
+}
+
+function paymentStatusLabel(status: Payment["status"]): string {
+  const es = isSpanishUi();
+  switch (status) {
+    case "pending":
+      return es ? "Pendiente de depósito" : "Awaiting deposit";
+    case "claimable":
+      return es ? "Listo para reclamar" : "Ready to claim";
+    case "claimed":
+      return es ? "Reclamado" : "Claimed";
+    case "expired":
+      return es ? "Expirado" : "Expired";
+    case "failed":
+      return es ? "Fallido" : "Failed";
+    default:
+      return status;
+  }
+}
+
+function distributedByToken(payouts: Payout[]): { token: string; amount: number }[] {
+  const map = new Map<string, number>();
+  for (const p of payouts) {
+    if (p.status === "failed" || p.status === "pending") continue;
+    const token = p.token?.trim() || "USDC";
+    map.set(token, (map.get(token) ?? 0) + p.totalAmount);
+  }
+  return [...map.entries()]
+    .map(([token, amount]) => ({ token, amount }))
+    .sort((a, b) => a.token.localeCompare(b.token));
+}
+
+function formatTokenAmount(amount: number, symbol: string): string {
+  return `${amount.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${symbol}`;
+}
+
+function formatDistributedLabel(payouts: Payout[]): string {
+  const totals = distributedByToken(payouts);
+  if (totals.length === 0) return "—";
+  return totals.map(({ amount, token }) => formatTokenAmount(amount, token)).join(" · ");
+}
 
 export default function ReceiveDashboard() {
   const { embedded } = useAccount();
@@ -52,10 +99,12 @@ export default function ReceiveDashboard() {
   const myPaymentsAll = store.payments.filter(
     (p) => p.subscriberId === subId
   );
-  // Show payments on the selected chain. Payments without a chain_id (note not yet
-  // deposited on-chain) are shown on all chains so recipients can see pending payouts.
+  // Only show payments that were actually deposited (have a note / claimable|claimed).
+  // Pending/failed rows from aborted deposit attempts must not appear as claimable.
   const myPayments = myPaymentsAll.filter(
-    (p) => p.chainId === selectedChainId || p.chainId == null
+    (p) =>
+      (p.status === "claimable" || p.status === "claimed") &&
+      p.chainId === selectedChainId
   );
   // Derive which organizers are active on the selected chain (have any payment on it).
   // Orgs with zero payments are shown on all chains (new orgs).
@@ -130,10 +179,12 @@ export default function ReceiveDashboard() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Distributed</span>
-                    <span className="font-medium">
-                      ${org.totalDistributed.toLocaleString()}
+                  <div className="flex justify-between gap-3 text-sm">
+                    <span className="text-muted-foreground shrink-0">Distributed</span>
+                    <span className="font-medium text-right">
+                      {formatDistributedLabel(
+                        store.payouts.filter((p) => p.organizerId === org.id)
+                      )}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
@@ -239,6 +290,8 @@ export default function ReceiveDashboard() {
             <TableBody>
               {myPayments.map((payment) => {
                 const org = getOrganizerById(payment.organizerId);
+                const payout = store.payouts.find((p) => p.id === payment.payoutId);
+                const tokenSymbol = payout?.token?.trim() || "USDC";
                 const explorerUrl =
                   CHAINS[payment.chainId as SupportedChainId]?.explorerUrl ??
                   CHAINS[selectedChainId].explorerUrl;
@@ -248,7 +301,7 @@ export default function ReceiveDashboard() {
                       {org?.name ?? payment.organizerId}
                     </TableCell>
                     <TableCell>
-                      ${payment.amount.toLocaleString()}
+                      {formatTokenAmount(payment.amount, tokenSymbol)}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground" title={payment.payoutId}>
                       {payment.payoutId.slice(0, 8)}...
@@ -266,7 +319,7 @@ export default function ReceiveDashboard() {
                               : "outline"
                         }
                       >
-                        {payment.status}
+                        {paymentStatusLabel(payment.status)}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right space-y-1">

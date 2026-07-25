@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useAccount } from "@getpara/react-sdk";
@@ -42,11 +42,71 @@ import {
   createOrganizer,
   updateOrganizer,
   deleteOrganizer,
+  invalidateAndRefetchStore,
+  type Payout,
 } from "@/lib/store";
 import { useChain } from "@/lib/chain-context";
 import { CHAINS } from "@/lib/constants";
 import { useParaWalletClient } from "@/lib/wallet";
 import { useApiAuth } from "@/lib/api-auth";
+import { WalletBalances } from "@/components/wallet-balances";
+
+function isSpanishUi(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return navigator.language.toLowerCase().startsWith("es");
+}
+
+function payoutStatusLabel(status: Payout["status"]): string {
+  const es = isSpanishUi();
+  switch (status) {
+    case "pending":
+      return es ? "Pendiente de depósito" : "Awaiting deposit";
+    case "deposited":
+      return es ? "Listo para reclamar" : "Ready to claim";
+    case "distributed":
+      return es ? "Distribuido" : "Distributed";
+    case "claimed":
+      return es ? "Reclamado" : "Claimed";
+    case "failed":
+      return es ? "Fallido" : "Failed";
+    default:
+      return status;
+  }
+}
+
+function payoutStatusVariant(
+  status: Payout["status"]
+): "default" | "secondary" | "destructive" | "outline" {
+  switch (status) {
+    case "distributed":
+    case "claimed":
+      return "default";
+    case "deposited":
+      return "secondary";
+    case "failed":
+      return "destructive";
+    case "pending":
+    default:
+      return "outline";
+  }
+}
+
+/** Deposited / distributed / claimed payouts only — never sum across tokens as one number. */
+function distributedByToken(payouts: Payout[]): { token: string; amount: number }[] {
+  const map = new Map<string, number>();
+  for (const p of payouts) {
+    if (p.status === "failed" || p.status === "pending") continue;
+    const token = p.token?.trim() || "USDC";
+    map.set(token, (map.get(token) ?? 0) + p.totalAmount);
+  }
+  return [...map.entries()]
+    .map(([token, amount]) => ({ token, amount }))
+    .sort((a, b) => a.token.localeCompare(b.token));
+}
+
+function formatTokenAmount(amount: number, symbol: string): string {
+  return `${amount.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${symbol}`;
+}
 
 export default function PayerDashboard() {
   const { embedded } = useAccount();
@@ -55,6 +115,11 @@ export default function PayerDashboard() {
   const apiAuth = useApiAuth();
   const store = useStore();
   const { chainId: selectedChainId } = useChain();
+
+  // Refetch so payout statuses (pending vs deposited) match the API/DB.
+  useEffect(() => {
+    invalidateAndRefetchStore();
+  }, []);
 
   // Filter my orgs to those active on the selected chain (or with no chain-linked payments yet)
   const orgIdsOnChain = new Set<string>();
@@ -83,19 +148,23 @@ export default function PayerDashboard() {
   const orgPayouts = selectedOrg
     ? store.payouts.filter((p) => p.organizerId === selectedOrg.id)
     : [];
+  // Recent: hide failures and abandoned empty pending drafts.
+  const recentPayouts = orgPayouts.filter((p) => {
+    if (p.status === "failed") return false;
+    if (p.status === "pending" && p.totalAmount <= 0) return false;
+    return true;
+  });
 
-  const totalDistributed = orgPayouts.reduce((s, p) => s + p.totalAmount, 0);
-  const pendingPayouts = orgPayouts.filter(
-    (p) => p.status === "deposited" || p.status === "pending"
-  ).length;
+  const distributedTotals = distributedByToken(orgPayouts);
+  const readyToClaimPayouts = orgPayouts.filter((p) => p.status === "deposited").length;
 
-  // Check if selected org can be deleted (no payments or all claimed)
+  // Check if selected org can be deleted (no payments or all claimed/failed)
   const orgPayments = selectedOrg
     ? store.payments.filter((p) => p.organizerId === selectedOrg.id)
     : [];
   const canDelete =
     orgPayments.length === 0 ||
-    orgPayments.every((p) => p.status === "claimed");
+    orgPayments.every((p) => p.status === "claimed" || p.status === "failed");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState("");
@@ -209,6 +278,8 @@ export default function PayerDashboard() {
 
   return (
     <div className="space-y-8">
+      <WalletBalances address={address || undefined} />
+
       {/* Org selector + Create */}
       <div className="flex items-center gap-3 flex-wrap">
         {myOrganizers.map((org) => (
@@ -355,9 +426,26 @@ export default function PayerDashboard() {
             <Card>
               <CardContent className="flex items-center gap-4 p-6">
                 <CircleDollarSign className="h-6 w-6 text-muted-foreground" />
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm text-muted-foreground">Total Distributed</p>
-                  <p className="text-2xl font-bold">${totalDistributed.toLocaleString()}</p>
+                  {distributedTotals.length === 0 ? (
+                    <p className="text-2xl font-bold">—</p>
+                  ) : distributedTotals.length === 1 ? (
+                    <p className="text-2xl font-bold truncate">
+                      {formatTokenAmount(
+                        distributedTotals[0].amount,
+                        distributedTotals[0].token
+                      )}
+                    </p>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {distributedTotals.map(({ token, amount }) => (
+                        <p key={token} className="text-lg font-bold leading-tight truncate">
+                          {formatTokenAmount(amount, token)}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -374,8 +462,10 @@ export default function PayerDashboard() {
               <CardContent className="flex items-center gap-4 p-6">
                 <Clock className="h-6 w-6 text-muted-foreground" />
                 <div>
-                  <p className="text-sm text-muted-foreground">Pending Payouts</p>
-                  <p className="text-2xl font-bold">{pendingPayouts}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {isSpanishUi() ? "Listos para reclamar" : "Ready to claim"}
+                  </p>
+                  <p className="text-2xl font-bold">{readyToClaimPayouts}</p>
                 </div>
               </CardContent>
             </Card>
@@ -448,33 +538,31 @@ export default function PayerDashboard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {orgPayouts.map((payout) => (
+                {recentPayouts.map((payout) => (
                   <TableRow key={payout.id}>
                     <TableCell className="text-sm text-muted-foreground">
                       {new Date(payout.createdAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      {store.payments.filter((p) => p.payoutId === payout.id).length}
+                      {
+                        store.payments.filter(
+                          (p) =>
+                            p.payoutId === payout.id &&
+                            (p.status === "claimable" || p.status === "claimed")
+                        ).length
+                      }
                     </TableCell>
                     <TableCell className="font-medium">
-                      ${payout.totalAmount.toLocaleString()}
+                      {formatTokenAmount(payout.totalAmount, payout.token || "USDC")}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant={
-                          payout.status === "distributed"
-                            ? "default"
-                            : payout.status === "deposited"
-                              ? "secondary"
-                              : "outline"
-                        }
-                      >
-                        {payout.status}
+                      <Badge variant={payoutStatusVariant(payout.status)}>
+                        {payoutStatusLabel(payout.status)}
                       </Badge>
                     </TableCell>
                   </TableRow>
                 ))}
-                {orgPayouts.length === 0 && (
+                {recentPayouts.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
                       No payouts yet.
