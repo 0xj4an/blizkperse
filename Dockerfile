@@ -33,10 +33,20 @@ RUN curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/maste
 ENV PATH="/root/.bb:${PATH}"
 RUN bbup -v 1.2.0
 
-# Pre-compile circuit to cache git dependencies (main.nr must be the withdraw circuit)
+# Pre-compile circuits to cache git dependencies.
+# main.nr = withdraw → with_foundry.json; deposit.nr → deposit_circuit.json (required by depositProver).
 WORKDIR /app
 COPY zk/circuits/ ./zk/circuits/
-RUN cd zk/circuits && nargo compile && test -f target/with_foundry.json || (echo "Missing target/with_foundry.json; ensure main.nr is the withdraw circuit" && exit 1)
+RUN cd zk/circuits && \
+  nargo compile && test -f target/with_foundry.json || (echo "Missing target/with_foundry.json; ensure main.nr is the withdraw circuit" && exit 1) && \
+  cp src/main.nr src/main.nr.bak && \
+  cp src/deposit.nr src/main.nr && \
+  cp Nargo.toml Nargo.toml.bak && \
+  sed -i 's/name="with_foundry"/name="deposit_circuit"/' Nargo.toml && \
+  nargo compile && \
+  mv src/main.nr.bak src/main.nr && \
+  mv Nargo.toml.bak Nargo.toml && \
+  test -f target/deposit_circuit.json || (echo "Missing target/deposit_circuit.json after deposit compile" && exit 1)
 
 # Build Next.js
 # Railway passes env vars as build args automatically when declared with ARG

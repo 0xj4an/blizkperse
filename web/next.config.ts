@@ -18,6 +18,10 @@ const nextConfig: NextConfig = {
       "./node_modules/@aztec/bb.js/**/*",
       "./node_modules/@noir-lang/noir_js/**/*",
     ],
+    "/api/generate-deposit-proof": [
+      "./node_modules/@aztec/bb.js/**/*",
+      "./node_modules/@noir-lang/noir_js/**/*",
+    ],
   },
 
   // WASM support for Noir/Barretenberg proof generation

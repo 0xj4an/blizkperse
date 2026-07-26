@@ -305,6 +305,22 @@ export function decodeRevertDataFromError(err: unknown): string | null {
   try {
     const decoded = decodeErrorResult({ abi: POOL_ABI, data: hex as Hex });
     if (decoded.errorName === "Error" && decoded.args?.[0]) return String(decoded.args[0]);
+    if (decoded.errorName === "ProofLengthWrongWithLogN") {
+      const [logN, actual, expected] = decoded.args as [bigint, bigint, bigint];
+      return `ProofLengthWrongWithLogN(logN=${logN}, actual=${actual}, expected=${expected})`;
+    }
+    if (decoded.errorName === "ProofLengthWrong") return "ProofLengthWrong";
+    if (decoded.errorName === "PublicInputsLengthWrong") return "PublicInputsLengthWrong";
+    if (decoded.errorName === "SumcheckFailed") {
+      return "SumcheckFailed (invalid ZK proof for this DepositVerifier)";
+    }
+    if (decoded.errorName === "ShpleminiFailed") {
+      return "ShpleminiFailed (invalid ZK proof for this DepositVerifier)";
+    }
+    if (decoded.errorName) {
+      const args = decoded.args?.length ? `(${decoded.args.map(String).join(", ")})` : "";
+      return `${decoded.errorName}${args}`;
+    }
   } catch {
     // not our error shape
   }

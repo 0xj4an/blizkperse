@@ -54,13 +54,29 @@ const ALCHEMY_SPONSORSHIP_USER_MESSAGE =
   "Oops, we are out of funds! Sponsored transaction failed — please try again later.";
 
 function errorToRawString(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
+  const parts: string[] = [];
+  let current: unknown = err;
+  for (let depth = 0; current != null && depth < 6; depth++) {
+    if (typeof current === "string") {
+      parts.push(current);
+      break;
+    }
+    if (current instanceof Error) {
+      parts.push(current.message);
+      const extended = current as Error & { shortMessage?: string; details?: string };
+      if (extended.shortMessage) parts.push(extended.shortMessage);
+      if (extended.details) parts.push(extended.details);
+      current = (current as Error & { cause?: unknown }).cause;
+      continue;
+    }
+    try {
+      parts.push(JSON.stringify(current));
+    } catch {
+      parts.push(String(current));
+    }
+    break;
   }
+  return parts.filter(Boolean).join(" | ") || String(err);
 }
 
 /**
@@ -84,4 +100,41 @@ export function formatAlchemyPaymasterError(err: unknown): string | null {
   });
 
   return ALCHEMY_SPONSORSHIP_USER_MESSAGE;
+}
+
+const INSUFFICIENT_GAS_USER_MESSAGE =
+  "You don't have enough gas to complete this deposit.";
+
+/**
+ * Map viem/RPC insufficient-native-balance (gas) errors to short English UI copy.
+ * Covers Celo ("insufficient funds"), Monad/viem ("Signer had insufficient balance"),
+ * and related RPC shapes. Does not match our preflight token shortfall messages
+ * ("Insufficient USDC balance…") — those are thrown before the wallet send.
+ * Returns null when the error is unrelated.
+ */
+export function formatInsufficientGasError(err: unknown): string | null {
+  const raw = errorToRawString(err);
+  const lower = raw.toLowerCase();
+
+  // Our own ERC-20 preflight copy — never rewrite as a gas message.
+  if (
+    /insufficient \w+ balance:/.test(lower) ||
+    lower.includes("gross required") ||
+    lower.includes("notes (net)")
+  ) {
+    return null;
+  }
+
+  const isInsufficientGas =
+    lower.includes("signer had insufficient balance") ||
+    lower.includes("insufficient funds") ||
+    lower.includes("insufficientfunds") ||
+    lower.includes("insufficient balance") ||
+    lower.includes("gas * price + value") ||
+    lower.includes("gas * gas price + value") ||
+    lower.includes("exceeds the balance");
+  if (!isInsufficientGas) return null;
+
+  console.warn("[deposit] Insufficient native balance for gas:", raw);
+  return INSUFFICIENT_GAS_USER_MESSAGE;
 }

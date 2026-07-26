@@ -1,4 +1,4 @@
-import { Barretenberg, UltraHonkBackend } from "@aztec/bb.js";
+import { BackendType, Barretenberg, UltraHonkBackend } from "@aztec/bb.js";
 import { Noir } from "@noir-lang/noir_js";
 import { existsSync, readFileSync } from "fs";
 import path from "path";
@@ -50,7 +50,11 @@ async function initWithdrawProver(): Promise<void> {
   const artifactPath = path.join(circuitDir, "target", "with_foundry.json");
   const artifactJson = JSON.parse(readFileSync(artifactPath, "utf8"));
 
-  const api = await Barretenberg.new();
+  // Force WASM — native bb under Next can hang; mirror depositProver.
+  const api = await Barretenberg.new({
+    threads: 1,
+    backend: BackendType.Wasm,
+  });
   const backend = new UltraHonkBackend(artifactJson.bytecode, api);
   const noir = new Noir(artifactJson);
 

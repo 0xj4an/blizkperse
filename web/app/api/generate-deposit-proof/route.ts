@@ -43,7 +43,9 @@ export async function POST(req: NextRequest) {
     };
 
     const { proofHex, publicInputs } = await generateDepositProof(normalized);
-    return NextResponse.json({ proof: proofHex, publicInputs });
+    const proofByteLen = (proofHex.length - 2) / 2;
+    console.info(`[generate-deposit-proof] proofBytes=${proofByteLen} publicInputs=${publicInputs.length}`);
+    return NextResponse.json({ proof: proofHex, publicInputs, proofByteLen });
   } catch (error) {
     console.error("Deposit proof generation error:", error);
     const message = error instanceof Error ? error.message : "Unknown error";
