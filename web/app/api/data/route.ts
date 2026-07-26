@@ -10,12 +10,33 @@ export async function GET() {
       sql`SELECT * FROM subscribers`,
       sql`SELECT * FROM subscriptions`,
       sql`SELECT * FROM payouts ORDER BY created_at DESC`,
-      // Include chain_id and note id from the payment's note for filtering and UI
       sql`
         SELECT p.*,
-          (SELECT n.chain_id FROM notes n WHERE n.payment_id = p.id ORDER BY n.created_at DESC LIMIT 1) AS chain_id,
-          (SELECT n.id FROM notes n WHERE n.payment_id = p.id ORDER BY n.created_at DESC LIMIT 1) AS note_id
+          n.chain_id AS chain_id,
+          n.id AS note_id,
+          n.deposit_tx AS deposit_tx,
+          (
+            (n.deposit_tx IS NOT NULL AND n.deposit_tx <> '')
+            OR EXISTS (
+              SELECT 1
+              FROM deposit_events_cache d
+              WHERE d.chain_id = n.chain_id
+                AND lower(d.commitment) = lower(n.commitment)
+                AND (
+                  n.pool_address IS NULL
+                  OR n.pool_address = ''
+                  OR lower(d.pool_address) = lower(n.pool_address)
+                )
+            )
+          ) AS deposit_confirmed
         FROM payments p
+        LEFT JOIN LATERAL (
+          SELECT id, chain_id, commitment, pool_address, deposit_tx
+          FROM notes
+          WHERE payment_id = p.id
+          ORDER BY created_at DESC
+          LIMIT 1
+        ) n ON true
       `,
     ]);
 

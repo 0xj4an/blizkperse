@@ -5,10 +5,9 @@ import {
   AUTH_ADDRESS_HEADER,
   AUTH_SIGNATURE_HEADER,
   AUTH_TIMESTAMP_HEADER,
+  AUTH_TTL_MS,
   buildWalletAuthMessage,
 } from "./auth-shared";
-
-const AUTH_TTL_MS = 5 * 60 * 1000;
 
 export async function requireWalletAuth(req: NextRequest) {
   const address = req.headers.get(AUTH_ADDRESS_HEADER);

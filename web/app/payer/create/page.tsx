@@ -32,6 +32,7 @@ import {
   getSubscriberById,
   createPayout,
   invalidateAndRefetchStore,
+  flushPendingNoteSecrets,
 } from "@/lib/store";
 import { useParaWalletClient } from "@/lib/wallet";
 import { useChain } from "@/lib/chain-context";
@@ -48,6 +49,7 @@ import {
   formatTokenRawAmount,
 } from "@/lib/constants";
 import { hasRouter, getTokenBalance } from "@/lib/contracts";
+import { formatInsufficientGasError } from "@/lib/alchemy";
 import { useApiAuth } from "@/lib/api-auth";
 import { useModal } from "@getpara/react-sdk";
 import type { Hex } from "viem";
@@ -124,6 +126,30 @@ export default function CreatePayoutPage() {
       return live.find((t) => t.symbol === chain.defaultToken.symbol) ?? live[0] ?? chain.defaultToken;
     });
   }, [chain]);
+
+  // Recover note secrets saved locally if a prior deposit succeeded but POST /api/notes failed.
+  useEffect(() => {
+    if (!isReady || !address) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const saved = await flushPendingNoteSecrets({
+          ...apiAuth,
+          walletClient,
+          address,
+        });
+        if (!cancelled && saved > 0) {
+          toast.success(`Recovered ${saved} pending note(s) from local backup.`);
+          invalidateAndRefetchStore();
+        }
+      } catch {
+        // best-effort
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isReady, address, apiAuth, walletClient]);
 
   useEffect(() => {
     if (!address || chain.placeholder) {
@@ -338,7 +364,7 @@ export default function CreatePayoutPage() {
       return;
     }
     setTxState("pending");
-    setProgressMsg("Preparing deposit...");
+    setProgressMsg("Generating ZK proof...");
     try {
       const result = await createPayout({
         organizerId: orgId,
@@ -352,7 +378,17 @@ export default function CreatePayoutPage() {
         chainConfig: chain,
         ownerAddress: address ?? undefined,
         onProgress: (step, current, total) => {
-          setProgressMsg(`${step} (${current}/${total})`);
+          const label =
+            step === "Proving deposit"
+              ? "Generating ZK proof"
+              : step === "Depositing note"
+                ? "Submitting deposit"
+                : step === "Preparing payout"
+                  ? "Preparing payout"
+                  : step;
+          setProgressMsg(
+            total > 0 ? `${label} (${current}/${total})` : label,
+          );
         },
       });
       setTxHash(result.txHash);
@@ -360,15 +396,27 @@ export default function CreatePayoutPage() {
       toast.success("Payout created successfully!");
     } catch (err) {
       setTxState("error");
-      const msg = err instanceof Error ? err.message : "Transaction failed";
+      const gasMsg = formatInsufficientGasError(err);
+      const msg = gasMsg ?? (err instanceof Error ? err.message : "Transaction failed");
       const cancelled = msg.includes("User rejected");
+      const notesSaveFailed = msg.includes("saving note secrets failed");
       toast.error(
         cancelled
           ? "Transaction cancelled"
-          : msg,
+          : notesSaveFailed
+            ? "Deposit on-chain OK but note secrets were not saved. Do not re-deposit — reload this page to retry saving from local backup."
+            : msg,
       );
       // Partial success (some notes deposited) is persisted as claimable; refresh dashboard data.
+      // Also retry flushing any localStorage-backed secrets after a notes POST failure.
       if (!cancelled) {
+        if (notesSaveFailed) {
+          try {
+            await flushPendingNoteSecrets({ ...apiAuth, walletClient, address });
+          } catch {
+            // best-effort; toast already explained recovery
+          }
+        }
         invalidateAndRefetchStore();
       }
     }

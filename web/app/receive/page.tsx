@@ -3,7 +3,6 @@
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { invalidateAndRefetchStore } from "@/lib/store";
 import { toast } from "sonner";
 import { useAccount } from "@getpara/react-sdk";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +25,8 @@ import {
   ensureSubscriber,
   fetchInvite,
   joinWithInvite,
+  invalidateAndRefetchStore,
+  reconcileClaimedPayments,
   type Payment,
   type Payout,
 } from "@/lib/store";
@@ -150,13 +151,16 @@ function ReceiveDashboardInner() {
   const myPaymentsAll = store.payments.filter(
     (p) => p.subscriberId === subId
   );
-  // Only show payments that were actually deposited (have a note / claimable|claimed).
-  // Pending/failed rows from aborted deposit attempts must not appear as claimable.
-  const myPayments = myPaymentsAll.filter(
-    (p) =>
-      (p.status === "claimable" || p.status === "claimed") &&
-      p.chainId === selectedChainId
-  );
+  // Only show payments that were actually deposited on-chain (note + confirmation).
+  // Orphan "claimable" rows without deposit_tx / Deposit event stay hidden.
+  const myPayments = myPaymentsAll.filter((p) => {
+    if (p.chainId !== selectedChainId) return false;
+    if (p.status === "claimed") return Boolean(p.noteId);
+    if (p.status === "claimable") {
+      return Boolean(p.noteId) && p.depositConfirmed === true;
+    }
+    return false;
+  });
   // Derive which organizers are active on the selected chain (have any payment on it).
   // Orgs with zero payments are shown on all chains (new orgs).
   const orgIdsOnChain = new Set<string>();
@@ -199,10 +203,28 @@ function ReceiveDashboardInner() {
     setInviteInput(queryInvite);
   }, [queryInvite]);
 
-  // Refetch store when entering receive so payment status (claimable/claimed) matches DB
+  // Refetch store + reconcile claims that already landed on-chain but DB lagged.
   useEffect(() => {
-    invalidateAndRefetchStore();
-  }, []);
+    let cancelled = false;
+    (async () => {
+      if (address && walletClient) {
+        const n = await reconcileClaimedPayments({
+          ...apiAuth,
+          walletClient,
+          address,
+        });
+        if (cancelled) return;
+        if (n > 0) {
+          invalidateAndRefetchStore();
+          return;
+        }
+      }
+      invalidateAndRefetchStore();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [address, walletClient, apiAuth]);
 
   useEffect(() => {
     if (!activeInviteCode) {

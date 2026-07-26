@@ -161,6 +161,7 @@ export function ensureSchema() {
     await sql`ALTER TABLE notes ADD COLUMN IF NOT EXISTS subscriber_id text`;
     await sql`ALTER TABLE notes ADD COLUMN IF NOT EXISTS token_symbol text`;
     await sql`ALTER TABLE notes ADD COLUMN IF NOT EXISTS pool_address text`;
+    await sql`ALTER TABLE notes ADD COLUMN IF NOT EXISTS deposit_tx text`;
     await sql`ALTER TABLE notes ALTER COLUMN chain_id DROP DEFAULT`;
     await sql`ALTER TABLE notes DROP CONSTRAINT IF EXISTS notes_chain_id_check`;
     // Env-scoped CHECK (prod mainnet vs dev testnet). A DB reused across envs can

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import sql, { ensureSchema } from "@/lib/db";
 import { requireWalletAuth } from "@/lib/server-auth";
 import { CHAINS, DEFAULT_CHAIN_ID, type SupportedChainId } from "@/lib/constants";
+import { verifyDepositOnChain } from "@/lib/chain-verify";
 
 export async function GET(req: NextRequest) {
   await ensureSchema();
@@ -76,10 +77,23 @@ export async function POST(req: NextRequest) {
     nullifier,
     token_symbol,
     pool_address,
+    deposit_tx,
   } = await req.json();
 
   if (!payment_id) {
     return NextResponse.json({ error: "payment_id is required" }, { status: 400 });
+  }
+  if (!commitment || !value || !holder_pk || !randomness || !nullifier) {
+    return NextResponse.json(
+      { error: "commitment, value, holder_pk, randomness, and nullifier are required" },
+      { status: 400 },
+    );
+  }
+  if (!deposit_tx || typeof deposit_tx !== "string") {
+    return NextResponse.json(
+      { error: "deposit_tx is required (confirmed on-chain deposit hash)" },
+      { status: 400 },
+    );
   }
 
   const normalizedChainId = Number(chain_id ?? DEFAULT_CHAIN_ID) as SupportedChainId;
@@ -106,9 +120,54 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const poolForSync =
+    (typeof pool_address === "string" && pool_address.startsWith("0x")
+      ? (pool_address as `0x${string}`)
+      : null) ??
+    (token_symbol ? CHAINS[normalizedChainId]?.pools[token_symbol]?.pool : null) ??
+    CHAINS[normalizedChainId]?.contracts.pool;
+
+  // Refuse to register claimable notes until the Deposit is confirmed on-chain.
+  let verified: Awaited<ReturnType<typeof verifyDepositOnChain>>;
+  try {
+    verified = await verifyDepositOnChain({
+      chainId: normalizedChainId,
+      commitment: String(commitment),
+      depositTx: String(deposit_tx),
+      poolAddress: poolForSync,
+      tokenSymbol: token_symbol ?? null,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json(
+      { error: `On-chain deposit not confirmed: ${msg}` },
+      { status: 400 },
+    );
+  }
+
+  // Index immediately so claim Merkle builds do not depend on a full historical rescan.
+  try {
+    const { cacheVerifiedDeposit } = await import("../../lib/rootRegistrar");
+    await cacheVerifiedDeposit({
+      chainId: normalizedChainId,
+      poolAddress: verified.poolAddress,
+      commitment: String(commitment),
+      blockNumber: verified.blockNumber,
+    });
+  } catch (err) {
+    console.error("post-deposit cache insert failed:", err);
+  }
+
   const [row] = await sql`
-    INSERT INTO notes (payment_id, subscriber_id, chain_id, commitment, value, holder_pk, randomness, nullifier, token_symbol, pool_address)
-    VALUES (${payment.id}, ${payment.subscriber_id}, ${normalizedChainId}, ${commitment}, ${value}, ${holder_pk}, ${randomness}, ${nullifier}, ${token_symbol ?? null}, ${pool_address ?? null})
+    INSERT INTO notes (
+      payment_id, subscriber_id, chain_id, commitment, value, holder_pk,
+      randomness, nullifier, token_symbol, pool_address, deposit_tx
+    )
+    VALUES (
+      ${payment.id}, ${payment.subscriber_id}, ${normalizedChainId}, ${commitment},
+      ${value}, ${holder_pk}, ${randomness}, ${nullifier},
+      ${token_symbol ?? null}, ${pool_address ?? null}, ${deposit_tx}
+    )
     ON CONFLICT (payment_id) DO UPDATE SET
       subscriber_id = EXCLUDED.subscriber_id,
       chain_id = EXCLUDED.chain_id,
@@ -118,25 +177,26 @@ export async function POST(req: NextRequest) {
       randomness = EXCLUDED.randomness,
       nullifier = EXCLUDED.nullifier,
       token_symbol = EXCLUDED.token_symbol,
-      pool_address = EXCLUDED.pool_address
+      pool_address = EXCLUDED.pool_address,
+      deposit_tx = EXCLUDED.deposit_tx
     RETURNING *
   `;
 
-  // Note secrets are persisted only after a successful on-chain deposit — mark claimable now
-  // so a later sibling deposit failure cannot leave this payment stuck as pending.
+  // Only after verified Deposit — mark claimable (and revive failed rows from prior save bugs).
   await sql`
     UPDATE payments
     SET status = 'claimable'
-    WHERE id = ${payment.id} AND status = 'pending'
+    WHERE id = ${payment.id} AND status IN ('pending', 'failed')
   `;
 
-  // Best-effort: register Merkle tip after deposit (serialized per pool in syncPoolRoot).
-  const poolForSync =
-    (typeof pool_address === "string" && pool_address.startsWith("0x")
-      ? (pool_address as `0x${string}`)
-      : null) ??
-    (token_symbol ? CHAINS[normalizedChainId]?.pools[token_symbol]?.pool : null) ??
-    CHAINS[normalizedChainId]?.contracts.pool;
+  await sql`
+    UPDATE payouts
+    SET status = 'deposited'
+    WHERE id = (
+      SELECT payout_id FROM payments WHERE id = ${payment.id}
+    )
+    AND status = 'failed'
+  `;
 
   if (poolForSync && poolForSync !== "0x0000000000000000000000000000000000000000") {
     void import("../../lib/rootRegistrar")

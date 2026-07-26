@@ -36,7 +36,67 @@ import {
   generateDepositProof,
   type ProofResult,
 } from "./zk";
-import { getWalletAuthHeaders, type WalletAuth } from "./api-auth";
+import {
+  clearWalletAuthCache,
+  getWalletAuthHeaders,
+  type WalletAuth,
+} from "./api-auth";
+import { formatInsufficientGasError } from "./alchemy";
+
+const PENDING_NOTES_STORAGE_KEY = "blizkperse-pending-note-secrets";
+
+type PendingNoteSecret = {
+  payment_id: string;
+  subscriber_id: string;
+  chain_id: number;
+  commitment: string;
+  value: string;
+  holder_pk: string;
+  randomness: string;
+  nullifier: string;
+  token_symbol: string;
+  pool_address: string;
+  deposit_tx?: string;
+  savedAt: number;
+};
+
+function readPendingNoteSecrets(): PendingNoteSecret[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(PENDING_NOTES_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as PendingNoteSecret[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePendingNoteSecrets(notes: PendingNoteSecret[]) {
+  if (typeof window === "undefined") return;
+  if (notes.length === 0) {
+    localStorage.removeItem(PENDING_NOTES_STORAGE_KEY);
+    return;
+  }
+  localStorage.setItem(PENDING_NOTES_STORAGE_KEY, JSON.stringify(notes));
+}
+
+function upsertPendingNoteSecret(note: PendingNoteSecret) {
+  const existing = readPendingNoteSecrets().filter(
+    (n) => n.payment_id !== note.payment_id && n.commitment !== note.commitment,
+  );
+  writePendingNoteSecrets([...existing, note]);
+}
+
+function removePendingNoteSecret(paymentId: string, commitment?: string) {
+  writePendingNoteSecrets(
+    readPendingNoteSecrets().filter(
+      (n) =>
+        n.payment_id !== paymentId &&
+        (!commitment || n.commitment !== commitment),
+    ),
+  );
+}
 
 // ── Types ──────────────────────────────────────────────
 
@@ -87,6 +147,9 @@ export interface Payment {
   chainId?: number;
   /** Id of the note linked to this payment (for UI). */
   noteId?: string;
+  /** Confirmed via notes.deposit_tx or deposit_events_cache. */
+  depositConfirmed?: boolean;
+  depositTx?: string;
 }
 
 // ── Store (local cache, synced via API routes) ──────────
@@ -153,15 +216,24 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T | null> {
   }
 }
 
-async function authedApi<T>(
+async function readApiError(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: string };
+    if (body?.error) return body.error;
+  } catch {
+    // ignore non-JSON bodies
+  }
+  return res.statusText || `HTTP ${res.status}`;
+}
+
+async function authedFetch(
   path: string,
   auth: WalletAuth,
   opts?: RequestInit,
-): Promise<T | null> {
-  const authHeaders = await getWalletAuthHeaders(auth);
-
-  try {
-    const res = await fetch(path, {
+): Promise<Response> {
+  const doFetch = async () => {
+    const authHeaders = await getWalletAuthHeaders(auth);
+    return fetch(path, {
       ...opts,
       headers: {
         "Content-Type": "application/json",
@@ -169,10 +241,143 @@ async function authedApi<T>(
         ...(opts?.headers ?? {}),
       },
     });
+  };
+
+  let res = await doFetch();
+  if (res.status === 401) {
+    clearWalletAuthCache();
+    res = await doFetch();
+  }
+  return res;
+}
+
+async function authedApi<T>(
+  path: string,
+  auth: WalletAuth,
+  opts?: RequestInit,
+): Promise<T | null> {
+  try {
+    const res = await authedFetch(path, auth, opts);
     if (!res.ok) return null;
     return res.json();
   } catch {
     return null;
+  }
+}
+
+/** Like authedApi but throws with the API error body (for critical post-chain steps). */
+async function authedApiOrThrow<T>(
+  path: string,
+  auth: WalletAuth,
+  opts?: RequestInit,
+): Promise<T> {
+  let res: Response;
+  try {
+    res = await authedFetch(path, auth, opts);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Network error calling ${path}: ${msg}`);
+  }
+  if (!res.ok) {
+    throw new Error(`${path} failed (${res.status}): ${await readApiError(res)}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function saveNoteSecretsWithRetry(
+  auth: WalletAuth,
+  body: PendingNoteSecret,
+  attempts = 3,
+): Promise<Record<string, unknown>> {
+  if (!body.deposit_tx) {
+    throw new Error("deposit_tx is required before saving note secrets");
+  }
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const noteRow = await authedApiOrThrow<Record<string, unknown>>(
+        "/api/notes",
+        auth,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            payment_id: body.payment_id,
+            subscriber_id: body.subscriber_id,
+            chain_id: body.chain_id,
+            commitment: body.commitment,
+            value: body.value,
+            holder_pk: body.holder_pk,
+            randomness: body.randomness,
+            nullifier: body.nullifier,
+            token_symbol: body.token_symbol,
+            pool_address: body.pool_address,
+            deposit_tx: body.deposit_tx,
+          }),
+        },
+      );
+      if (!noteRow?.id) {
+        throw new Error("Notes API returned no id");
+      }
+      return noteRow;
+    } catch (err) {
+      lastErr = err;
+      clearWalletAuthCache();
+      if (i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+/**
+ * Best-effort: flush note secrets left in localStorage after a prior crash.
+ * Only posts notes that already have a confirmed deposit_tx — never promotes
+ * pre-deposit local drafts into claimable DB rows.
+ */
+export async function flushPendingNoteSecrets(auth: WalletAuth): Promise<number> {
+  const pending = readPendingNoteSecrets();
+  if (pending.length === 0) return 0;
+  let saved = 0;
+  for (const note of pending) {
+    if (!note.deposit_tx) {
+      // Still waiting for an on-chain deposit (or deposit never landed).
+      // Drop stale pre-deposit drafts older than 2 hours so they cannot linger.
+      const ageMs = Date.now() - (note.savedAt || 0);
+      if (ageMs > 2 * 60 * 60 * 1000) {
+        removePendingNoteSecret(note.payment_id, note.commitment);
+      }
+      continue;
+    }
+    try {
+      await saveNoteSecretsWithRetry(auth, note);
+      removePendingNoteSecret(note.payment_id, note.commitment);
+      saved += 1;
+    } catch (err) {
+      console.error(
+        "Failed to flush pending note secret",
+        note.payment_id,
+        note.commitment.slice(0, 12),
+        err,
+      );
+    }
+  }
+  return saved;
+}
+
+/**
+ * Mark the caller's claimable payments as claimed when nullifiers are already spent on-chain.
+ */
+export async function reconcileClaimedPayments(auth: WalletAuth): Promise<number> {
+  try {
+    const data = await authedApi<{ reconciled?: number }>(
+      "/api/payments/reconcile",
+      auth,
+      { method: "POST" },
+    );
+    return Number(data?.reconciled ?? 0);
+  } catch {
+    return 0;
   }
 }
 
@@ -249,6 +454,11 @@ export function hydrateStore() {
       txHash: (r.tx_hash as string) ?? undefined,
       chainId: r.chain_id != null ? Number(r.chain_id) : undefined,
       noteId: r.note_id != null ? String(r.note_id) : undefined,
+      depositTx: (r.deposit_tx as string) ?? undefined,
+      depositConfirmed:
+        r.deposit_confirmed === true ||
+        r.deposit_confirmed === "t" ||
+        r.deposit_confirmed === "true",
     }));
 
     state.loaded = true;
@@ -575,6 +785,8 @@ export async function createPayout(params: {
     throw new Error("Payout must include at least one positive amount");
   }
 
+  params.onProgress?.("Preparing payout", 0, totalNotes);
+
   const config = params.chainConfig;
   const tokenCfg = poolCfg.token;
   const rawAmounts = recipients.map((r) => toTokenRawAmount(r.amount, tokenCfg.decimals));
@@ -682,6 +894,9 @@ export async function createPayout(params: {
   };
 
   try {
+    // Recover any secrets left after a previous on-chain success / notes POST failure.
+    await flushPendingNoteSecrets(authOpts).catch(() => 0);
+
     // ── On-chain deposit flow ──────────────────────────────
     if (params.walletClient) {
       const publicClient = getPublicClient(config);
@@ -730,10 +945,33 @@ export async function createPayout(params: {
         noteIndex++;
         params.onProgress?.("Proving deposit", noteIndex, totalNotes);
 
+        const payment = newPayments[index];
+        if (!payment) {
+          throw new Error("Missing payment record for deposited note");
+        }
+
         const randomness = generateRandomField();
         const note = await createNote(amountRaw, pk_b, randomness);
         const commitment = bigintToBytes32(note.commitment) as Hex;
+        const pendingSecret: PendingNoteSecret = {
+          payment_id: payment.id,
+          subscriber_id: recipient.subscriberId,
+          chain_id: config.id,
+          commitment: bigintToBytes32(note.commitment),
+          value: bigintToBytes32(note.value),
+          holder_pk: bigintToBytes32(note.holder),
+          randomness: bigintToBytes32(note.random),
+          nullifier: bigintToBytes32(note.nullifier),
+          token_symbol: token,
+          pool_address: poolCfg.pool,
+          savedAt: Date.now(),
+        };
+        // Local draft BEFORE the chain tx (crash recovery). Must NOT be flushed to
+        // DB until deposit_tx is set after a successful receipt — see flushPendingNoteSecrets.
+        upsertPendingNoteSecret(pendingSecret);
 
+        // Progress already set to "Proving deposit" / "Generating ZK proof" above;
+        // keep it visible while the server prove request runs (can take a few seconds).
         const depositProof = await generateDepositProof({
           value: bigintToBytes32(note.value),
           commitment,
@@ -755,6 +993,11 @@ export async function createPayout(params: {
             useNative: Boolean(tokenCfg.wrapsNative),
           });
         } catch (err) {
+          // Deposit never landed — discard pre-saved secrets for this payment.
+          removePendingNoteSecret(payment.id, commitment);
+          const gasMsg = formatInsufficientGasError(err);
+          if (gasMsg) throw new Error(gasMsg);
+
           const msg = err instanceof Error ? err.message : String(err);
           let contractReason: string | null = decodeRevertDataFromError(err);
           if (!contractReason && err instanceof BaseError) {
@@ -781,34 +1024,33 @@ export async function createPayout(params: {
           }
           throw err;
         }
-        await publicClient.waitForTransactionReceipt({ hash: depositTx });
-        lastTxHash = depositTx;
-
-        const payment = newPayments[index];
-        if (!payment) {
-          throw new Error("Missing payment record for deposited note");
-        }
-        const noteRow = await authedApi<Record<string, unknown>>("/api/notes", authOpts, {
-          method: "POST",
-          body: JSON.stringify({
-            payment_id: payment.id,
-            subscriber_id: recipient.subscriberId,
-            chain_id: config.id,
-            commitment: bigintToBytes32(note.commitment),
-            value: bigintToBytes32(note.value),
-            holder_pk: bigintToBytes32(note.holder),
-            randomness: bigintToBytes32(note.random),
-            nullifier: bigintToBytes32(note.nullifier),
-            token_symbol: token,
-            pool_address: poolCfg.pool,
-          }),
+        const depositReceipt = await publicClient.waitForTransactionReceipt({
+          hash: depositTx,
         });
-        if (!noteRow?.id) {
+        if (depositReceipt.status !== "success") {
+          removePendingNoteSecret(payment.id, commitment);
           throw new Error(
-            "On-chain deposit succeeded but saving note secrets failed. Do not retry the same note; recover secrets before another deposit.",
+            `Deposit transaction reverted on-chain (${depositTx}). Note was not registered.`,
           );
         }
-        payment.noteId = String(noteRow.id);
+        lastTxHash = depositTx;
+        // Only now is it safe to recover via flush → POST /api/notes.
+        upsertPendingNoteSecret({ ...pendingSecret, deposit_tx: depositTx });
+
+        params.onProgress?.("Saving note secrets", noteIndex, totalNotes);
+        try {
+          const noteRow = await saveNoteSecretsWithRetry(authOpts, {
+            ...pendingSecret,
+            deposit_tx: depositTx,
+          });
+          removePendingNoteSecret(payment.id, commitment);
+          payment.noteId = String(noteRow.id);
+        } catch (saveErr) {
+          const saveMsg = saveErr instanceof Error ? saveErr.message : String(saveErr);
+          throw new Error(
+            `On-chain deposit succeeded but saving note secrets failed. Do not retry the same note; recover secrets before another deposit. payment=${payment.id} commitment=${commitment} tx=${depositTx}. Secrets are in localStorage (${PENDING_NOTES_STORAGE_KEY}). Cause: ${saveMsg}`,
+          );
+        }
         payment.chainId = config.id;
         payment.status = "claimable";
         depositedCount += 1;
@@ -831,6 +1073,15 @@ export async function createPayout(params: {
     commitSuccessfulPaymentsToStore(finalizedPayout, txHash);
     return payout;
   } catch (err) {
+    const isNotesSaveFailure =
+      err instanceof Error && err.message.includes("saving note secrets failed");
+
+    // Deposit landed but notes POST failed: leave payout/payments pending so
+    // flushPendingNoteSecrets (localStorage) can still recover without re-depositing.
+    if (isNotesSaveFailure) {
+      throw err;
+    }
+
     const txHash = (lastTxHash ?? approveTxHash) ?? "";
     const finalizeStatus = depositedCount > 0 ? "deposited" : "failed";
     const finalized = await finalizePayoutStatus(finalizeStatus, txHash).catch(() => null);
@@ -851,6 +1102,9 @@ export async function createPayout(params: {
       emitChange();
     }
 
+    // Approve / estimateGas can also fail with insufficient native for gas.
+    const gasMsg = formatInsufficientGasError(err);
+    if (gasMsg) throw new Error(gasMsg);
     throw err;
   }
 }
@@ -909,7 +1163,12 @@ export async function claimPayment(
     } else {
       const publicClient = getPublicClient(chainConfig);
       const withdrawTx = await withdrawFromPool(walletClient!, chainConfig, withdrawParams);
-      await publicClient.waitForTransactionReceipt({ hash: withdrawTx });
+      const withdrawReceipt = await publicClient.waitForTransactionReceipt({
+        hash: withdrawTx,
+      });
+      if (withdrawReceipt.status !== "success") {
+        throw new Error(`Withdraw transaction reverted on-chain (${withdrawTx})`);
+      }
       txHash = withdrawTx;
     }
   } else {
@@ -918,17 +1177,16 @@ export async function claimPayment(
 
   const now = new Date().toISOString();
 
-  const data = await authedApi<Record<string, unknown>>(
+  // Prefer throwing API errors so a successful on-chain withdraw still surfaces
+  // DB sync failures (and claim route can reconcile via nullifier on retry).
+  await authedApiOrThrow<Record<string, unknown>>(
     `/api/payments/${paymentId}/claim`,
     { ...auth, walletClient },
     {
       method: "PATCH",
-      body: JSON.stringify({ tx_hash: txHash }),
+      body: JSON.stringify({ tx_hash: txHash || null }),
     },
   );
-  if (!data) {
-    throw new Error("Failed to mark payment as claimed");
-  }
 
   const payment = state.payments.find((p) => p.id === paymentId);
   if (payment) {
