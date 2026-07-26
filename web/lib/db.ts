@@ -56,6 +56,57 @@ export function ensureSchema() {
       )
     `;
     await sql`
+      CREATE TABLE IF NOT EXISTS org_invites (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        organizer_id uuid NOT NULL REFERENCES organizers(id) ON DELETE CASCADE,
+        code text NOT NULL UNIQUE,
+        created_by text NOT NULL,
+        created_at timestamptz DEFAULT now(),
+        used_at timestamptz,
+        used_by_subscriber_id uuid REFERENCES subscribers(id) ON DELETE SET NULL,
+        expires_at timestamptz,
+        max_uses int NOT NULL DEFAULT 1 CHECK (max_uses >= 1),
+        use_count int NOT NULL DEFAULT 0 CHECK (use_count >= 0)
+      )
+    `;
+    // Multi-redeem invites: migrate existing DBs that predate max_uses / use_count
+    await sql`ALTER TABLE org_invites ADD COLUMN IF NOT EXISTS max_uses int`;
+    await sql`ALTER TABLE org_invites ADD COLUMN IF NOT EXISTS use_count int`;
+    await sql`
+      UPDATE org_invites
+      SET
+        max_uses = COALESCE(max_uses, 1),
+        use_count = COALESCE(
+          use_count,
+          CASE WHEN used_at IS NOT NULL THEN 1 ELSE 0 END
+        )
+    `;
+    await sql`
+      ALTER TABLE org_invites
+      ALTER COLUMN max_uses SET DEFAULT 1,
+      ALTER COLUMN max_uses SET NOT NULL,
+      ALTER COLUMN use_count SET DEFAULT 0,
+      ALTER COLUMN use_count SET NOT NULL
+    `;
+    await sql`ALTER TABLE org_invites DROP CONSTRAINT IF EXISTS org_invites_max_uses_check`;
+    await sql`
+      ALTER TABLE org_invites
+      ADD CONSTRAINT org_invites_max_uses_check CHECK (max_uses >= 1)
+    `;
+    await sql`ALTER TABLE org_invites DROP CONSTRAINT IF EXISTS org_invites_use_count_check`;
+    await sql`
+      ALTER TABLE org_invites
+      ADD CONSTRAINT org_invites_use_count_check CHECK (use_count >= 0)
+    `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS org_invite_redemptions (
+        invite_id uuid NOT NULL REFERENCES org_invites(id) ON DELETE CASCADE,
+        subscriber_id uuid NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE,
+        redeemed_at timestamptz DEFAULT now(),
+        PRIMARY KEY (invite_id, subscriber_id)
+      )
+    `;
+    await sql`
       CREATE TABLE IF NOT EXISTS payouts (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         organizer_id uuid REFERENCES organizers(id) ON DELETE CASCADE,
@@ -196,6 +247,9 @@ export function ensureSchema() {
     await sql`CREATE INDEX IF NOT EXISTS idx_subscribers_address ON subscribers(address)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_subscriptions_org ON subscriptions(organizer_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_subscriptions_sub ON subscriptions(subscriber_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_org_invites_organizer ON org_invites(organizer_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_org_invites_available ON org_invites(code) WHERE use_count < max_uses`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_org_invite_redemptions_subscriber ON org_invite_redemptions(subscriber_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_payouts_org ON payouts(organizer_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_payments_sub ON payments(subscriber_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_payments_payout ON payments(payout_id)`;

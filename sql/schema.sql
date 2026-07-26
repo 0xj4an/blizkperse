@@ -30,6 +30,28 @@ create table if not exists subscriptions (
   unique(organizer_id, subscriber_id)
 );
 
+-- Organization invite codes (single- or multi-use via max_uses)
+create table if not exists org_invites (
+  id uuid primary key default gen_random_uuid(),
+  organizer_id uuid not null references organizers(id) on delete cascade,
+  code text not null unique,
+  created_by text not null,
+  created_at timestamptz default now(),
+  used_at timestamptz,
+  used_by_subscriber_id uuid references subscribers(id) on delete set null,
+  expires_at timestamptz,
+  max_uses int not null default 1 check (max_uses >= 1),
+  use_count int not null default 0 check (use_count >= 0)
+);
+
+-- Audit of who redeemed each invite (UNIQUE prevents double-count per subscriber)
+create table if not exists org_invite_redemptions (
+  invite_id uuid not null references org_invites(id) on delete cascade,
+  subscriber_id uuid not null references subscribers(id) on delete cascade,
+  redeemed_at timestamptz default now(),
+  primary key (invite_id, subscriber_id)
+);
+
 -- Payouts (batch distributions created by organizers)
 create table if not exists payouts (
   id uuid primary key default gen_random_uuid(),
@@ -88,6 +110,9 @@ create index if not exists idx_organizers_owner on organizers(owner_address);
 create index if not exists idx_subscribers_address on subscribers(address);
 create index if not exists idx_subscriptions_org on subscriptions(organizer_id);
 create index if not exists idx_subscriptions_sub on subscriptions(subscriber_id);
+create index if not exists idx_org_invites_organizer on org_invites(organizer_id);
+create index if not exists idx_org_invites_available on org_invites(code) where use_count < max_uses;
+create index if not exists idx_org_invite_redemptions_subscriber on org_invite_redemptions(subscriber_id);
 create index if not exists idx_payouts_org on payouts(organizer_id);
 create index if not exists idx_payments_sub on payments(subscriber_id);
 create index if not exists idx_payments_payout on payments(payout_id);

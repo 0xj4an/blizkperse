@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { invalidateAndRefetchStore } from "@/lib/store";
 import { toast } from "sonner";
 import { useAccount } from "@getpara/react-sdk";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -22,7 +24,8 @@ import {
   useStore,
   getOrganizerById,
   ensureSubscriber,
-  joinOrganizer,
+  fetchInvite,
+  joinWithInvite,
   type Payment,
   type Payout,
 } from "@/lib/store";
@@ -31,24 +34,68 @@ import { CHAINS, type SupportedChainId } from "@/lib/constants";
 import { useParaWalletClient } from "@/lib/wallet";
 import { useApiAuth } from "@/lib/api-auth";
 
-function isSpanishUi(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return navigator.language.toLowerCase().startsWith("es");
+/** Decode a captured invite value; strip accidental wrapping quotes. */
+function decodeInviteValue(value: string): string {
+  const unquoted = value.replace(/^["']+|["']+$/g, "").trim();
+  try {
+    return decodeURIComponent(unquoted).trim();
+  } catch {
+    return unquoted;
+  }
+}
+
+/**
+ * Extract invite code from paste: bare code, absolute/relative URL with
+ * `?invite=`, extra query params, whitespace, or light trailing chat junk.
+ */
+function parseInviteInput(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+
+  // Prefer an explicit `invite=` capture (stops at &, #, whitespace, quotes).
+  const fromParam = trimmed.match(/[?&]invite=([^&#\s"'<>]+)/i);
+  if (fromParam?.[1]) return decodeInviteValue(fromParam[1]);
+
+  // Absolute URL embedded in chat text (optional trailing punctuation).
+  const urlInText = trimmed.match(/https?:\/\/[^\s"'<>]+/i);
+  if (urlInText?.[0]) {
+    try {
+      const cleanedUrl = urlInText[0].replace(/[.,;:!?)]+$/, "");
+      const fromQuery = new URL(cleanedUrl).searchParams.get("invite");
+      if (fromQuery?.trim()) return decodeInviteValue(fromQuery);
+    } catch {
+      // Fall through.
+    }
+  }
+
+  // Absolute URL as the whole paste (may include other query params).
+  try {
+    const fromQuery = new URL(trimmed).searchParams.get("invite");
+    if (fromQuery?.trim()) return decodeInviteValue(fromQuery);
+  } catch {
+    // Not an absolute URL — bare code path below.
+  }
+
+  // Bare code: first token, drop common trailing punctuation from chat.
+  const firstToken = (trimmed.split(/\s+/)[0] ?? trimmed).replace(
+    /[.,;:!?)\]}>]+$/g,
+    "",
+  );
+  return firstToken;
 }
 
 function paymentStatusLabel(status: Payment["status"]): string {
-  const es = isSpanishUi();
   switch (status) {
     case "pending":
-      return es ? "Pendiente de depósito" : "Awaiting deposit";
+      return "Awaiting deposit";
     case "claimable":
-      return es ? "Listo para reclamar" : "Ready to claim";
+      return "Ready to claim";
     case "claimed":
-      return es ? "Reclamado" : "Claimed";
+      return "Claimed";
     case "expired":
-      return es ? "Expirado" : "Expired";
+      return "Expired";
     case "failed":
-      return es ? "Fallido" : "Failed";
+      return "Failed";
     default:
       return status;
   }
@@ -76,7 +123,11 @@ function formatDistributedLabel(payouts: Payout[]): string {
   return totals.map(({ amount, token }) => formatTokenAmount(amount, token)).join(" · ");
 }
 
-export default function ReceiveDashboard() {
+function ReceiveDashboardInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryInvite = (searchParams.get("invite") ?? "").trim();
+
   const { embedded } = useAccount();
   const address = embedded?.wallets?.[0]?.address ?? "";
   const { walletClient } = useParaWalletClient();
@@ -124,25 +175,123 @@ export default function ReceiveDashboard() {
     (s) => visibleOrgIds.has(s.organizerId)
   );
 
-  const [joining, setJoining] = useState<string | null>(null);
+  const [inviteInput, setInviteInput] = useState(queryInvite);
+  const [activeInviteCode, setActiveInviteCode] = useState(queryInvite);
+  const [joining, setJoining] = useState(false);
+  const [inviteLoading, setInviteLoading] = useState(Boolean(queryInvite));
+  const [inviteInfo, setInviteInfo] = useState<{
+    code: string;
+    organizerId: string;
+    organizerName: string;
+    maxUses: number;
+    useCount: number;
+    remaining: number;
+    used: boolean;
+    expired: boolean;
+    valid: boolean;
+  } | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+
+  // Deep link: sync query param into active code (do not clear on replace after join).
+  useEffect(() => {
+    if (!queryInvite) return;
+    setActiveInviteCode(queryInvite);
+    setInviteInput(queryInvite);
+  }, [queryInvite]);
 
   // Refetch store when entering receive so payment status (claimable/claimed) matches DB
   useEffect(() => {
     invalidateAndRefetchStore();
   }, []);
 
-  const handleJoin = async (organizerId: string) => {
-    if (!subId) return;
-    setJoining(organizerId);
+  useEffect(() => {
+    if (!activeInviteCode) {
+      setInviteInfo(null);
+      setInviteError(null);
+      setInviteLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setInviteLoading(true);
+    setInviteError(null);
+    fetchInvite(activeInviteCode)
+      .then((info) => {
+        if (cancelled) return;
+        if (!info) {
+          setInviteInfo(null);
+          setInviteError("Invite not found or invalid.");
+          return;
+        }
+        setInviteInfo(info);
+        if (!info.valid) {
+          setInviteError(
+            info.used
+              ? "This invite link is fully used."
+              : "This invite link has expired.",
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setInviteInfo(null);
+          setInviteError("Failed to load invite.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setInviteLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeInviteCode]);
+
+  const handleRedeemInvite = () => {
+    const code = parseInviteInput(inviteInput);
+    if (!code) {
+      setInviteError("Paste the invite link or just the code.");
+      setInviteInfo(null);
+      setActiveInviteCode("");
+      return;
+    }
+    setInviteError(null);
+    setActiveInviteCode(code);
+  };
+
+  const handleJoinWithInvite = async () => {
+    if (!subId || !inviteInfo?.valid) return;
+    setJoining(true);
     try {
-      await joinOrganizer(organizerId, subId, { ...apiAuth, walletClient, address });
+      await joinWithInvite(inviteInfo.code, subId, {
+        ...apiAuth,
+        walletClient,
+        address,
+      });
       toast.success("Joined successfully!");
-    } catch {
-      toast.error("Failed to join. Please try again.");
+      const remaining = Math.max(0, inviteInfo.remaining - 1);
+      const exhausted = remaining <= 0;
+      setInviteInfo({
+        ...inviteInfo,
+        useCount: inviteInfo.useCount + 1,
+        remaining,
+        used: exhausted,
+        // Stay valid for remaining slots; this user sees "Already joined" via inviteOrgJoined.
+        valid: !exhausted,
+      });
+      setInviteError(null);
+      if (queryInvite) {
+        router.replace("/receive");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to join. Please try again.");
     } finally {
-      setJoining(null);
+      setJoining(false);
     }
   };
+
+  const inviteOrgJoined =
+    inviteInfo != null && subscribedOrgIds.has(inviteInfo.organizerId);
 
   return (
     <Tabs defaultValue="browse" className="space-y-6">
@@ -163,6 +312,90 @@ export default function ReceiveDashboard() {
 
       {/* Browse Organizers */}
       <TabsContent value="browse" className="space-y-4">
+        <Card className="border-foreground/20">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Redeem invite</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                value={inviteInput}
+                onChange={(e) => setInviteInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleRedeemInvite();
+                  }
+                }}
+                placeholder="Paste the invite link or just the code — we'll handle either"
+                className="font-mono text-sm"
+                aria-label="Paste the invite link or just the code"
+              />
+              <Button
+                size="default"
+                variant="secondary"
+                className="shrink-0"
+                onClick={handleRedeemInvite}
+                disabled={inviteLoading}
+              >
+                Redeem invite
+              </Button>
+            </div>
+
+            {activeInviteCode ? (
+              inviteLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading invite…
+                </div>
+              ) : inviteInfo ? (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Organization</span>
+                    <span className="font-medium">{inviteInfo.organizerName}</span>
+                  </div>
+                  {inviteInfo.maxUses > 1 && inviteInfo.valid && (
+                    <p className="text-xs text-muted-foreground">
+                      {inviteInfo.remaining} of {inviteInfo.maxUses} spots left
+                    </p>
+                  )}
+                  {inviteOrgJoined ? (
+                    <Badge variant="default" className="text-xs">
+                      Already joined
+                    </Badge>
+                  ) : inviteInfo.valid ? (
+                    <Button
+                      size="sm"
+                      className="w-full gap-2"
+                      onClick={handleJoinWithInvite}
+                      disabled={joining || !subId}
+                    >
+                      {joining ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        "Join organization"
+                      )}
+                    </Button>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {inviteError ?? "This invite is no longer valid."}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {inviteError ?? "You need a valid invite link or code to join."}
+                </p>
+              )
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {inviteError ??
+                  "Paste the invite link or just the code from the organizer — we'll handle either."}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {visibleOrganizers.map((org) => {
             const isJoined = subscribedOrgIds.has(org.id);
@@ -192,18 +425,9 @@ export default function ReceiveDashboard() {
                     <span className="font-medium">{org.subscriberCount}</span>
                   </div>
                   {!isJoined && (
-                    <Button
-                      size="sm"
-                      className="w-full gap-2"
-                      onClick={() => handleJoin(org.id)}
-                      disabled={joining === org.id}
-                    >
-                      {joining === org.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        "Join"
-                      )}
-                    </Button>
+                    <p className="text-xs text-muted-foreground text-center pt-1">
+                      Invite required to join
+                    </p>
                   )}
                 </CardContent>
               </Card>
@@ -255,7 +479,8 @@ export default function ReceiveDashboard() {
                     colSpan={3}
                     className="py-8 text-center text-sm text-muted-foreground"
                   >
-                    No subscriptions on {CHAINS[selectedChainId]?.name ?? "this network"}. Browse organizers to get started.
+                    No subscriptions on {CHAINS[selectedChainId]?.name ?? "this network"}. Redeem an
+                    invite to join an organization.
                   </TableCell>
                 </TableRow>
               )}
@@ -371,5 +596,20 @@ export default function ReceiveDashboard() {
         </Card>
       </TabsContent>
     </Tabs>
+  );
+}
+
+export default function ReceiveDashboard() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading…
+        </div>
+      }
+    >
+      <ReceiveDashboardInner />
+    </Suspense>
   );
 }

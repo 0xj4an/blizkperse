@@ -35,13 +35,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Plus, Users, CircleDollarSign, Clock, Building2, Loader2, Pencil, Trash2 } from "lucide-react";
+import { Plus, Users, CircleDollarSign, Clock, Building2, Loader2, Pencil, Trash2, Link2, Copy, Check } from "lucide-react";
 import {
   useStore,
   getSubscriberById,
   createOrganizer,
   updateOrganizer,
   deleteOrganizer,
+  createInvite,
   invalidateAndRefetchStore,
   type Payout,
 } from "@/lib/store";
@@ -51,24 +52,18 @@ import { useParaWalletClient } from "@/lib/wallet";
 import { useApiAuth } from "@/lib/api-auth";
 import { WalletBalances } from "@/components/wallet-balances";
 
-function isSpanishUi(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return navigator.language.toLowerCase().startsWith("es");
-}
-
 function payoutStatusLabel(status: Payout["status"]): string {
-  const es = isSpanishUi();
   switch (status) {
     case "pending":
-      return es ? "Pendiente de depósito" : "Awaiting deposit";
+      return "Awaiting deposit";
     case "deposited":
-      return es ? "Listo para reclamar" : "Ready to claim";
+      return "Ready to claim";
     case "distributed":
-      return es ? "Distribuido" : "Distributed";
+      return "Distributed";
     case "claimed":
-      return es ? "Reclamado" : "Claimed";
+      return "Claimed";
     case "failed":
-      return es ? "Fallido" : "Failed";
+      return "Failed";
     default:
       return status;
   }
@@ -175,6 +170,14 @@ export default function PayerDashboard() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteLink, setInviteLink] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [inviteMaxUses, setInviteMaxUses] = useState("1");
+  const [inviteCreatedMaxUses, setInviteCreatedMaxUses] = useState<number | null>(null);
+  const [generatingInvite, setGeneratingInvite] = useState(false);
+  const [copiedInvite, setCopiedInvite] = useState(false);
+
   const handleCreateOrg = async () => {
     if (!newOrgName.trim()) return;
     setCreating(true);
@@ -224,6 +227,51 @@ export default function PayerDashboard() {
       toast.error(err instanceof Error ? err.message : "Failed to delete.");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleGenerateInvite = async () => {
+    if (!selectedOrg) return;
+    const parsed = Number.parseInt(inviteMaxUses, 10);
+    const maxUses = Number.isFinite(parsed)
+      ? Math.min(1000, Math.max(1, parsed))
+      : 1;
+    setGeneratingInvite(true);
+    setCopiedInvite(false);
+    try {
+      const invite = await createInvite(
+        selectedOrg.id,
+        {
+          ...apiAuth,
+          walletClient,
+          address,
+        },
+        { maxUses },
+      );
+      setInviteCode(invite.code);
+      setInviteLink(invite.joinUrl);
+      setInviteCreatedMaxUses(invite.maxUses);
+      setInviteMaxUses(String(invite.maxUses));
+      toast.success(
+        invite.maxUses === 1
+          ? "Invite link created."
+          : `Invite link created (valid for ${invite.maxUses} joins).`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create invite.");
+    } finally {
+      setGeneratingInvite(false);
+    }
+  };
+
+  const handleCopyInvite = async () => {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setCopiedInvite(true);
+      toast.success("Invite link copied.");
+    } catch {
+      toast.error("Could not copy link.");
     }
   };
 
@@ -419,6 +467,99 @@ export default function PayerDashboard() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+
+            <Dialog
+              open={inviteOpen}
+              onOpenChange={(open) => {
+                setInviteOpen(open);
+                if (!open) {
+                  setInviteLink("");
+                  setInviteCode("");
+                  setInviteMaxUses("1");
+                  setInviteCreatedMaxUses(null);
+                  setCopiedInvite(false);
+                }
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2 ml-1">
+                  <Link2 className="h-4 w-4" />
+                  Invite
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Invite to {selectedOrg.name}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 pt-2">
+                  <p className="text-sm text-muted-foreground">
+                    Generate an invite link. Set how many different people can join with the same
+                    code (default 1 = single-use).
+                  </p>
+                  {!inviteLink && (
+                    <div className="space-y-2">
+                      <label htmlFor="invite-max-uses" className="text-sm font-medium">
+                        Valid for N joins
+                      </label>
+                      <Input
+                        id="invite-max-uses"
+                        type="number"
+                        min={1}
+                        max={1000}
+                        step={1}
+                        value={inviteMaxUses}
+                        onChange={(e) => setInviteMaxUses(e.target.value)}
+                        disabled={generatingInvite}
+                      />
+                    </div>
+                  )}
+                  <Button
+                    className="w-full gap-2"
+                    onClick={handleGenerateInvite}
+                    disabled={generatingInvite || Boolean(inviteLink)}
+                  >
+                    {generatingInvite ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Link2 className="h-4 w-4" />
+                        Generate invite link
+                      </>
+                    )}
+                  </Button>
+                  {inviteLink && (
+                    <div className="space-y-2">
+                      <Input readOnly value={inviteLink} className="font-mono text-xs" />
+                      {inviteCode && (
+                        <p className="text-xs text-muted-foreground font-mono">
+                          Code: {inviteCode}
+                          {inviteCreatedMaxUses != null && (
+                            <> · Valid for {inviteCreatedMaxUses} join{inviteCreatedMaxUses === 1 ? "" : "s"}</>
+                          )}
+                        </p>
+                      )}
+                      <Button
+                        variant="outline"
+                        className="w-full gap-2"
+                        onClick={handleCopyInvite}
+                      >
+                        {copiedInvite ? (
+                          <>
+                            <Check className="h-4 w-4" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-4 w-4" />
+                            Copy link
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
 
           {/* Stats */}
@@ -462,9 +603,7 @@ export default function PayerDashboard() {
               <CardContent className="flex items-center gap-4 p-6">
                 <Clock className="h-6 w-6 text-muted-foreground" />
                 <div>
-                  <p className="text-sm text-muted-foreground">
-                    {isSpanishUi() ? "Listos para reclamar" : "Ready to claim"}
-                  </p>
+                  <p className="text-sm text-muted-foreground">Ready to claim</p>
                   <p className="text-2xl font-bold">{readyToClaimPayouts}</p>
                 </div>
               </CardContent>
@@ -517,7 +656,7 @@ export default function PayerDashboard() {
                 {orgSubs.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
-                      No subscribers yet. Share your organization so people can join.
+                      No subscribers yet. Generate an invite link so people can join.
                     </TableCell>
                   </TableRow>
                 )}
