@@ -14,10 +14,13 @@ import { ServerMerkleTree, bigintToBytes32 } from "./serverMerkle";
 
 export const maxDuration = 60;
 
-const CHUNK_SIZE = BigInt(2000);
-const CONCURRENCY = 3;
+/** Larger chunks cut RPC round-trips on fast chains (Monad ~640k blocks from deploy). */
+const CHUNK_SIZE = BigInt(5000);
+const CONCURRENCY = 4;
 const RETRY_DELAY_MS = 2000;
 const MAX_RETRIES = 3;
+/** Leave headroom under route maxDuration so we can still return / registerRoot. */
+const DEFAULT_SCAN_BUDGET_MS = 25_000;
 
 const depositEvent = parseAbiItem(
   "event Deposit(address indexed depositor, bytes32 indexed commitment, uint256 amount)",
@@ -146,17 +149,155 @@ async function fetchLogsWithRetry(
   return [];
 }
 
+async function insertDepositLogs(
+  chainId: SupportedChainId,
+  poolKey: string,
+  logs: DepositLog[],
+): Promise<void> {
+  if (logs.length === 0) return;
+  logs.sort((a, b) => {
+    const bn = BigInt(a.blockNumber) - BigInt(b.blockNumber);
+    if (bn !== 0n) return bn < 0n ? -1 : 1;
+    return a.logIndex - b.logIndex;
+  });
+  await sql`
+    INSERT INTO deposit_events_cache ${sql(
+      logs.map((l) => ({
+        chain_id: chainId,
+        pool_address: poolKey,
+        block_number: l.blockNumber,
+        sender: l.sender,
+        commitment: l.commitment,
+      })),
+    )}
+    ON CONFLICT (chain_id, pool_address, commitment) DO NOTHING
+  `;
+}
+
+async function setScanCursor(
+  chainId: SupportedChainId,
+  poolKey: string,
+  lastBlock: bigint,
+): Promise<void> {
+  const lastBlockStr = String(lastBlock);
+  await sql`
+    INSERT INTO scan_cursor (chain_id, pool_address, last_block)
+    VALUES (${chainId}, ${poolKey}, ${lastBlockStr})
+    ON CONFLICT (chain_id, pool_address)
+    DO UPDATE SET last_block = EXCLUDED.last_block
+    WHERE scan_cursor.last_block < EXCLUDED.last_block
+  `;
+}
+
+/**
+ * Cache a single verified Deposit (from POST /api/notes) so claim does not wait
+ * for a full RPC rescan — critical on Monad where deploy→tip is hundreds of k blocks.
+ */
+export async function cacheVerifiedDeposit(params: {
+  chainId: SupportedChainId;
+  poolAddress: `0x${string}`;
+  commitment: string;
+  blockNumber: string;
+  sender?: string;
+}): Promise<void> {
+  await ensureSchema();
+  const poolKey = params.poolAddress.toLowerCase();
+  const commitment = params.commitment.trim();
+  if (!commitment) return;
+  await insertDepositLogs(params.chainId, poolKey, [
+    {
+      sender: params.sender ?? "",
+      commitment,
+      blockNumber: params.blockNumber,
+      logIndex: 0,
+    },
+  ]);
+}
+
+/**
+ * Seed cache from notes that already have a confirmed deposit_tx (receipt → Deposit log).
+ * Covers gaps when a full historical getLogs scan times out (Monad).
+ */
+async function seedCacheFromNotes(
+  config: ChainConfig,
+  chainId: SupportedChainId,
+  poolAddress: `0x${string}`,
+): Promise<number> {
+  const poolKey = poolAddress.toLowerCase();
+  const missing = await sql`
+    SELECT n.commitment, n.deposit_tx
+    FROM notes n
+    WHERE n.chain_id = ${chainId}
+      AND lower(n.pool_address) = ${poolKey}
+      AND n.deposit_tx IS NOT NULL
+      AND n.deposit_tx <> ''
+      AND n.commitment IS NOT NULL
+      AND n.commitment <> ''
+      AND NOT EXISTS (
+        SELECT 1 FROM deposit_events_cache d
+        WHERE d.chain_id = ${chainId}
+          AND d.pool_address = ${poolKey}
+          AND lower(d.commitment) = lower(n.commitment)
+      )
+  `;
+  if (missing.length === 0) return 0;
+
+  const client = createPublicClient({
+    chain: toViemChain(config),
+    transport: http(config.rpcUrl),
+  });
+
+  const logs: DepositLog[] = [];
+  for (const row of missing) {
+    const txHash = String(row.deposit_tx ?? "").trim() as Hex;
+    if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) continue;
+    try {
+      const receipt = await client.getTransactionReceipt({ hash: txHash });
+      if (receipt.status !== "success") continue;
+      for (const log of receipt.logs) {
+        if (log.address.toLowerCase() !== poolKey) continue;
+        // indexed commitment = topic[2] for both Deposit ABIs
+        const commitment = log.topics?.[2];
+        if (!commitment) continue;
+        const depositor = log.topics?.[1]
+          ? (`0x${log.topics[1].slice(26)}` as string)
+          : "";
+        logs.push({
+          sender: depositor,
+          commitment,
+          blockNumber: String(receipt.blockNumber),
+          logIndex: Number(log.logIndex ?? 0),
+        });
+      }
+    } catch (err) {
+      console.error(
+        `seedCacheFromNotes: failed tx ${txHash.slice(0, 12)}…`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  await insertDepositLogs(chainId, poolKey, logs);
+  return logs.length;
+}
+
+/**
+ * Incremental RPC scan. Advances scan_cursor after each successful batch so
+ * subsequent requests make progress instead of restarting from deploy every time.
+ */
 async function scanAndCacheDeposits(
   config: ChainConfig,
   chainId: SupportedChainId,
   poolAddress: `0x${string}`,
-): Promise<void> {
+  timeBudgetMs: number = DEFAULT_SCAN_BUDGET_MS,
+): Promise<{ scannedTo: bigint | null; complete: boolean }> {
   const poolKey = poolAddress.toLowerCase();
   const client = createPublicClient({
     chain: toViemChain(config),
     transport: http(config.rpcUrl),
   });
   const latest = await client.getBlockNumber();
+  const deadline = Date.now() + timeBudgetMs;
 
   const [cursorRow] = await sql`
     SELECT last_block FROM scan_cursor
@@ -165,7 +306,9 @@ async function scanAndCacheDeposits(
   const lastScanned = cursorRow ? BigInt(cursorRow.last_block as string) : null;
   const scanFrom = lastScanned != null ? lastScanned + BigInt(1) : config.deployBlock;
 
-  if (scanFrom > latest) return;
+  if (scanFrom > latest) {
+    return { scannedTo: latest, complete: true };
+  }
 
   const ranges: { from: bigint; to: bigint }[] = [];
   let cursor = scanFrom;
@@ -175,43 +318,86 @@ async function scanAndCacheDeposits(
     cursor = end + BigInt(1);
   }
 
-  const logs: DepositLog[] = [];
+  let advancedTo: bigint | null = lastScanned;
   for (let i = 0; i < ranges.length; i += CONCURRENCY) {
+    if (Date.now() >= deadline) {
+      if (advancedTo != null) await setScanCursor(chainId, poolKey, advancedTo);
+      return { scannedTo: advancedTo, complete: false };
+    }
+
     const batch = ranges.slice(i, i + CONCURRENCY);
     const results = await Promise.all(
       batch.map((r) => fetchLogsWithRetry(client, poolAddress, r.from, r.to)),
     );
+    const logs: DepositLog[] = [];
     for (const chunk of results) logs.push(...chunk);
-    if (i + CONCURRENCY < ranges.length) await sleep(300);
+    await insertDepositLogs(chainId, poolKey, logs);
+
+    const batchEnd = batch[batch.length - 1]!.to;
+    advancedTo = batchEnd;
+    await setScanCursor(chainId, poolKey, batchEnd);
   }
 
-  if (logs.length > 0) {
-    // Stable order before insert so serial ids roughly follow chain order
-    logs.sort((a, b) => {
-      const bn = BigInt(a.blockNumber) - BigInt(b.blockNumber);
-      if (bn !== 0n) return bn < 0n ? -1 : 1;
-      return a.logIndex - b.logIndex;
-    });
-    await sql`
-      INSERT INTO deposit_events_cache ${sql(
-        logs.map((l) => ({
-          chain_id: chainId,
-          pool_address: poolKey,
-          block_number: l.blockNumber,
-          sender: l.sender,
-          commitment: l.commitment,
-        })),
-      )}
-      ON CONFLICT (chain_id, pool_address, commitment) DO NOTHING
-    `;
+  return { scannedTo: latest, complete: true };
+}
+
+/**
+ * Ensure deposit_events_cache is usable for Merkle builds: seed from notes, then
+ * continue the historical RPC scan within a time budget.
+ */
+export async function ensurePoolDepositCache(params: {
+  chainId: SupportedChainId;
+  poolAddress: `0x${string}`;
+  timeBudgetMs?: number;
+}): Promise<{
+  events: { sender: string; commitment: string; blockNumber: string }[];
+  scanComplete: boolean;
+}> {
+  const config = CHAINS[params.chainId];
+  if (!config || config.placeholder) {
+    throw new Error(`Chain ${params.chainId} not supported or not deployed`);
   }
 
-  await sql`
-    INSERT INTO scan_cursor (chain_id, pool_address, last_block)
-    VALUES (${chainId}, ${poolKey}, ${String(latest)})
-    ON CONFLICT (chain_id, pool_address)
-    DO UPDATE SET last_block = ${String(latest)}
+  await ensureSchema();
+  const poolKey = params.poolAddress.toLowerCase();
+
+  await seedCacheFromNotes(config, params.chainId, params.poolAddress);
+
+  let scanComplete = true;
+  try {
+    const scan = await scanAndCacheDeposits(
+      config,
+      params.chainId,
+      params.poolAddress,
+      params.timeBudgetMs ?? DEFAULT_SCAN_BUDGET_MS,
+    );
+    scanComplete = scan.complete;
+  } catch (scanErr) {
+    console.error(
+      `RPC scan failed for chain ${params.chainId}:`,
+      scanErr instanceof Error ? scanErr.message : scanErr,
+    );
+    scanComplete = false;
+  }
+
+  const cachedEvents = await sql`
+    SELECT sender, commitment, block_number as "blockNumber"
+    FROM deposit_events_cache
+    WHERE chain_id = ${params.chainId}
+      AND pool_address = ${poolKey}
+      AND pool_address <> ''
+    ORDER BY block_number ASC, id ASC
   `;
+
+  const events = cachedEvents
+    .map((e) => ({
+      sender: (e.sender as string) ?? "",
+      commitment: String(e.commitment ?? "").trim(),
+      blockNumber: (e.blockNumber as string) ?? "0",
+    }))
+    .filter((e) => e.commitment);
+
+  return { events, scanComplete };
 }
 
 async function loadOrderedCommitments(
@@ -266,7 +452,12 @@ export async function syncPoolRoot(params: {
 
   return withPoolLock(poolKey, async () => {
     await ensureSchema();
-    await scanAndCacheDeposits(config, params.chainId, params.poolAddress);
+    // Seed from notes + incremental scan (Monad cannot full-rescan deploy→tip in one request).
+    await ensurePoolDepositCache({
+      chainId: params.chainId,
+      poolAddress: params.poolAddress,
+      timeBudgetMs: 40_000,
+    });
 
     const commitments = await loadOrderedCommitments(params.chainId, poolKey);
     if (commitments.length === 0) {

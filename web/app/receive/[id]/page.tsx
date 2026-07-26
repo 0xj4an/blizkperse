@@ -223,15 +223,41 @@ export default function ClaimPage() {
         nullifier,
       );
 
-      // Build Merkle tree from on-chain deposits and find this note's path
-      const tree = await buildTreeFromEvents(noteChain, {
+      // Build Merkle tree from indexed Deposit events (server seeds from notes + RPC).
+      const treeOpts = {
         tokenSymbol: noteData.token_symbol,
         poolAddress: noteData.pool_address as `0x${string}` | undefined,
-      });
-      const leafIndex = tree.indexOf(commitment);
+      };
+      let tree = await buildTreeFromEvents(noteChain, treeOpts);
+      let leafIndex = tree.indexOf(commitment);
+      // One retry after indexer/sync — Monad historical scans often need a second pass.
+      if (leafIndex === -1) {
+        try {
+          await fetch("/api/sync-pool-root", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(await getAuthHeaders()),
+            },
+            body: JSON.stringify({
+              chain_id: noteChain.id,
+              pool_address:
+                (noteData.pool_address as string | undefined) ??
+                noteChain.pools[noteData.token_symbol ?? noteChain.defaultToken.symbol]?.pool ??
+                noteChain.contracts.pool,
+              token_symbol: noteData.token_symbol ?? noteChain.defaultToken.symbol,
+            }),
+          });
+        } catch {
+          // fall through to rebuild
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+        tree = await buildTreeFromEvents(noteChain, treeOpts);
+        leafIndex = tree.indexOf(commitment);
+      }
       if (leafIndex === -1) {
         throw new Error(
-          "Note commitment not found in Merkle tree. The deposit may not be indexed yet.",
+          "Note commitment not found in Merkle tree. The deposit may not be indexed yet — wait a few seconds and retry.",
         );
       }
       const { siblings, indices, root } = await tree.getProof(leafIndex);
