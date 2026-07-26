@@ -23,6 +23,9 @@ import {
   getPublicClient,
   getTokenBalance,
   getPoolAllowance,
+  isNullifierAlreadyUsedError,
+  isNullifierUsed,
+  extractTxHashFromError,
   type WithdrawSmartAccount,
 } from "./contracts";
 import {
@@ -410,21 +413,105 @@ export async function deleteOrganizer(
   emitChange();
 }
 
-export async function joinOrganizer(
+export async function createInvite(
   organizerId: string,
+  auth: WalletAuth,
+  options?: { maxUses?: number },
+): Promise<{
+  code: string;
+  joinPath: string;
+  joinUrl: string;
+  maxUses: number;
+  useCount: number;
+}> {
+  const authHeaders = await getWalletAuthHeaders(auth);
+  const maxUses =
+    typeof options?.maxUses === "number" && Number.isFinite(options.maxUses)
+      ? Math.min(1000, Math.max(1, Math.floor(options.maxUses)))
+      : 1;
+  const res = await fetch("/api/invites", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders,
+    },
+    body: JSON.stringify({ organizer_id: organizerId, max_uses: maxUses }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error ?? "Failed to create invite");
+  }
+
+  const code = body.code as string;
+  const joinPath =
+    (body.join_path as string) ?? `/receive?invite=${encodeURIComponent(code)}`;
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "";
+  return {
+    code,
+    joinPath,
+    joinUrl: origin ? `${origin}${joinPath}` : joinPath,
+    maxUses: Number(body.max_uses ?? maxUses),
+    useCount: Number(body.use_count ?? 0),
+  };
+}
+
+export async function fetchInvite(code: string): Promise<{
+  code: string;
+  organizerId: string;
+  organizerName: string;
+  maxUses: number;
+  useCount: number;
+  remaining: number;
+  used: boolean;
+  expired: boolean;
+  valid: boolean;
+} | null> {
+  const data = await api<{
+    code: string;
+    organizer_id: string;
+    organizer_name: string;
+    max_uses: number;
+    use_count: number;
+    remaining: number;
+    used: boolean;
+    expired: boolean;
+    valid: boolean;
+  }>(`/api/invites/${encodeURIComponent(code)}`);
+  if (!data) return null;
+  return {
+    code: data.code,
+    organizerId: data.organizer_id,
+    organizerName: data.organizer_name,
+    maxUses: Number(data.max_uses),
+    useCount: Number(data.use_count),
+    remaining: Number(data.remaining),
+    used: data.used,
+    expired: data.expired,
+    valid: data.valid,
+  };
+}
+
+export async function joinWithInvite(
+  inviteCode: string,
   subscriberId: string,
   auth: WalletAuth,
 ): Promise<Subscription> {
-  const data = await authedApi<Record<string, unknown>>(
-    "/api/subscriptions",
-    auth,
-    {
+  const authHeaders = await getWalletAuthHeaders(auth);
+  const res = await fetch("/api/subscriptions", {
     method: "POST",
-    body: JSON.stringify({ organizer_id: organizerId, subscriber_id: subscriberId }),
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders,
     },
-  );
-  if (!data) {
-    throw new Error("Failed to join organizer");
+    body: JSON.stringify({
+      invite_code: inviteCode,
+      subscriber_id: subscriberId,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error ?? "Failed to join with invite");
   }
 
   const subData: Subscription = {
@@ -435,16 +522,31 @@ export async function joinOrganizer(
     joinedAt: data.created_at as string,
   };
 
-  state.subscriptions = [...state.subscriptions, subData];
-
-  const org = state.organizers.find((o) => o.id === organizerId);
-  if (org) {
-    org.subscriberCount += 1;
-    state.organizers = [...state.organizers];
+  const alreadyCached = state.subscriptions.some((s) => s.id === subData.id);
+  if (!alreadyCached) {
+    state.subscriptions = [...state.subscriptions, subData];
+    const org = state.organizers.find((o) => o.id === subData.organizerId);
+    if (org) {
+      org.subscriberCount += 1;
+      state.organizers = [...state.organizers];
+    }
   }
 
   emitChange();
   return subData;
+}
+
+/** @deprecated Open join is closed — use joinWithInvite. Kept for type compatibility. */
+export async function joinOrganizer(
+  _organizerId: string,
+  subscriberId: string,
+  auth: WalletAuth,
+  inviteCode?: string,
+): Promise<Subscription> {
+  if (!inviteCode) {
+    throw new Error("An invite code is required to join an organization");
+  }
+  return joinWithInvite(inviteCode, subscriberId, auth);
 }
 
 export async function createPayout(params: {
@@ -497,14 +599,8 @@ export async function createPayout(params: {
         tokenCfg.decimals,
       );
       const feePct = PROTOCOL_FEE_BPS / (FEE_BPS_DENOM / 100);
-      const es =
-        typeof navigator !== "undefined" &&
-        typeof navigator.language === "string" &&
-        navigator.language.toLowerCase().startsWith("es");
       throw new Error(
-        es
-          ? `Saldo insuficiente de ${tokenCfg.symbol}: tienes ${have}. Notas (neto): ${netHuman}. Comisión (${feePct}%): ${feeHuman}. Bruto requerido: ${need}. Reduce las notas a ≤ ${maxNet} o recarga la diferencia.`
-          : `Insufficient ${tokenCfg.symbol} balance: you have ${have}. Notes (net): ${netHuman}. Fee (${feePct}%): ${feeHuman}. Gross required: ${need}. Reduce notes to ≤ ${maxNet} or top up the difference.`,
+        `Insufficient ${tokenCfg.symbol} balance: you have ${have}. Notes (net): ${netHuman}. Fee (${feePct}%): ${feeHuman}. Gross required: ${need}. Reduce notes to ≤ ${maxNet} or top up the difference.`,
       );
     }
   }
@@ -789,11 +885,27 @@ export async function claimPayment(
 
     if (smartAccount) {
       // AA path waits for UserOperation receipt inside sendTransaction.
-      txHash = await withdrawFromPoolViaSmartAccount(
-        smartAccount,
-        chainConfig,
-        withdrawParams,
-      );
+      // If receipt wait fails (e.g. Failed to fetch) but withdraw landed, recover via
+      // public RPC receipt poll / on-chain nullifier (see withdrawFromPoolViaSmartAccount).
+      try {
+        txHash = await withdrawFromPoolViaSmartAccount(
+          smartAccount,
+          chainConfig,
+          withdrawParams,
+        );
+      } catch (err) {
+        const nullifier = publicInputs[1];
+        const onChainUsed = await isNullifierUsed(
+          chainConfig,
+          nullifier,
+          withdrawParams.tokenSymbol,
+        ).catch(() => false);
+        if (isNullifierAlreadyUsedError(err) || onChainUsed) {
+          txHash = extractTxHashFromError(err) ?? "";
+        } else {
+          throw err;
+        }
+      }
     } else {
       const publicClient = getPublicClient(chainConfig);
       const withdrawTx = await withdrawFromPool(walletClient!, chainConfig, withdrawParams);

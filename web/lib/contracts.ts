@@ -15,6 +15,7 @@ import {
   type Chain,
 } from "viem";
 import { type ChainConfig, type TokenConfig, getPoolConfig, quoteProtocolFee } from "./constants";
+import { formatAlchemyPaymasterError } from "./alchemy";
 
 /** Minimal smart-account surface used for sponsored withdraw (Para + Alchemy AA). */
 export type WithdrawSmartAccount = {
@@ -399,6 +400,164 @@ export function encodeWithdrawCalldata(
   };
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function errorToMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+/** True when the AA client likely submitted a UserOp but receipt wait / RPC fetch failed. */
+export function isLikelyReceiptFetchFailure(err: unknown): boolean {
+  const lower = errorToMessage(err).toLowerCase();
+  return (
+    lower.includes("failed to fetch") ||
+    lower.includes("gettransactionreceipt") ||
+    lower.includes("eth_gettransactionreceipt") ||
+    lower.includes("waitforuseroperation") ||
+    lower.includes("useroperation receipt") ||
+    lower.includes("network request failed") ||
+    lower.includes("fetch failed") ||
+    lower.includes("http request error") ||
+    lower.includes("timeout") ||
+    lower.includes("econnreset") ||
+    lower.includes("econnrefused")
+  );
+}
+
+export function isNullifierAlreadyUsedError(err: unknown): boolean {
+  const lower = errorToMessage(err).toLowerCase();
+  return (
+    (lower.includes("nullifier") &&
+      (lower.includes("used") ||
+        lower.includes("already") ||
+        lower.includes("spent") ||
+        lower.includes("seen"))) ||
+    lower.includes("already claimed") ||
+    lower.includes("already withdrawn")
+  );
+}
+
+/** Best-effort extract of a 32-byte hex hash from an error payload. */
+export function extractTxHashFromError(err: unknown): Hash | null {
+  const raw = errorToMessage(err);
+  const match = raw.match(/0x[a-fA-F0-9]{64}/);
+  return match ? (match[0] as Hash) : null;
+}
+
+export async function isNullifierUsed(
+  config: ChainConfig,
+  nullifier: Hex,
+  tokenSymbol?: string,
+): Promise<boolean> {
+  const client = getPublicClient(config);
+  const pool = tokenSymbol
+    ? getPoolConfig(config, tokenSymbol).pool
+    : config.contracts.pool;
+  return client.readContract({
+    address: pool,
+    abi: POOL_ABI,
+    functionName: "nullifiers",
+    args: [nullifier],
+  }) as Promise<boolean>;
+}
+
+/**
+ * Poll chain RPC (app `config.rpcUrl`, e.g. forno) for a receipt.
+ * Prefer this over Alchemy AA transport when receipt wait fails with Failed to fetch.
+ */
+export async function pollTransactionReceipt(
+  config: ChainConfig,
+  hash: Hash,
+  opts?: { attempts?: number; delayMs?: number; initialDelayMs?: number },
+): Promise<{ status: "success" | "reverted"; transactionHash: Hash } | null> {
+  const attempts = opts?.attempts ?? 12;
+  const delayMs = opts?.delayMs ?? 1500;
+  const initialDelayMs = opts?.initialDelayMs ?? 1500;
+  const client = getPublicClient(config);
+
+  await sleep(initialDelayMs);
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const receipt = await client.getTransactionReceipt({ hash });
+      if (receipt) {
+        return {
+          status: receipt.status === "success" ? "success" : "reverted",
+          transactionHash: receipt.transactionHash,
+        };
+      }
+    } catch {
+      // Ignore transient RPC / Failed to fetch — keep polling.
+    }
+    if (i < attempts - 1) await sleep(delayMs);
+  }
+  return null;
+}
+
+async function pollNullifierUsed(
+  config: ChainConfig,
+  nullifier: Hex,
+  tokenSymbol?: string,
+  opts?: { attempts?: number; delayMs?: number; initialDelayMs?: number },
+): Promise<boolean> {
+  const attempts = opts?.attempts ?? 8;
+  const delayMs = opts?.delayMs ?? 1500;
+  const initialDelayMs = opts?.initialDelayMs ?? 1500;
+  await sleep(initialDelayMs);
+  for (let i = 0; i < attempts; i++) {
+    try {
+      if (await isNullifierUsed(config, nullifier, tokenSymbol)) return true;
+    } catch {
+      // ignore RPC blips
+    }
+    if (i < attempts - 1) await sleep(delayMs);
+  }
+  return false;
+}
+
+/**
+ * After AA send, recover success when Alchemy receipt wait fails but the withdraw landed.
+ * Returns a tx hash when receipt confirms success, or null if not recovered.
+ * Throws a "nullifier used" Error when on-chain nullifier proves the claim succeeded.
+ */
+async function recoverAaWithdrawAfterReceiptFailure(
+  config: ChainConfig,
+  params: { publicInputs: Hex[]; tokenSymbol?: string },
+  err: unknown,
+): Promise<Hash | null> {
+  const nullifier = params.publicInputs[1];
+  const maybeHash = extractTxHashFromError(err);
+
+  if (maybeHash) {
+    const polled = await pollTransactionReceipt(config, maybeHash);
+    if (polled?.status === "success") return polled.transactionHash;
+  }
+
+  const used = await pollNullifierUsed(config, nullifier, params.tokenSymbol);
+  if (used) {
+    if (maybeHash) {
+      // Prefer a confirmed receipt hash; otherwise return best-effort hash for PATCH.
+      const late = await pollTransactionReceipt(config, maybeHash, {
+        attempts: 4,
+        delayMs: 1000,
+        initialDelayMs: 500,
+      });
+      if (late?.status === "success") return late.transactionHash;
+      return maybeHash;
+    }
+    throw new Error("Nullifier already used");
+  }
+
+  return null;
+}
+
 /** Sponsored (or unsponsored AA) withdraw via Alchemy smart account UserOperation. */
 export async function withdrawFromPoolViaSmartAccount(
   smartAccount: WithdrawSmartAccount,
@@ -410,8 +569,47 @@ export async function withdrawFromPoolViaSmartAccount(
   },
 ): Promise<Hash> {
   const { to, data } = encodeWithdrawCalldata(config, params);
-  const receipt = await smartAccount.sendTransaction({ to, data, value: 0n });
-  return receipt.transactionHash;
+  try {
+    const receipt = await smartAccount.sendTransaction({ to, data, value: 0n });
+    return receipt.transactionHash;
+  } catch (err) {
+    const friendly = formatAlchemyPaymasterError(err);
+    if (friendly) throw new Error(friendly);
+
+    if (isNullifierAlreadyUsedError(err)) {
+      const hash = extractTxHashFromError(err);
+      if (hash) return hash;
+      throw new Error("Nullifier already used");
+    }
+
+    if (isLikelyReceiptFetchFailure(err)) {
+      try {
+        const recovered = await recoverAaWithdrawAfterReceiptFailure(
+          config,
+          params,
+          err,
+        );
+        if (recovered) return recovered;
+      } catch (recoverErr) {
+        if (isNullifierAlreadyUsedError(recoverErr)) throw recoverErr;
+        // Fall through to original error if recovery itself failed unexpectedly.
+      }
+    } else {
+      // Still check nullifier once — UserOp may have landed despite a non-fetch error.
+      try {
+        const nullifier = params.publicInputs[1];
+        if (await isNullifierUsed(config, nullifier, params.tokenSymbol)) {
+          const hash = extractTxHashFromError(err);
+          if (hash) return hash;
+          throw new Error("Nullifier already used");
+        }
+      } catch (checkErr) {
+        if (isNullifierAlreadyUsedError(checkErr)) throw checkErr;
+      }
+    }
+
+    throw err;
+  }
 }
 
 export async function withdrawFromPool(

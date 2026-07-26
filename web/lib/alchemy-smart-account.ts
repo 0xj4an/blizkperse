@@ -20,6 +20,10 @@ export type ClaimSmartAccount = SmartAccount;
  *
  * Uses `@getpara/aa-alchemy` via `useAlchemySmartAccount` from `@getpara/react-sdk`
  * (Para 2.16+; npm ^2.16 resolved to 2.32.x — no 2.12 aa-alchemy exists on npm).
+ *
+ * `mode: "4337"` → Modular Account Alchemy client → EntryPoint v0.6.
+ * Chain comes from `getAlchemyChain` (Celo 42220 → celoMainnet). Gas sponsorship
+ * requires API key + policy from the same Alchemy app, Active policy, network allowed.
  */
 export function useClaimSmartAccount() {
   const { chain } = useChain();

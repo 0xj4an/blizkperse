@@ -25,6 +25,7 @@ import {
 } from "@/lib/store";
 import { useParaWalletClient } from "@/lib/wallet";
 import { useClaimSmartAccount } from "@/lib/alchemy-smart-account";
+import { formatAlchemyPaymasterError } from "@/lib/alchemy";
 import { useChain } from "@/lib/chain-context";
 import { CHAINS, type SupportedChainId } from "@/lib/constants";
 import {
@@ -327,7 +328,16 @@ export default function ClaimPage() {
     } catch (err) {
       console.error("Claim failed:", err);
       const raw = err instanceof Error ? err.message : String(err);
-      if (raw.toLowerCase().includes("nullifier used")) {
+      const lower = raw.toLowerCase();
+      const alreadyClaimedOnChain =
+        (lower.includes("nullifier") &&
+          (lower.includes("used") ||
+            lower.includes("already") ||
+            lower.includes("spent") ||
+            lower.includes("seen"))) ||
+        lower.includes("already claimed") ||
+        lower.includes("already withdrawn");
+      if (alreadyClaimedOnChain) {
         setTxState("idle");
         try {
           await fetch(`/api/payments/${paymentId}/claim`, {
@@ -343,17 +353,20 @@ export default function ClaimPage() {
           // ignore
         }
         setJustClaimed(true);
-        toast.info(
-          "This payment was already withdrawn on-chain (e.g. from a previous attempt). Marked as claimed. Check your wallet or the chain explorer for the transfer.",
+        toast.success(
+          "Payment claimed successfully. On-chain withdrawal was confirmed.",
         );
         return;
       }
       setTxState("error");
-      const msg = raw.includes("User rejected")
-        ? "Transaction cancelled"
-        : raw.includes("SumcheckFailed") || raw.includes("0x9fc3a218")
-          ? "Proof verification failed (SumcheckFailed). The deployed WithdrawVerifier may not match the circuit used by this app. Recompile and redeploy the verifier from the same zk/circuits build used by /api/generate-proof."
-          : raw;
+      const paymasterMsg = formatAlchemyPaymasterError(err);
+      const msg = paymasterMsg
+        ? paymasterMsg
+        : raw.includes("User rejected")
+          ? "Transaction cancelled"
+          : raw.includes("SumcheckFailed") || raw.includes("0x9fc3a218")
+            ? "Proof verification failed (SumcheckFailed). The deployed WithdrawVerifier may not match the circuit used by this app. Recompile and redeploy the verifier from the same zk/circuits build used by /api/generate-proof."
+            : raw;
       toast.error(msg);
     }
   };

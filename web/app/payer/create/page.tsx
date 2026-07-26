@@ -69,11 +69,6 @@ function formatTokenRaw(raw: bigint, decimals: number, symbol: string): string {
   return `${formatTokenRawAmount(raw, decimals)} ${symbol}`;
 }
 
-function isSpanishUi(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return navigator.language.toLowerCase().startsWith("es");
-}
-
 function feeShortfallMessage(params: {
   symbol: string;
   decimals: number;
@@ -91,9 +86,6 @@ function feeShortfallMessage(params: {
   const fee = formatTokenRaw(feeRaw, decimals, symbol);
   const gross = formatTokenRaw(grossRaw, decimals, symbol);
   const maxNet = formatTokenRaw(maxNetRaw, decimals, symbol);
-  if (isSpanishUi()) {
-    return `Saldo insuficiente: tienes ${have}. Notas (neto): ${net}. Comisión (${feePct}%): ${fee}. Bruto requerido (notas + comisión): ${gross}. Reduce las notas a ≤ ${maxNet} o recarga la diferencia.`;
-  }
   return `Insufficient balance: you have ${have}. Notes (net): ${net}. Fee (${feePct}%): ${fee}. Gross required (notes + fee): ${gross}. Reduce notes to ≤ ${maxNet} or top up the difference.`;
 }
 
@@ -230,27 +222,15 @@ export default function CreatePayoutPage() {
 
   const handleEqualSplit = () => {
     if (selected.size === 0) {
-      toast.error(
-        isSpanishUi()
-          ? "Selecciona al menos un destinatario."
-          : "Select at least one recipient.",
-      );
+      toast.error("Select at least one recipient.");
       return;
     }
     if (walletBalance === null) {
-      toast.error(
-        isSpanishUi()
-          ? "Espera a que cargue el saldo de la wallet."
-          : "Wait for the wallet balance to load.",
-      );
+      toast.error("Wait for the wallet balance to load.");
       return;
     }
     if (walletBalance <= 0n) {
-      toast.error(
-        isSpanishUi()
-          ? `Saldo de ${selectedToken.symbol} en cero.`
-          : `${selectedToken.symbol} balance is zero.`,
-      );
+      toast.error(`${selectedToken.symbol} balance is zero.`);
       return;
     }
 
@@ -262,11 +242,7 @@ export default function CreatePayoutPage() {
     const n = BigInt(ids.length);
     const base = maxNetRaw / n;
     if (base <= 0n) {
-      toast.error(
-        isSpanishUi()
-          ? "El saldo no alcanza para repartir con comisión."
-          : "Balance too low to split after fee.",
-      );
+      toast.error("Balance too low to split after fee.");
       return;
     }
 
@@ -296,17 +272,11 @@ export default function CreatePayoutPage() {
 
     const netTotal = rawBack.reduce((a, r) => a + r, 0n);
     toast.success(
-      isSpanishUi()
-        ? `Reparto equitativo del neto disponible (${formatTokenRaw(
-            netTotal,
-            decimals,
-            selectedToken.symbol,
-          )}).`
-        : `Evenly split spendable net (${formatTokenRaw(
-            netTotal,
-            decimals,
-            selectedToken.symbol,
-          )}).`,
+      `Evenly split spendable net (${formatTokenRaw(
+        netTotal,
+        decimals,
+        selectedToken.symbol,
+      )}).`,
     );
   };
 
@@ -329,11 +299,7 @@ export default function CreatePayoutPage() {
       feeBps,
     );
     if (!scaled) {
-      toast.error(
-        isSpanishUi()
-          ? "El saldo no alcanza ni para una nota con comisión."
-          : "Balance too low to cover any note plus fee.",
-      );
+      toast.error("Balance too low to cover any note plus fee.");
       return;
     }
 
@@ -353,11 +319,7 @@ export default function CreatePayoutPage() {
       scaledIdx += 1;
     }
     setAmounts(next);
-    toast.success(
-      isSpanishUi()
-        ? "Montos ajustados para que notas + comisión quepan en tu saldo."
-        : "Amounts adjusted so notes + fee fit your balance.",
-    );
+    toast.success("Amounts adjusted so notes + fee fit your balance.");
   };
 
   const handleDeposit = async () => {
@@ -571,11 +533,7 @@ export default function CreatePayoutPage() {
                   variant="outline"
                   size="sm"
                   onClick={handleEqualSplit}
-                  title={
-                    isSpanishUi()
-                      ? "Reparte el neto disponible (saldo menos comisión) entre los seleccionados"
-                      : "Split spendable net (balance after fee) across selected recipients"
-                  }
+                  title="Split spendable net (balance after fee) across selected recipients"
                 >
                   Equal Split
                 </Button>
@@ -660,17 +618,11 @@ export default function CreatePayoutPage() {
                   onClick={handleAdjustToMax}
                   className="border-destructive/40 text-destructive hover:bg-destructive/10"
                 >
-                  {isSpanishUi()
-                    ? `Ajustar al máximo (${formatTokenRaw(
-                        balanceCheck.maxNetRaw,
-                        selectedToken.decimals,
-                        selectedToken.symbol,
-                      )})`
-                    : `Adjust to max (${formatTokenRaw(
-                        balanceCheck.maxNetRaw,
-                        selectedToken.decimals,
-                        selectedToken.symbol,
-                      )})`}
+                  {`Adjust to max (${formatTokenRaw(
+                    balanceCheck.maxNetRaw,
+                    selectedToken.decimals,
+                    selectedToken.symbol,
+                  )})`}
                 </Button>
               </div>
             )}
@@ -766,17 +718,11 @@ export default function CreatePayoutPage() {
                             onClick={handleAdjustToMax}
                             className="border-destructive/40 text-destructive hover:bg-destructive/10"
                           >
-                            {isSpanishUi()
-                              ? `Ajustar notas a máx. ${formatTokenRaw(
-                                  balanceCheck.maxNetRaw,
-                                  selectedToken.decimals,
-                                  selectedToken.symbol,
-                                )}`
-                              : `Adjust notes to max ${formatTokenRaw(
-                                  balanceCheck.maxNetRaw,
-                                  selectedToken.decimals,
-                                  selectedToken.symbol,
-                                )}`}
+                            {`Adjust notes to max ${formatTokenRaw(
+                              balanceCheck.maxNetRaw,
+                              selectedToken.decimals,
+                              selectedToken.symbol,
+                            )}`}
                           </Button>
                         </div>
                       )}
