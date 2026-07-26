@@ -24,7 +24,7 @@ export function Header() {
   const { isConnected, embedded } = useAccount();
   const { openModal } = useModal();
   const { logout } = useLogout();
-  const { mutate: exportPrivateKey, isPending: isExporting } = useExportPrivateKey();
+  const { exportPrivateKey, isPending: isExporting } = useExportPrivateKey();
   useChain();
   const [copied, setCopied] = useState(false);
 

@@ -2,6 +2,7 @@
 
 import {
   createPublicClient,
+  encodeFunctionData,
   http,
   parseAbi,
   decodeErrorResult,
@@ -13,9 +14,17 @@ import {
   type Hex,
   type Chain,
 } from "viem";
-import { type ChainConfig, type TokenConfig } from "./constants";
+import { type ChainConfig, type TokenConfig, getPoolConfig, quoteProtocolFee } from "./constants";
+import { formatAlchemyPaymasterError } from "./alchemy";
 
-// ── Chain builder ───────────────────────────────────────
+/** Minimal smart-account surface used for sponsored withdraw (Para + Alchemy AA). */
+export type WithdrawSmartAccount = {
+  sendTransaction: (params: {
+    to: Hex;
+    data?: Hex;
+    value?: bigint;
+  }) => Promise<{ transactionHash: Hash }>;
+};
 
 export function buildViemChain(config: ChainConfig): Chain {
   return {
@@ -29,27 +38,36 @@ export function buildViemChain(config: ChainConfig): Chain {
   } as const satisfies Chain;
 }
 
-// ── ABI fragments ───────────────────────────────────────
+const ROUTER_ABI = parseAbi([
+  "function deposit(address token, bytes32 commitment, uint256 amount, bytes proof, bytes32[] publicInputs) external",
+  "function depositNative(bytes32 commitment, uint256 amount, bytes proof, bytes32[] publicInputs) payable",
+  "function withdraw(address token, bytes proof, bytes32[] publicInputs, bool unwrap) external",
+  "function poolOf(address token) view returns (address)",
+  "function wrappedNative() view returns (address)",
+  "function feeBps() view returns (uint256)",
+  "function treasury() view returns (address)",
+  "function quoteFee(uint256 amount) view returns (uint256)",
+  "function quoteGross(uint256 amount) view returns (uint256)",
+  "event RoutedDeposit(address indexed user, address indexed token, address indexed pool, bytes32 commitment, uint256 amount, uint256 fee)",
+  "event ProtocolFeeTaken(address indexed token, address indexed from, uint256 fee)",
+  "event Deposit(address indexed depositor, bytes32 indexed commitment, uint256 amount)",
+]);
 
-// Pool ABI + WithdrawVerifier custom errors (revert bubbles from verifier.verify to pool.withdraw)
 const POOL_ABI = parseAbi([
-  "function deposit(bytes32 commitment) external",
+  "function deposit(bytes32 commitment, uint256 amount, bytes proof, bytes32[] publicInputs) external",
   "function registerRoot(bytes32 root) external",
-  "function transferIntent(bytes32 expectedRoot, bytes32 nullifierIn, uint32 merkleProofLength, bytes32 newCommitment, bytes proof) external",
+  "function rootRegistrar() view returns (address)",
   "function withdraw(bytes proof, bytes32[] publicInputs) external",
   "function isKnownRoot(bytes32) view returns (bool)",
   "function nullifiers(bytes32) view returns (bool)",
-  "event Deposit(address indexed sender, bytes32 indexed commitment)",
-  "event TransferIntent(bytes32 indexed root, bytes32 indexed nullifier, bytes32 indexed newCommitment)",
-  "event Withdraw(address indexed recipient, bytes32 indexed nullifier)",
+  "event Deposit(address indexed depositor, bytes32 indexed commitment, uint256 amount)",
+  "event Withdraw(address indexed recipient, bytes32 indexed nullifier, uint256 amount)",
   "error ProofLengthWrong()",
   "error ProofLengthWrongWithLogN(uint256 logN, uint256 actualLength, uint256 expectedLength)",
   "error PublicInputsLengthWrong()",
   "error SumcheckFailed()",
   "error ShpleminiFailed()",
-  "error GeminiChallengeInSubgroup()",
-  "error ConsistencyCheckFailed()",
-  "error Error(string)", // require("msg") in ShieldedPool.deposit
+  "error Error(string)",
 ]);
 
 const ERC20_ABI = parseAbi([
@@ -57,8 +75,6 @@ const ERC20_ABI = parseAbi([
   "function allowance(address owner, address spender) view returns (uint256)",
   "function balanceOf(address account) view returns (uint256)",
 ]);
-
-// ── Public client cache (one per chain) ─────────────────
 
 const _clients = new Map<number, PublicClient>();
 
@@ -82,53 +98,195 @@ function getWalletAccount(walletClient: WalletClient) {
   return account;
 }
 
-// ── Write functions ─────────────────────────────────────
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 
+export function hasRouter(config: ChainConfig): boolean {
+  return Boolean(config.router && config.router !== ZERO_ADDRESS);
+}
+
+/** Spender for ERC-20 approve: router when configured, otherwise the token pool. */
+export function depositSpender(config: ChainConfig, tokenSymbol?: string): `0x${string}` {
+  if (hasRouter(config)) return config.router;
+  if (tokenSymbol) return getPoolConfig(config, tokenSymbol).pool;
+  return config.contracts.pool;
+}
+
+function routerAddress(config: ChainConfig): `0x${string}` {
+  if (!hasRouter(config)) {
+    throw new Error(`PoolRouter not configured for ${config.name}. Set NEXT_PUBLIC_*_ROUTER_ADDRESS.`);
+  }
+  return config.router;
+}
+
+/** Approve ERC-20 spending for deposit entrypoint (router or pool). */
+export async function approveRouterToken(
+  walletClient: WalletClient,
+  config: ChainConfig,
+  token: TokenConfig,
+  amount: bigint,
+): Promise<Hash> {
+  return walletClient.writeContract({
+    account: getWalletAccount(walletClient),
+    address: token.address,
+    abi: ERC20_ABI,
+    functionName: "approve",
+    args: [depositSpender(config, token.symbol), amount],
+    chain: buildViemChain(config),
+  });
+}
+
+/** @deprecated Prefer approveRouterToken */
 export async function approvePoolToken(
   walletClient: WalletClient,
   config: ChainConfig,
   amount: bigint = config.poolDenomination,
 ): Promise<Hash> {
+  return approveRouterToken(walletClient, config, config.defaultToken, amount);
+}
+
+export async function depositViaRouter(
+  walletClient: WalletClient,
+  config: ChainConfig,
+  params: {
+    tokenSymbol: string;
+    commitment: Hex;
+    amount: bigint;
+    proof: Hex;
+    publicInputs: Hex[];
+    /** Use native payable path when depositing wrapped-native via msg.value */
+    useNative?: boolean;
+  },
+): Promise<Hash> {
+  const poolCfg = getPoolConfig(config, params.tokenSymbol);
+  const account = getWalletAccount(walletClient);
+  const chain = buildViemChain(config);
+
+  if (params.useNative || poolCfg.token.wrapsNative) {
+    const fee = quoteProtocolFee(params.amount);
+    return walletClient.writeContract({
+      account,
+      address: routerAddress(config),
+      abi: ROUTER_ABI,
+      functionName: "depositNative",
+      args: [params.commitment, params.amount, params.proof, params.publicInputs],
+      value: params.amount + fee,
+      chain,
+    });
+  }
+
   return walletClient.writeContract({
-    account: getWalletAccount(walletClient),
-    address: config.contracts.stablecoin,
-    abi: ERC20_ABI,
-    functionName: "approve",
-    args: [config.contracts.pool, amount],
-    chain: buildViemChain(config),
+    account,
+    address: routerAddress(config),
+    abi: ROUTER_ABI,
+    functionName: "deposit",
+    args: [
+      poolCfg.token.address,
+      params.commitment,
+      params.amount,
+      params.proof,
+      params.publicInputs,
+    ],
+    chain,
   });
 }
 
+/** Direct pool deposit (no protocol fee). Used when PoolRouter is not configured. */
 export async function depositToPool(
   walletClient: WalletClient,
   config: ChainConfig,
   commitment: Hex,
+  amount: bigint = config.poolDenomination,
+  proof: Hex = "0x",
+  publicInputs: Hex[] = [],
+  tokenSymbol?: string,
 ): Promise<Hash> {
+  const pool = tokenSymbol
+    ? getPoolConfig(config, tokenSymbol).pool
+    : config.contracts.pool;
   return walletClient.writeContract({
     account: getWalletAccount(walletClient),
-    address: config.contracts.pool,
+    address: pool,
     abi: POOL_ABI,
     functionName: "deposit",
-    args: [commitment],
+    args: [commitment, amount, proof, publicInputs],
     chain: buildViemChain(config),
   });
 }
 
-/** Simulate deposit to get the contract revert reason (RPC/wallet often don't return it on writeContract). */
+/** Deposit via router when configured; otherwise direct to the token pool. */
+export async function depositNote(
+  walletClient: WalletClient,
+  config: ChainConfig,
+  params: {
+    tokenSymbol: string;
+    commitment: Hex;
+    amount: bigint;
+    proof: Hex;
+    publicInputs: Hex[];
+    useNative?: boolean;
+  },
+): Promise<Hash> {
+  if (hasRouter(config)) {
+    return depositViaRouter(walletClient, config, params);
+  }
+  if (params.useNative || getPoolConfig(config, params.tokenSymbol).token.wrapsNative) {
+    throw new Error(
+      `Native deposits require PoolRouter on ${config.name}. Set NEXT_PUBLIC_*_ROUTER_ADDRESS.`,
+    );
+  }
+  return depositToPool(
+    walletClient,
+    config,
+    params.commitment,
+    params.amount,
+    params.proof,
+    params.publicInputs,
+    params.tokenSymbol,
+  );
+}
+
 export async function getDepositRevertReason(
   config: ChainConfig,
   account: Hex,
   commitment: Hex,
+  amount: bigint,
+  proof: Hex,
+  publicInputs: Hex[],
+  tokenSymbol?: string,
 ): Promise<string | null> {
   const client = getPublicClient(config);
+  const symbol = tokenSymbol ?? config.defaultToken.symbol;
+  const poolCfg = getPoolConfig(config, symbol);
   try {
-    await client.simulateContract({
-      account,
-      address: config.contracts.pool,
-      abi: POOL_ABI,
-      functionName: "deposit",
-      args: [commitment],
-    });
+    if (hasRouter(config)) {
+      if (poolCfg.token.wrapsNative) {
+        const fee = quoteProtocolFee(amount);
+        await client.simulateContract({
+          account,
+          address: routerAddress(config),
+          abi: ROUTER_ABI,
+          functionName: "depositNative",
+          args: [commitment, amount, proof, publicInputs],
+          value: amount + fee,
+        });
+      } else {
+        await client.simulateContract({
+          account,
+          address: routerAddress(config),
+          abi: ROUTER_ABI,
+          functionName: "deposit",
+          args: [poolCfg.token.address, commitment, amount, proof, publicInputs],
+        });
+      }
+    } else {
+      await client.simulateContract({
+        account,
+        address: poolCfg.pool,
+        abi: POOL_ABI,
+        functionName: "deposit",
+        args: [commitment, amount, proof, publicInputs],
+      });
+    }
   } catch (err) {
     const decoded = decodeRevertDataFromError(err);
     if (decoded) return decoded;
@@ -141,13 +299,28 @@ export async function getDepositRevertReason(
   return null;
 }
 
-/** Extract and decode Error(string) from any error that might contain revert data (e.g. RPC returns hex in data). */
 export function decodeRevertDataFromError(err: unknown): string | null {
   const hex = getRevertDataHex(err);
   if (!hex || hex.length < 10) return null;
   try {
     const decoded = decodeErrorResult({ abi: POOL_ABI, data: hex as Hex });
     if (decoded.errorName === "Error" && decoded.args?.[0]) return String(decoded.args[0]);
+    if (decoded.errorName === "ProofLengthWrongWithLogN") {
+      const [logN, actual, expected] = decoded.args as [bigint, bigint, bigint];
+      return `ProofLengthWrongWithLogN(logN=${logN}, actual=${actual}, expected=${expected})`;
+    }
+    if (decoded.errorName === "ProofLengthWrong") return "ProofLengthWrong";
+    if (decoded.errorName === "PublicInputsLengthWrong") return "PublicInputsLengthWrong";
+    if (decoded.errorName === "SumcheckFailed") {
+      return "SumcheckFailed (invalid ZK proof for this DepositVerifier)";
+    }
+    if (decoded.errorName === "ShpleminiFailed") {
+      return "ShpleminiFailed (invalid ZK proof for this DepositVerifier)";
+    }
+    if (decoded.errorName) {
+      const args = decoded.args?.length ? `(${decoded.args.map(String).join(", ")})` : "";
+      return `${decoded.errorName}${args}`;
+    }
   } catch {
     // not our error shape
   }
@@ -172,10 +345,14 @@ export async function registerRoot(
   walletClient: WalletClient,
   config: ChainConfig,
   root: Hex,
+  tokenSymbol?: string,
 ): Promise<Hash> {
+  const pool = tokenSymbol
+    ? getPoolConfig(config, tokenSymbol).pool
+    : config.contracts.pool;
   return walletClient.writeContract({
     account: getWalletAccount(walletClient),
-    address: config.contracts.pool,
+    address: pool,
     abi: POOL_ABI,
     functionName: "registerRoot",
     args: [root],
@@ -183,19 +360,299 @@ export async function registerRoot(
   });
 }
 
+export async function withdrawViaRouter(
+  walletClient: WalletClient,
+  config: ChainConfig,
+  params: {
+    tokenSymbol: string;
+    proof: Hex;
+    publicInputs: Hex[];
+    unwrap?: boolean;
+    nonce?: number;
+  },
+): Promise<Hash> {
+  const poolCfg = getPoolConfig(config, params.tokenSymbol);
+  return walletClient.writeContract({
+    account: getWalletAccount(walletClient),
+    address: routerAddress(config),
+    abi: ROUTER_ABI,
+    functionName: "withdraw",
+    args: [poolCfg.token.address, params.proof, params.publicInputs, Boolean(params.unwrap)],
+    chain: buildViemChain(config),
+    ...(params.nonce !== undefined && { nonce: params.nonce }),
+  });
+}
+
+/** Encode ShieldedPool / PoolRouter withdraw calldata for AA `sendTransaction`. */
+export function encodeWithdrawCalldata(
+  config: ChainConfig,
+  params: {
+    proof: Hex;
+    publicInputs: Hex[];
+    tokenSymbol?: string;
+  },
+): { to: Hex; data: Hex } {
+  if (params.tokenSymbol && hasRouter(config)) {
+    const poolCfg = getPoolConfig(config, params.tokenSymbol);
+    return {
+      to: routerAddress(config),
+      data: encodeFunctionData({
+        abi: ROUTER_ABI,
+        functionName: "withdraw",
+        args: [poolCfg.token.address, params.proof, params.publicInputs, false],
+      }),
+    };
+  }
+  const pool = params.tokenSymbol
+    ? getPoolConfig(config, params.tokenSymbol).pool
+    : config.contracts.pool;
+  return {
+    to: pool,
+    data: encodeFunctionData({
+      abi: POOL_ABI,
+      functionName: "withdraw",
+      args: [params.proof, params.publicInputs],
+    }),
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function errorToMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+/** True when the AA client likely submitted a UserOp but receipt wait / RPC fetch failed. */
+export function isLikelyReceiptFetchFailure(err: unknown): boolean {
+  const lower = errorToMessage(err).toLowerCase();
+  return (
+    lower.includes("failed to fetch") ||
+    lower.includes("gettransactionreceipt") ||
+    lower.includes("eth_gettransactionreceipt") ||
+    lower.includes("waitforuseroperation") ||
+    lower.includes("useroperation receipt") ||
+    lower.includes("network request failed") ||
+    lower.includes("fetch failed") ||
+    lower.includes("http request error") ||
+    lower.includes("timeout") ||
+    lower.includes("econnreset") ||
+    lower.includes("econnrefused")
+  );
+}
+
+export function isNullifierAlreadyUsedError(err: unknown): boolean {
+  const lower = errorToMessage(err).toLowerCase();
+  return (
+    (lower.includes("nullifier") &&
+      (lower.includes("used") ||
+        lower.includes("already") ||
+        lower.includes("spent") ||
+        lower.includes("seen"))) ||
+    lower.includes("already claimed") ||
+    lower.includes("already withdrawn")
+  );
+}
+
+/** Best-effort extract of a 32-byte hex hash from an error payload. */
+export function extractTxHashFromError(err: unknown): Hash | null {
+  const raw = errorToMessage(err);
+  const match = raw.match(/0x[a-fA-F0-9]{64}/);
+  return match ? (match[0] as Hash) : null;
+}
+
+export async function isNullifierUsed(
+  config: ChainConfig,
+  nullifier: Hex,
+  tokenSymbol?: string,
+): Promise<boolean> {
+  const client = getPublicClient(config);
+  const pool = tokenSymbol
+    ? getPoolConfig(config, tokenSymbol).pool
+    : config.contracts.pool;
+  return client.readContract({
+    address: pool,
+    abi: POOL_ABI,
+    functionName: "nullifiers",
+    args: [nullifier],
+  }) as Promise<boolean>;
+}
+
+/**
+ * Poll chain RPC (app `config.rpcUrl`, e.g. forno) for a receipt.
+ * Prefer this over Alchemy AA transport when receipt wait fails with Failed to fetch.
+ */
+export async function pollTransactionReceipt(
+  config: ChainConfig,
+  hash: Hash,
+  opts?: { attempts?: number; delayMs?: number; initialDelayMs?: number },
+): Promise<{ status: "success" | "reverted"; transactionHash: Hash } | null> {
+  const attempts = opts?.attempts ?? 12;
+  const delayMs = opts?.delayMs ?? 1500;
+  const initialDelayMs = opts?.initialDelayMs ?? 1500;
+  const client = getPublicClient(config);
+
+  await sleep(initialDelayMs);
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const receipt = await client.getTransactionReceipt({ hash });
+      if (receipt) {
+        return {
+          status: receipt.status === "success" ? "success" : "reverted",
+          transactionHash: receipt.transactionHash,
+        };
+      }
+    } catch {
+      // Ignore transient RPC / Failed to fetch — keep polling.
+    }
+    if (i < attempts - 1) await sleep(delayMs);
+  }
+  return null;
+}
+
+async function pollNullifierUsed(
+  config: ChainConfig,
+  nullifier: Hex,
+  tokenSymbol?: string,
+  opts?: { attempts?: number; delayMs?: number; initialDelayMs?: number },
+): Promise<boolean> {
+  const attempts = opts?.attempts ?? 8;
+  const delayMs = opts?.delayMs ?? 1500;
+  const initialDelayMs = opts?.initialDelayMs ?? 1500;
+  await sleep(initialDelayMs);
+  for (let i = 0; i < attempts; i++) {
+    try {
+      if (await isNullifierUsed(config, nullifier, tokenSymbol)) return true;
+    } catch {
+      // ignore RPC blips
+    }
+    if (i < attempts - 1) await sleep(delayMs);
+  }
+  return false;
+}
+
+/**
+ * After AA send, recover success when Alchemy receipt wait fails but the withdraw landed.
+ * Returns a tx hash when receipt confirms success, or null if not recovered.
+ * Throws a "nullifier used" Error when on-chain nullifier proves the claim succeeded.
+ */
+async function recoverAaWithdrawAfterReceiptFailure(
+  config: ChainConfig,
+  params: { publicInputs: Hex[]; tokenSymbol?: string },
+  err: unknown,
+): Promise<Hash | null> {
+  const nullifier = params.publicInputs[1];
+  const maybeHash = extractTxHashFromError(err);
+
+  if (maybeHash) {
+    const polled = await pollTransactionReceipt(config, maybeHash);
+    if (polled?.status === "success") return polled.transactionHash;
+  }
+
+  const used = await pollNullifierUsed(config, nullifier, params.tokenSymbol);
+  if (used) {
+    if (maybeHash) {
+      // Prefer a confirmed receipt hash; otherwise return best-effort hash for PATCH.
+      const late = await pollTransactionReceipt(config, maybeHash, {
+        attempts: 4,
+        delayMs: 1000,
+        initialDelayMs: 500,
+      });
+      if (late?.status === "success") return late.transactionHash;
+      return maybeHash;
+    }
+    throw new Error("Nullifier already used");
+  }
+
+  return null;
+}
+
+/** Sponsored (or unsponsored AA) withdraw via Alchemy smart account UserOperation. */
+export async function withdrawFromPoolViaSmartAccount(
+  smartAccount: WithdrawSmartAccount,
+  config: ChainConfig,
+  params: {
+    proof: Hex;
+    publicInputs: Hex[];
+    tokenSymbol?: string;
+  },
+): Promise<Hash> {
+  const { to, data } = encodeWithdrawCalldata(config, params);
+  try {
+    const receipt = await smartAccount.sendTransaction({ to, data, value: 0n });
+    return receipt.transactionHash;
+  } catch (err) {
+    const friendly = formatAlchemyPaymasterError(err);
+    if (friendly) throw new Error(friendly);
+
+    if (isNullifierAlreadyUsedError(err)) {
+      const hash = extractTxHashFromError(err);
+      if (hash) return hash;
+      throw new Error("Nullifier already used");
+    }
+
+    if (isLikelyReceiptFetchFailure(err)) {
+      try {
+        const recovered = await recoverAaWithdrawAfterReceiptFailure(
+          config,
+          params,
+          err,
+        );
+        if (recovered) return recovered;
+      } catch (recoverErr) {
+        if (isNullifierAlreadyUsedError(recoverErr)) throw recoverErr;
+        // Fall through to original error if recovery itself failed unexpectedly.
+      }
+    } else {
+      // Still check nullifier once — UserOp may have landed despite a non-fetch error.
+      try {
+        const nullifier = params.publicInputs[1];
+        if (await isNullifierUsed(config, nullifier, params.tokenSymbol)) {
+          const hash = extractTxHashFromError(err);
+          if (hash) return hash;
+          throw new Error("Nullifier already used");
+        }
+      } catch (checkErr) {
+        if (isNullifierAlreadyUsedError(checkErr)) throw checkErr;
+      }
+    }
+
+    throw err;
+  }
+}
+
 export async function withdrawFromPool(
   walletClient: WalletClient,
   config: ChainConfig,
   params: {
     proof: Hex;
-    publicInputs: Hex[]; // [value, nullifier, merkleProofLength, expectedRoot, recipient]
-    /** Optional: use when wallet nonce is stale (nonce too low). Fetch with getTransactionCount(account, 'pending'). */
+    publicInputs: Hex[];
     nonce?: number;
+    tokenSymbol?: string;
   },
 ): Promise<Hash> {
+  if (params.tokenSymbol && config.router && config.router !== "0x0000000000000000000000000000000000000000") {
+    return withdrawViaRouter(walletClient, config, {
+      tokenSymbol: params.tokenSymbol,
+      proof: params.proof,
+      publicInputs: params.publicInputs,
+      unwrap: false,
+      nonce: params.nonce,
+    });
+  }
+  const pool = params.tokenSymbol
+    ? getPoolConfig(config, params.tokenSymbol).pool
+    : config.contracts.pool;
   return walletClient.writeContract({
     account: getWalletAccount(walletClient),
-    address: config.contracts.pool,
+    address: pool,
     abi: POOL_ABI,
     functionName: "withdraw",
     args: [params.proof, params.publicInputs],
@@ -204,48 +661,57 @@ export async function withdrawFromPool(
   });
 }
 
-// ── Read functions ──────────────────────────────────────
-
 export async function isRootKnown(
   config: ChainConfig,
   root: Hex,
+  tokenSymbol?: string,
 ): Promise<boolean> {
   const client = getPublicClient(config);
+  const pool = tokenSymbol
+    ? getPoolConfig(config, tokenSymbol).pool
+    : config.contracts.pool;
   return client.readContract({
-    address: config.contracts.pool,
+    address: pool,
     abi: POOL_ABI,
     functionName: "isKnownRoot",
     args: [root],
   }) as Promise<boolean>;
 }
 
-// ── Token balance / allowance helpers ───────────────────
-
 export async function getTokenBalance(
   config: ChainConfig,
   account: Hex,
   token: TokenConfig,
 ): Promise<bigint> {
+  // Lowercase avoids viem InvalidAddressError on env addresses with bad EIP-55 casing.
+  const owner = account.toLowerCase() as Hex;
+  if (token.wrapsNative) {
+    const client = getPublicClient(config);
+    return client.getBalance({ address: owner });
+  }
   const client = getPublicClient(config);
   return client.readContract({
-    address: token.address as Hex,
+    address: token.address.toLowerCase() as Hex,
     abi: ERC20_ABI,
     functionName: "balanceOf",
-    args: [account],
+    args: [owner],
   }) as Promise<bigint>;
 }
 
-/** Allowance of the pool's stablecoin from owner to the pool (for deposit pre-check). */
 export async function getPoolAllowance(
   config: ChainConfig,
   owner: Hex,
+  token?: TokenConfig,
 ): Promise<bigint> {
+  const t = token ?? config.defaultToken;
+  if (t.wrapsNative) return 0n;
   const client = getPublicClient(config);
+  const spender = depositSpender(config, t.symbol);
   return client.readContract({
-    address: config.contracts.stablecoin,
+    address: t.address.toLowerCase() as Hex,
     abi: ERC20_ABI,
     functionName: "allowance",
-    args: [owner, config.contracts.pool],
+    args: [owner.toLowerCase() as Hex, spender.toLowerCase() as Hex],
   }) as Promise<bigint>;
 }
 
@@ -266,9 +732,18 @@ export async function getAllBalances(
   return Object.fromEntries(results);
 }
 
-// ── Event indexing ──────────────────────────────────────
-
 const DEPOSIT_EVENT = {
+  type: "event" as const,
+  name: "Deposit" as const,
+  inputs: [
+    { type: "address" as const, indexed: true, name: "depositor" as const },
+    { type: "bytes32" as const, indexed: true, name: "commitment" as const },
+    { type: "uint256" as const, indexed: false, name: "amount" as const },
+  ],
+};
+
+/** Legacy Deposit(sender, commitment) without amount */
+const DEPOSIT_EVENT_LEGACY = {
   type: "event" as const,
   name: "Deposit" as const,
   inputs: [
@@ -277,42 +752,46 @@ const DEPOSIT_EVENT = {
   ],
 };
 
-/** Max block range per getLogs call. Monad rejects >= 100 blocks */
 const MAX_BLOCK_RANGE = BigInt(99);
 
 export async function getDepositEvents(
   config: ChainConfig,
   fromBlock?: bigint,
+  poolAddress?: `0x${string}`,
 ) {
   const client = getPublicClient(config);
   const start = fromBlock ?? config.deployBlock;
   const latest = await client.getBlockNumber();
+  const address = poolAddress ?? config.contracts.pool;
 
-  // If range is small enough, single call
-  if (latest - start <= MAX_BLOCK_RANGE) {
-    return client.getLogs({
-      address: config.contracts.pool,
-      event: DEPOSIT_EVENT,
-      fromBlock: start,
-      toBlock: latest,
-    });
+  async function fetchRange(from: bigint, to: bigint) {
+    try {
+      return await client.getLogs({
+        address,
+        event: DEPOSIT_EVENT,
+        fromBlock: from,
+        toBlock: to,
+      });
+    } catch {
+      return client.getLogs({
+        address,
+        event: DEPOSIT_EVENT_LEGACY,
+        fromBlock: from,
+        toBlock: to,
+      });
+    }
   }
 
-  // Paginate in chunks
-  const allLogs: Awaited<ReturnType<typeof client.getLogs>>[] = [];
-  let cursor = start;
+  if (latest - start <= MAX_BLOCK_RANGE) {
+    return fetchRange(start, latest);
+  }
 
+  const allLogs: Awaited<ReturnType<typeof fetchRange>>[] = [];
+  let cursor = start;
   while (cursor <= latest) {
     const end = cursor + MAX_BLOCK_RANGE > latest ? latest : cursor + MAX_BLOCK_RANGE;
-    const logs = await client.getLogs({
-      address: config.contracts.pool,
-      event: DEPOSIT_EVENT,
-      fromBlock: cursor,
-      toBlock: end,
-    });
-    allLogs.push(logs);
+    allLogs.push(await fetchRange(cursor, end));
     cursor = end + 1n;
   }
-
   return allLogs.flat();
 }

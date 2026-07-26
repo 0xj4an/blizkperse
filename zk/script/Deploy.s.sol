@@ -1,30 +1,157 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-// Deploy: desde zk/ con .env cargado:
-//   source .env && forge script script/Deploy.s.sol:DeployPool --rpc-url "$MONAD_RPC" --broadcast
-// Requiere: PRIVATE_KEY, USDC_ADDRESS, MONAD_RPC en .env
-// Si el RPC no es archive: --fork-block-number <bloque_reciente>
+// Deploy multi-pool + router:
+//   1) forge script script/DeployDepositVerifier.s.sol:DeployDepositVerifier --rpc-url "$RPC_URL" --broadcast
+//   2) export DEPOSIT_VERIFIER_ADDRESS=0x...
+//   3) source .env && forge script script/Deploy.s.sol:DeployMultiPool --rpc-url "$RPC_URL" --broadcast
+// Env:
+//   PRIVATE_KEY
+//   TOKEN_ADDRESSES=0xUSDC,0xUSDT,...   (comma-separated ERC-20s)
+//   WRAPPED_NATIVE=0xWMON               (optional; address(0) on Celo — CELO is already ERC-20)
+//   DEPOSIT_VERIFIER_ADDRESS            (required — deploy via DeployDepositVerifier first)
+//   FEE_BPS=30                          (optional; default 30 = 0.3%)
+//   TREASURY_ADDRESS=0x...              (required if FEE_BPS > 0)
+//   ROOT_REGISTRAR_ADDRESS=0x...        (backend wallet that may call registerRoot)
 
 import "forge-std/Script.sol";
 import "forge-std/console2.sol";
 
-import "../contract/Verifier.sol";           // HonkVerifier (transfer intent)
-import "../contract/WithdrawVerifier.sol";    // WithdrawVerifier (circuito withdraw)
+import "../contract/Verifier.sol";
+import "../contract/WithdrawVerifier.sol";
 import "../contract/ShieldedPool.sol";
+import "../contract/PoolRouter.sol";
 
+contract DeployMultiPool is Script {
+    struct DeployCfg {
+        address wrappedNative;
+        address depositVerifier;
+        uint256 feeBps;
+        address treasury;
+        address rootRegistrar;
+    }
+
+    function run() external {
+        uint256 pk = vm.envUint("PRIVATE_KEY");
+        DeployCfg memory cfg = DeployCfg({
+            wrappedNative: vm.envOr("WRAPPED_NATIVE", address(0)),
+            depositVerifier: vm.envAddress("DEPOSIT_VERIFIER_ADDRESS"),
+            feeBps: vm.envOr("FEE_BPS", uint256(30)),
+            treasury: vm.envOr("TREASURY_ADDRESS", address(0)),
+            rootRegistrar: vm.envOr("ROOT_REGISTRAR_ADDRESS", address(0))
+        });
+        require(cfg.depositVerifier != address(0), "DEPOSIT_VERIFIER_ADDRESS=0");
+        if (cfg.feeBps > 0) {
+            require(cfg.treasury != address(0), "TREASURY_ADDRESS required when FEE_BPS>0");
+        }
+        string memory tokensCsv = vm.envString("TOKEN_ADDRESSES");
+
+        vm.startBroadcast(pk);
+
+        address transferVerifier = address(new HonkVerifier());
+        address withdrawVerifier = address(new WithdrawHonkVerifier());
+        PoolRouter router = new PoolRouter(cfg.wrappedNative, cfg.feeBps, cfg.treasury);
+
+        string[] memory parts = _splitCsv(tokensCsv);
+        for (uint256 i = 0; i < parts.length; i++) {
+            _deployPool(
+                vm.parseAddress(parts[i]),
+                transferVerifier,
+                withdrawVerifier,
+                cfg.depositVerifier,
+                address(router),
+                cfg.rootRegistrar
+            );
+        }
+
+        vm.stopBroadcast();
+
+        console2.log("chainId", block.chainid);
+        console2.log("HonkVerifier", transferVerifier);
+        console2.log("WithdrawVerifier", withdrawVerifier);
+        console2.log("DepositVerifier", cfg.depositVerifier);
+        console2.log("PoolRouter", address(router));
+        console2.log("wrappedNative", cfg.wrappedNative);
+        console2.log("feeBps", cfg.feeBps);
+        console2.log("treasury", cfg.treasury);
+        console2.log("rootRegistrar", cfg.rootRegistrar);
+    }
+
+    function _deployPool(
+        address token,
+        address transferVerifier,
+        address withdrawVerifier,
+        address depositVerifier,
+        address router,
+        address rootRegistrar
+    ) internal {
+        ShieldedPool pool = new ShieldedPool(
+            token,
+            transferVerifier,
+            bytes32(0),
+            withdrawVerifier,
+            depositVerifier
+        );
+        pool.setRouter(router);
+        if (rootRegistrar != address(0)) {
+            pool.setRootRegistrar(rootRegistrar);
+        }
+        PoolRouter(payable(router)).setPool(token, address(pool));
+        console2.log("token", token);
+        console2.log("pool", address(pool));
+    }
+
+    function _splitCsv(string memory csv) internal pure returns (string[] memory) {
+        bytes memory b = bytes(csv);
+        uint256 count = 1;
+        for (uint256 i = 0; i < b.length; i++) {
+            if (b[i] == ",") count++;
+        }
+        string[] memory parts = new string[](count);
+        uint256 start = 0;
+        uint256 idx = 0;
+        for (uint256 i = 0; i <= b.length; i++) {
+            if (i == b.length || b[i] == ",") {
+                bytes memory slice = new bytes(i - start);
+                for (uint256 j = start; j < i; j++) {
+                    slice[j - start] = b[j];
+                }
+                parts[idx++] = string(slice);
+                start = i + 1;
+            }
+        }
+        return parts;
+    }
+}
+
+/// @notice Legacy single-pool deploy (USDC_ADDRESS). Requires DEPOSIT_VERIFIER_ADDRESS.
 contract DeployPool is Script {
     function run() external returns (address verifierAddr, address withdrawVerifierAddr, address poolAddr) {
-        // Requiere en el entorno: PRIVATE_KEY, USDC_ADDRESS
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address usdc = vm.envAddress("USDC_ADDRESS");
+        address depositVerifier = vm.envAddress("DEPOSIT_VERIFIER_ADDRESS");
+        require(depositVerifier != address(0), "DEPOSIT_VERIFIER_ADDRESS=0");
+        uint256 feeBps = vm.envOr("FEE_BPS", uint256(30));
+        address treasury = vm.envOr("TREASURY_ADDRESS", address(0));
+        if (feeBps > 0) {
+            require(treasury != address(0), "TREASURY_ADDRESS required when FEE_BPS>0");
+        }
+        address rootRegistrar = vm.envOr("ROOT_REGISTRAR_ADDRESS", address(0));
 
         vm.startBroadcast(pk);
 
         HonkVerifier verifier = new HonkVerifier();
         WithdrawHonkVerifier withdrawVerifier = new WithdrawHonkVerifier();
         bytes32 genesisRoot = bytes32(0);
-        ShieldedPool pool = new ShieldedPool(usdc, address(verifier), genesisRoot, address(withdrawVerifier));
+        ShieldedPool pool =
+            new ShieldedPool(usdc, address(verifier), genesisRoot, address(withdrawVerifier), depositVerifier);
+
+        PoolRouter router = new PoolRouter(address(0), feeBps, treasury);
+        pool.setRouter(address(router));
+        if (rootRegistrar != address(0)) {
+            pool.setRootRegistrar(rootRegistrar);
+        }
+        router.setPool(usdc, address(pool));
 
         vm.stopBroadcast();
 
@@ -32,7 +159,10 @@ contract DeployPool is Script {
         console2.log("stablecoin", usdc);
         console2.log("HonkVerifier", address(verifier));
         console2.log("WithdrawVerifier", address(withdrawVerifier));
+        console2.log("DepositVerifier", depositVerifier);
         console2.log("ShieldedPool", address(pool));
+        console2.log("PoolRouter", address(router));
+        console2.log("rootRegistrar", rootRegistrar);
 
         return (address(verifier), address(withdrawVerifier), address(pool));
     }

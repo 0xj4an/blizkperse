@@ -25,6 +25,25 @@ export interface SubscriptionRow {
   created_at: string;
 }
 
+export interface OrgInviteRow {
+  id: string;
+  organizer_id: string;
+  code: string;
+  created_by: string;
+  created_at: string;
+  used_at: string | null;
+  used_by_subscriber_id: string | null;
+  expires_at: string | null;
+  max_uses: number;
+  use_count: number;
+}
+
+export interface OrgInviteRedemptionRow {
+  invite_id: string;
+  subscriber_id: string;
+  redeemed_at: string;
+}
+
 export interface PayoutRow {
   id: string;
   organizer_id: string;

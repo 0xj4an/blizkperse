@@ -1,6 +1,7 @@
 "use client";
 
 import type { Hex } from "viem";
+import { poseidon2 as poseidonHash } from "@/lib/poseidon2-hash";
 
 // ── Types ───────────────────────────────────────────────
 
@@ -37,11 +38,10 @@ export interface ProofResult {
   };
 }
 
-// ── Poseidon hash (matches circuit's poseidon::bn254::hash_2) ──
-// poseidon-lite is a pure-JS BN254 Poseidon implementation (browser-safe, no native deps).
+// ── Poseidon hash (matches circuit's poseidon::poseidon::bn254::hash_2) ──
+// Vendored via @/lib/poseidon2-hash (in-repo), not the npm package async chunk.
 
 export async function poseidon2(a: bigint, b: bigint): Promise<bigint> {
-  const { poseidon2: poseidonHash } = await import("poseidon-lite");
   return poseidonHash([a, b]);
 }
 
@@ -142,5 +142,63 @@ export async function generateProof(
       expectedRoot: bigintToBytes32(BigInt(input.expected_merkle_root)),
       recipient: bigintToBytes32(BigInt(input.recipient)),
     },
+  };
+}
+
+export type DepositProofInput = {
+  value: string;
+  commitment: string;
+  pk_b: string;
+  random: string;
+  nullifier: string;
+};
+
+/** Client timeout for /api/generate-deposit-proof (WASM prove is ~1–2s once warm). */
+const DEPOSIT_PROOF_TIMEOUT_MS = 90_000;
+
+export async function generateDepositProof(input: DepositProofInput): Promise<{
+  proof: Hex;
+  publicInputs: Hex[];
+}> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEPOSIT_PROOF_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch("/api/generate-deposit-proof", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(
+        `Deposit proof timed out after ${DEPOSIT_PROOF_TIMEOUT_MS / 1000}s. The prover may be stuck — restart the Next.js server (npx next dev --webpack) and retry.`,
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(error.error || `Deposit proof generation failed: ${response.status}`);
+  }
+
+  const { proof, publicInputs } = await response.json();
+  if (typeof proof !== "string" || !proof.startsWith("0x")) {
+    throw new Error("Deposit proof API returned a malformed proof");
+  }
+  // DepositVerifier.sol calculateProofSize(LOG_N=12) === 7232 bytes
+  const proofByteLen = (proof.length - 2) / 2;
+  if (proofByteLen !== 7232) {
+    throw new Error(
+      `Deposit proof length ${proofByteLen} != 7232 expected by deployed DepositVerifier. Do not submit; regenerate or fix deposit circuit artifact.`,
+    );
+  }
+  return {
+    proof: proof as Hex,
+    publicInputs: (publicInputs as string[]).map((x) => bigintToBytes32(BigInt(x))) as Hex[],
   };
 }

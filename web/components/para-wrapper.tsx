@@ -56,7 +56,7 @@ export function ParaWrapper({
         twoFactorAuthEnabled: true,
         recoverySecretStepEnabled: true,
         onRampTestMode: true,
-        isGuestModeEnabled: true,
+        isGuestModeEnabled: false,
       }}
     >
       {children}

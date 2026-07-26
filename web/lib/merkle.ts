@@ -109,12 +109,17 @@ export class MerkleTree {
  */
 export async function buildTreeFromEvents(
   config: ChainConfig,
+  opts?: { tokenSymbol?: string; poolAddress?: `0x${string}` },
 ): Promise<MerkleTree> {
   if (config.placeholder) {
     throw new Error(`Contracts not deployed on ${config.name} yet`);
   }
 
-  const res = await fetch(`/api/deposit-events?chain_id=${config.id}`);
+  const params = new URLSearchParams({ chain_id: String(config.id) });
+  if (opts?.poolAddress) params.set("pool_address", opts.poolAddress);
+  if (opts?.tokenSymbol) params.set("token_symbol", opts.tokenSymbol);
+
+  const res = await fetch(`/api/deposit-events?${params.toString()}`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: "Unknown error" }));
     throw new Error(err.error ?? `Failed to fetch deposit events (${res.status})`);

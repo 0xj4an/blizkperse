@@ -2,25 +2,101 @@
 
 import { useSyncExternalStore } from "react";
 import { BaseError, ContractFunctionRevertedError, type WalletClient, type Hex } from "viem";
-import type { ChainConfig } from "./constants";
 import {
-  approvePoolToken,
-  depositToPool,
+  type ChainConfig,
+  getPoolConfig,
+  toTokenRawAmount,
+  formatTokenRawAmount,
+  quoteProtocolFee,
+  quoteMaxNetFromBalance,
+  PROTOCOL_FEE_BPS,
+  FEE_BPS_DENOM,
+} from "./constants";
+import {
+  approveRouterToken,
+  depositNote,
+  hasRouter,
   getDepositRevertReason,
   decodeRevertDataFromError,
   withdrawFromPool,
+  withdrawFromPoolViaSmartAccount,
   getPublicClient,
   getTokenBalance,
   getPoolAllowance,
+  isNullifierAlreadyUsedError,
+  isNullifierUsed,
+  extractTxHashFromError,
+  type WithdrawSmartAccount,
 } from "./contracts";
 import {
   createNote,
   addressToFieldPk,
   generateRandomField,
   bigintToBytes32,
+  generateDepositProof,
   type ProofResult,
 } from "./zk";
-import { getWalletAuthHeaders, type WalletAuth } from "./api-auth";
+import {
+  clearWalletAuthCache,
+  getWalletAuthHeaders,
+  type WalletAuth,
+} from "./api-auth";
+import { formatInsufficientGasError } from "./alchemy";
+
+const PENDING_NOTES_STORAGE_KEY = "blizkperse-pending-note-secrets";
+
+type PendingNoteSecret = {
+  payment_id: string;
+  subscriber_id: string;
+  chain_id: number;
+  commitment: string;
+  value: string;
+  holder_pk: string;
+  randomness: string;
+  nullifier: string;
+  token_symbol: string;
+  pool_address: string;
+  deposit_tx?: string;
+  savedAt: number;
+};
+
+function readPendingNoteSecrets(): PendingNoteSecret[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(PENDING_NOTES_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as PendingNoteSecret[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePendingNoteSecrets(notes: PendingNoteSecret[]) {
+  if (typeof window === "undefined") return;
+  if (notes.length === 0) {
+    localStorage.removeItem(PENDING_NOTES_STORAGE_KEY);
+    return;
+  }
+  localStorage.setItem(PENDING_NOTES_STORAGE_KEY, JSON.stringify(notes));
+}
+
+function upsertPendingNoteSecret(note: PendingNoteSecret) {
+  const existing = readPendingNoteSecrets().filter(
+    (n) => n.payment_id !== note.payment_id && n.commitment !== note.commitment,
+  );
+  writePendingNoteSecrets([...existing, note]);
+}
+
+function removePendingNoteSecret(paymentId: string, commitment?: string) {
+  writePendingNoteSecrets(
+    readPendingNoteSecrets().filter(
+      (n) =>
+        n.payment_id !== paymentId &&
+        (!commitment || n.commitment !== commitment),
+    ),
+  );
+}
 
 // ── Types ──────────────────────────────────────────────
 
@@ -53,7 +129,7 @@ export interface Payout {
   organizerId: string;
   totalAmount: number;
   token: string;
-  status: "pending" | "deposited" | "distributed" | "claimed";
+  status: "pending" | "deposited" | "distributed" | "claimed" | "failed";
   createdAt: string;
   txHash?: string;
 }
@@ -64,13 +140,16 @@ export interface Payment {
   organizerId: string;
   subscriberId: string;
   amount: number;
-  status: "pending" | "claimable" | "claimed" | "expired";
+  status: "pending" | "claimable" | "claimed" | "expired" | "failed";
   claimedAt?: string;
   txHash?: string;
   /** Chain where the deposit note lives (from notes.chain_id). Used to filter claimable payments by network. */
   chainId?: number;
   /** Id of the note linked to this payment (for UI). */
   noteId?: string;
+  /** Confirmed via notes.deposit_tx or deposit_events_cache. */
+  depositConfirmed?: boolean;
+  depositTx?: string;
 }
 
 // ── Store (local cache, synced via API routes) ──────────
@@ -137,15 +216,24 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T | null> {
   }
 }
 
-async function authedApi<T>(
+async function readApiError(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: string };
+    if (body?.error) return body.error;
+  } catch {
+    // ignore non-JSON bodies
+  }
+  return res.statusText || `HTTP ${res.status}`;
+}
+
+async function authedFetch(
   path: string,
   auth: WalletAuth,
   opts?: RequestInit,
-): Promise<T | null> {
-  const authHeaders = await getWalletAuthHeaders(auth);
-
-  try {
-    const res = await fetch(path, {
+): Promise<Response> {
+  const doFetch = async () => {
+    const authHeaders = await getWalletAuthHeaders(auth);
+    return fetch(path, {
       ...opts,
       headers: {
         "Content-Type": "application/json",
@@ -153,10 +241,143 @@ async function authedApi<T>(
         ...(opts?.headers ?? {}),
       },
     });
+  };
+
+  let res = await doFetch();
+  if (res.status === 401) {
+    clearWalletAuthCache();
+    res = await doFetch();
+  }
+  return res;
+}
+
+async function authedApi<T>(
+  path: string,
+  auth: WalletAuth,
+  opts?: RequestInit,
+): Promise<T | null> {
+  try {
+    const res = await authedFetch(path, auth, opts);
     if (!res.ok) return null;
     return res.json();
   } catch {
     return null;
+  }
+}
+
+/** Like authedApi but throws with the API error body (for critical post-chain steps). */
+async function authedApiOrThrow<T>(
+  path: string,
+  auth: WalletAuth,
+  opts?: RequestInit,
+): Promise<T> {
+  let res: Response;
+  try {
+    res = await authedFetch(path, auth, opts);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Network error calling ${path}: ${msg}`);
+  }
+  if (!res.ok) {
+    throw new Error(`${path} failed (${res.status}): ${await readApiError(res)}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function saveNoteSecretsWithRetry(
+  auth: WalletAuth,
+  body: PendingNoteSecret,
+  attempts = 3,
+): Promise<Record<string, unknown>> {
+  if (!body.deposit_tx) {
+    throw new Error("deposit_tx is required before saving note secrets");
+  }
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const noteRow = await authedApiOrThrow<Record<string, unknown>>(
+        "/api/notes",
+        auth,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            payment_id: body.payment_id,
+            subscriber_id: body.subscriber_id,
+            chain_id: body.chain_id,
+            commitment: body.commitment,
+            value: body.value,
+            holder_pk: body.holder_pk,
+            randomness: body.randomness,
+            nullifier: body.nullifier,
+            token_symbol: body.token_symbol,
+            pool_address: body.pool_address,
+            deposit_tx: body.deposit_tx,
+          }),
+        },
+      );
+      if (!noteRow?.id) {
+        throw new Error("Notes API returned no id");
+      }
+      return noteRow;
+    } catch (err) {
+      lastErr = err;
+      clearWalletAuthCache();
+      if (i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+/**
+ * Best-effort: flush note secrets left in localStorage after a prior crash.
+ * Only posts notes that already have a confirmed deposit_tx — never promotes
+ * pre-deposit local drafts into claimable DB rows.
+ */
+export async function flushPendingNoteSecrets(auth: WalletAuth): Promise<number> {
+  const pending = readPendingNoteSecrets();
+  if (pending.length === 0) return 0;
+  let saved = 0;
+  for (const note of pending) {
+    if (!note.deposit_tx) {
+      // Still waiting for an on-chain deposit (or deposit never landed).
+      // Drop stale pre-deposit drafts older than 2 hours so they cannot linger.
+      const ageMs = Date.now() - (note.savedAt || 0);
+      if (ageMs > 2 * 60 * 60 * 1000) {
+        removePendingNoteSecret(note.payment_id, note.commitment);
+      }
+      continue;
+    }
+    try {
+      await saveNoteSecretsWithRetry(auth, note);
+      removePendingNoteSecret(note.payment_id, note.commitment);
+      saved += 1;
+    } catch (err) {
+      console.error(
+        "Failed to flush pending note secret",
+        note.payment_id,
+        note.commitment.slice(0, 12),
+        err,
+      );
+    }
+  }
+  return saved;
+}
+
+/**
+ * Mark the caller's claimable payments as claimed when nullifiers are already spent on-chain.
+ */
+export async function reconcileClaimedPayments(auth: WalletAuth): Promise<number> {
+  try {
+    const data = await authedApi<{ reconciled?: number }>(
+      "/api/payments/reconcile",
+      auth,
+      { method: "POST" },
+    );
+    return Number(data?.reconciled ?? 0);
+  } catch {
+    return 0;
   }
 }
 
@@ -233,6 +454,11 @@ export function hydrateStore() {
       txHash: (r.tx_hash as string) ?? undefined,
       chainId: r.chain_id != null ? Number(r.chain_id) : undefined,
       noteId: r.note_id != null ? String(r.note_id) : undefined,
+      depositTx: (r.deposit_tx as string) ?? undefined,
+      depositConfirmed:
+        r.deposit_confirmed === true ||
+        r.deposit_confirmed === "t" ||
+        r.deposit_confirmed === "true",
     }));
 
     state.loaded = true;
@@ -397,21 +623,105 @@ export async function deleteOrganizer(
   emitChange();
 }
 
-export async function joinOrganizer(
+export async function createInvite(
   organizerId: string,
+  auth: WalletAuth,
+  options?: { maxUses?: number },
+): Promise<{
+  code: string;
+  joinPath: string;
+  joinUrl: string;
+  maxUses: number;
+  useCount: number;
+}> {
+  const authHeaders = await getWalletAuthHeaders(auth);
+  const maxUses =
+    typeof options?.maxUses === "number" && Number.isFinite(options.maxUses)
+      ? Math.min(1000, Math.max(1, Math.floor(options.maxUses)))
+      : 1;
+  const res = await fetch("/api/invites", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders,
+    },
+    body: JSON.stringify({ organizer_id: organizerId, max_uses: maxUses }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error ?? "Failed to create invite");
+  }
+
+  const code = body.code as string;
+  const joinPath =
+    (body.join_path as string) ?? `/receive?invite=${encodeURIComponent(code)}`;
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "";
+  return {
+    code,
+    joinPath,
+    joinUrl: origin ? `${origin}${joinPath}` : joinPath,
+    maxUses: Number(body.max_uses ?? maxUses),
+    useCount: Number(body.use_count ?? 0),
+  };
+}
+
+export async function fetchInvite(code: string): Promise<{
+  code: string;
+  organizerId: string;
+  organizerName: string;
+  maxUses: number;
+  useCount: number;
+  remaining: number;
+  used: boolean;
+  expired: boolean;
+  valid: boolean;
+} | null> {
+  const data = await api<{
+    code: string;
+    organizer_id: string;
+    organizer_name: string;
+    max_uses: number;
+    use_count: number;
+    remaining: number;
+    used: boolean;
+    expired: boolean;
+    valid: boolean;
+  }>(`/api/invites/${encodeURIComponent(code)}`);
+  if (!data) return null;
+  return {
+    code: data.code,
+    organizerId: data.organizer_id,
+    organizerName: data.organizer_name,
+    maxUses: Number(data.max_uses),
+    useCount: Number(data.use_count),
+    remaining: Number(data.remaining),
+    used: data.used,
+    expired: data.expired,
+    valid: data.valid,
+  };
+}
+
+export async function joinWithInvite(
+  inviteCode: string,
   subscriberId: string,
   auth: WalletAuth,
 ): Promise<Subscription> {
-  const data = await authedApi<Record<string, unknown>>(
-    "/api/subscriptions",
-    auth,
-    {
+  const authHeaders = await getWalletAuthHeaders(auth);
+  const res = await fetch("/api/subscriptions", {
     method: "POST",
-    body: JSON.stringify({ organizer_id: organizerId, subscriber_id: subscriberId }),
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders,
     },
-  );
-  if (!data) {
-    throw new Error("Failed to join organizer");
+    body: JSON.stringify({
+      invite_code: inviteCode,
+      subscriber_id: subscriberId,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error ?? "Failed to join with invite");
   }
 
   const subData: Subscription = {
@@ -422,16 +732,31 @@ export async function joinOrganizer(
     joinedAt: data.created_at as string,
   };
 
-  state.subscriptions = [...state.subscriptions, subData];
-
-  const org = state.organizers.find((o) => o.id === organizerId);
-  if (org) {
-    org.subscriberCount += 1;
-    state.organizers = [...state.organizers];
+  const alreadyCached = state.subscriptions.some((s) => s.id === subData.id);
+  if (!alreadyCached) {
+    state.subscriptions = [...state.subscriptions, subData];
+    const org = state.organizers.find((o) => o.id === subData.organizerId);
+    if (org) {
+      org.subscriberCount += 1;
+      state.organizers = [...state.organizers];
+    }
   }
 
   emitChange();
   return subData;
+}
+
+/** @deprecated Open join is closed — use joinWithInvite. Kept for type compatibility. */
+export async function joinOrganizer(
+  _organizerId: string,
+  subscriberId: string,
+  auth: WalletAuth,
+  inviteCode?: string,
+): Promise<Subscription> {
+  if (!inviteCode) {
+    throw new Error("An invite code is required to join an organization");
+  }
+  return joinWithInvite(inviteCode, subscriberId, auth);
 }
 
 export async function createPayout(params: {
@@ -446,40 +771,69 @@ export async function createPayout(params: {
   onProgress?: (step: string, current: number, total: number) => void;
 }): Promise<Payout> {
   const token = params.token ?? params.chainConfig.defaultToken.symbol;
-  const expandedRecipients = params.recipients.flatMap((recipient) =>
-    Array.from({ length: Math.floor(recipient.amount) }, () => ({
-      subscriberId: recipient.subscriberId,
-      amount: 1,
-    })),
-  );
-  const totalNotes = expandedRecipients.length;
-  const totalAmount = totalNotes;
+  const poolCfg = getPoolConfig(params.chainConfig, token);
+  const recipients = params.recipients.filter((r) => r.amount > 0);
+  const totalAmount = recipients.reduce((sum, r) => sum + r.amount, 0);
+  const totalNotes = recipients.length;
+  const authOpts = {
+    ...params.auth,
+    walletClient: params.walletClient,
+    address: params.ownerAddress,
+  };
 
   if (totalNotes === 0) {
-    throw new Error("Payout must include at least one whole-token note");
+    throw new Error("Payout must include at least one positive amount");
+  }
+
+  params.onProgress?.("Preparing payout", 0, totalNotes);
+
+  const config = params.chainConfig;
+  const tokenCfg = poolCfg.token;
+  const rawAmounts = recipients.map((r) => toTokenRawAmount(r.amount, tokenCfg.decimals));
+  const netTotal = rawAmounts.reduce((a, b) => a + b, 0n);
+  // Protocol fee is charged by PoolRouter only; direct pool deposits skip it.
+  const feeTotal = hasRouter(config)
+    ? rawAmounts.reduce((a, raw) => a + quoteProtocolFee(raw), 0n)
+    : 0n;
+  const required = netTotal + feeTotal;
+
+  // Balance check BEFORE creating DB rows so failed gas / insufficient-funds
+  // attempts do not leave orphan pending payouts.
+  if (params.walletClient && params.ownerAddress) {
+    const balance = await getTokenBalance(config, params.ownerAddress, tokenCfg);
+    if (balance < required) {
+      const have = formatTokenRawAmount(balance, tokenCfg.decimals);
+      const need = formatTokenRawAmount(required, tokenCfg.decimals);
+      const netHuman = formatTokenRawAmount(netTotal, tokenCfg.decimals);
+      const feeHuman = formatTokenRawAmount(feeTotal, tokenCfg.decimals);
+      const maxNet = formatTokenRawAmount(
+        quoteMaxNetFromBalance(balance, hasRouter(config) ? PROTOCOL_FEE_BPS : 0),
+        tokenCfg.decimals,
+      );
+      const feePct = PROTOCOL_FEE_BPS / (FEE_BPS_DENOM / 100);
+      throw new Error(
+        `Insufficient ${tokenCfg.symbol} balance: you have ${have}. Notes (net): ${netHuman}. Fee (${feePct}%): ${feeHuman}. Gross required: ${need}. Reduce notes to ≤ ${maxNet} or top up the difference.`,
+      );
+    }
   }
 
   const payoutSeed = await authedApi<{
     payout: Record<string, unknown>;
     payments: Array<Record<string, unknown>>;
-  }>(
-    "/api/payouts",
-    { ...params.auth, walletClient: params.walletClient, address: params.ownerAddress },
-    {
-      method: "POST",
-      body: JSON.stringify({
-        organizer_id: params.organizerId,
-        total_amount: totalAmount,
-        token,
-        tx_hash: null,
-        status: "pending",
-        recipients: expandedRecipients.map((r) => ({
-          subscriber_id: r.subscriberId,
-          amount: r.amount,
-        })),
-      }),
-    },
-  );
+  }>("/api/payouts", authOpts, {
+    method: "POST",
+    body: JSON.stringify({
+      organizer_id: params.organizerId,
+      total_amount: totalAmount,
+      token,
+      tx_hash: null,
+      status: "pending",
+      recipients: recipients.map((r) => ({
+        subscriber_id: r.subscriberId,
+        amount: r.amount,
+      })),
+    }),
+  });
 
   if (!payoutSeed) {
     throw new Error("Failed to create payout");
@@ -504,176 +858,255 @@ export async function createPayout(params: {
     status: r.status as Payment["status"],
   }));
 
-  let txHash: string;
+  let depositedCount = 0;
+  let lastTxHash: Hex | null = null;
+  let approveTxHash: Hex | null = null;
 
-  // ── On-chain deposit flow ──────────────────────────────
-  if (params.walletClient) {
-    const publicClient = getPublicClient(params.chainConfig);
-    const config = params.chainConfig;
-    const required = BigInt(totalNotes) * config.poolDenomination;
+  const finalizePayoutStatus = async (status: "deposited" | "failed", txHash: string) => {
+    return authedApi<Record<string, unknown>>(`/api/payouts/${payout.id}`, authOpts, {
+      method: "PATCH",
+      body: JSON.stringify({ status, tx_hash: txHash || null }),
+    });
+  };
 
-    if (params.ownerAddress) {
-      const balance = await getTokenBalance(config, params.ownerAddress, config.defaultToken);
-      if (balance < required) {
-        const symbol = config.defaultToken.symbol;
-        const perNote = Number(config.poolDenomination) / Math.pow(10, config.defaultToken.decimals);
-        throw new Error(
-          `Insufficient ${symbol} balance on ${config.name}. You need at least ${totalNotes} ${symbol} (${perNote} ${symbol} per note).`
-        );
-      }
+  const commitSuccessfulPaymentsToStore = (finalized: Record<string, unknown>, txHash: string) => {
+    payout.status = finalized.status as Payout["status"];
+    payout.txHash = (finalized.tx_hash as string) ?? txHash;
+    payout.totalAmount = Number(finalized.total_amount ?? payout.totalAmount);
+
+    const kept = newPayments.filter((p) => p.status === "claimable");
+    for (const payment of newPayments) {
+      if (payment.status !== "claimable") payment.status = "failed";
     }
 
-    // Step 1: Approve only if current allowance is insufficient
-    const requiredAllowance = BigInt(totalNotes) * config.poolDenomination;
-    let lastTxHash: Hex | null = null;
-    if (params.ownerAddress) {
-      const currentAllowance = await getPoolAllowance(config, params.ownerAddress);
-      if (currentAllowance < requiredAllowance) {
-        params.onProgress?.("Approving token", 0, totalNotes);
-        if (config.slug === "celo") {
-          const resetTx = await approvePoolToken(params.walletClient, params.chainConfig, 0n);
-          await publicClient.waitForTransactionReceipt({ hash: resetTx });
+    const org = state.organizers.find((o) => o.id === params.organizerId);
+    if (org) {
+      org.totalDistributed += kept.reduce((sum, p) => sum + p.amount, 0);
+      state.organizers = [...state.organizers];
+    }
+
+    state.payouts = [payout, ...state.payouts.filter((p) => p.id !== payout.id)];
+    state.payments = [
+      ...state.payments.filter((p) => p.payoutId !== payout.id),
+      ...newPayments,
+    ];
+    emitChange();
+  };
+
+  try {
+    // Recover any secrets left after a previous on-chain success / notes POST failure.
+    await flushPendingNoteSecrets(authOpts).catch(() => 0);
+
+    // ── On-chain deposit flow ──────────────────────────────
+    if (params.walletClient) {
+      const publicClient = getPublicClient(config);
+
+      if (!tokenCfg.wrapsNative) {
+        if (params.ownerAddress) {
+          const currentAllowance = await getPoolAllowance(config, params.ownerAddress, tokenCfg);
+          if (currentAllowance < required) {
+            params.onProgress?.("Approving token", 0, totalNotes);
+            if (config.slug === "celo") {
+              const resetTx = await approveRouterToken(params.walletClient, config, tokenCfg, 0n);
+              await publicClient.waitForTransactionReceipt({ hash: resetTx });
+            }
+            const approveTx = await approveRouterToken(
+              params.walletClient,
+              config,
+              tokenCfg,
+              required,
+            );
+            await publicClient.waitForTransactionReceipt({ hash: approveTx });
+            lastTxHash = approveTx;
+            approveTxHash = approveTx;
+          }
+        } else {
+          params.onProgress?.("Approving token", 0, totalNotes);
+          const approveTx = await approveRouterToken(
+            params.walletClient,
+            config,
+            tokenCfg,
+            required,
+          );
+          await publicClient.waitForTransactionReceipt({ hash: approveTx });
+          lastTxHash = approveTx;
+          approveTxHash = approveTx;
         }
-        const approveTx = await approvePoolToken(
-          params.walletClient,
-          params.chainConfig,
-          requiredAllowance,
-        );
-        await publicClient.waitForTransactionReceipt({ hash: approveTx });
-        lastTxHash = approveTx;
+      }
+
+      let noteIndex = 0;
+
+      for (const [index, recipient] of recipients.entries()) {
+        const sub = getSubscriberById(recipient.subscriberId);
+        if (!sub) continue;
+
+        const pk_b = addressToFieldPk(sub.address);
+        const amountRaw = rawAmounts[index];
+        noteIndex++;
+        params.onProgress?.("Proving deposit", noteIndex, totalNotes);
+
+        const payment = newPayments[index];
+        if (!payment) {
+          throw new Error("Missing payment record for deposited note");
+        }
+
+        const randomness = generateRandomField();
+        const note = await createNote(amountRaw, pk_b, randomness);
+        const commitment = bigintToBytes32(note.commitment) as Hex;
+        const pendingSecret: PendingNoteSecret = {
+          payment_id: payment.id,
+          subscriber_id: recipient.subscriberId,
+          chain_id: config.id,
+          commitment: bigintToBytes32(note.commitment),
+          value: bigintToBytes32(note.value),
+          holder_pk: bigintToBytes32(note.holder),
+          randomness: bigintToBytes32(note.random),
+          nullifier: bigintToBytes32(note.nullifier),
+          token_symbol: token,
+          pool_address: poolCfg.pool,
+          savedAt: Date.now(),
+        };
+        // Local draft BEFORE the chain tx (crash recovery). Must NOT be flushed to
+        // DB until deposit_tx is set after a successful receipt — see flushPendingNoteSecrets.
+        upsertPendingNoteSecret(pendingSecret);
+
+        // Progress already set to "Proving deposit" / "Generating ZK proof" above;
+        // keep it visible while the server prove request runs (can take a few seconds).
+        const depositProof = await generateDepositProof({
+          value: bigintToBytes32(note.value),
+          commitment,
+          pk_b: bigintToBytes32(note.holder),
+          random: bigintToBytes32(note.random),
+          nullifier: bigintToBytes32(note.nullifier),
+        });
+
+        params.onProgress?.("Depositing note", noteIndex, totalNotes);
+
+        let depositTx: Hex;
+        try {
+          depositTx = await depositNote(params.walletClient, config, {
+            tokenSymbol: token,
+            commitment,
+            amount: amountRaw,
+            proof: depositProof.proof,
+            publicInputs: depositProof.publicInputs,
+            useNative: Boolean(tokenCfg.wrapsNative),
+          });
+        } catch (err) {
+          // Deposit never landed — discard pre-saved secrets for this payment.
+          removePendingNoteSecret(payment.id, commitment);
+          const gasMsg = formatInsufficientGasError(err);
+          if (gasMsg) throw new Error(gasMsg);
+
+          const msg = err instanceof Error ? err.message : String(err);
+          let contractReason: string | null = decodeRevertDataFromError(err);
+          if (!contractReason && err instanceof BaseError) {
+            const revertErr = err.walk((e) => e instanceof ContractFunctionRevertedError);
+            if (revertErr instanceof ContractFunctionRevertedError && revertErr.data?.args?.[0]) {
+              contractReason = String(revertErr.data.args[0]);
+            }
+          }
+          if (!contractReason && params.ownerAddress) {
+            contractReason = await getDepositRevertReason(
+              config,
+              params.ownerAddress,
+              commitment,
+              amountRaw,
+              depositProof.proof,
+              depositProof.publicInputs,
+              token,
+            );
+          }
+          if (contractReason || msg.includes("revert") || msg.includes("unknown reason")) {
+            throw new Error(
+              `Deposit failed on ${config.name}. Pool: ${poolCfg.pool}. Router: ${config.router}. ${contractReason ? `Contract revert: "${contractReason}". ` : ""}${msg}`,
+            );
+          }
+          throw err;
+        }
+        const depositReceipt = await publicClient.waitForTransactionReceipt({
+          hash: depositTx,
+        });
+        if (depositReceipt.status !== "success") {
+          removePendingNoteSecret(payment.id, commitment);
+          throw new Error(
+            `Deposit transaction reverted on-chain (${depositTx}). Note was not registered.`,
+          );
+        }
+        lastTxHash = depositTx;
+        // Only now is it safe to recover via flush → POST /api/notes.
+        upsertPendingNoteSecret({ ...pendingSecret, deposit_tx: depositTx });
+
+        params.onProgress?.("Saving note secrets", noteIndex, totalNotes);
+        try {
+          const noteRow = await saveNoteSecretsWithRetry(authOpts, {
+            ...pendingSecret,
+            deposit_tx: depositTx,
+          });
+          removePendingNoteSecret(payment.id, commitment);
+          payment.noteId = String(noteRow.id);
+        } catch (saveErr) {
+          const saveMsg = saveErr instanceof Error ? saveErr.message : String(saveErr);
+          throw new Error(
+            `On-chain deposit succeeded but saving note secrets failed. Do not retry the same note; recover secrets before another deposit. payment=${payment.id} commitment=${commitment} tx=${depositTx}. Secrets are in localStorage (${PENDING_NOTES_STORAGE_KEY}). Cause: ${saveMsg}`,
+          );
+        }
+        payment.chainId = config.id;
+        payment.status = "claimable";
+        depositedCount += 1;
       }
     } else {
-      params.onProgress?.("Approving token", 0, totalNotes);
-      if (config.slug === "celo") {
-        const resetTx = await approvePoolToken(params.walletClient, params.chainConfig, 0n);
-        await publicClient.waitForTransactionReceipt({ hash: resetTx });
-      }
-      const approveTx = await approvePoolToken(
-        params.walletClient,
-        params.chainConfig,
-        requiredAllowance,
-      );
-      await publicClient.waitForTransactionReceipt({ hash: approveTx });
-      lastTxHash = approveTx;
-    }
-    const approveTxHash = lastTxHash;
-
-    // Step 2: Deposit notes one by one
-    let noteIndex = 0;
-
-    for (const [index, recipient] of expandedRecipients.entries()) {
-      const sub = getSubscriberById(recipient.subscriberId);
-      if (!sub) continue;
-
-      const pk_b = addressToFieldPk(sub.address);
-      noteIndex++;
-      params.onProgress?.("Depositing note", noteIndex, totalNotes);
-
-      const randomness = generateRandomField();
-      const note = await createNote(1n, pk_b, randomness);
-      const commitment = bigintToBytes32(note.commitment) as Hex;
-
-      let depositTx: Hex;
-      try {
-        depositTx = await depositToPool(params.walletClient, config, commitment);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        let contractReason: string | null = decodeRevertDataFromError(err);
-        if (!contractReason && err instanceof BaseError) {
-          const revertErr = err.walk((e) => e instanceof ContractFunctionRevertedError);
-          if (revertErr instanceof ContractFunctionRevertedError && revertErr.data?.args?.[0]) {
-            contractReason = String(revertErr.data.args[0]);
-          }
-        }
-        if (!contractReason && params.ownerAddress) {
-          contractReason = await getDepositRevertReason(config, params.ownerAddress, commitment);
-        }
-        if (contractReason || msg.includes("revert") || msg.includes("unknown reason")) {
-          const poolAddr = config.contracts.pool;
-          const reasonLine = contractReason ? `Contract revert: "${contractReason}". ` : "";
-          let detail = `Pool: ${poolAddr}. ${reasonLine}`;
-          if (params.ownerAddress && !contractReason) {
-            const allowance = await getPoolAllowance(config, params.ownerAddress);
-            const need = requiredAllowance;
-            detail += `Your allowance: ${allowance.toString()} (need ${need.toString()}). ${allowance < need ? "Approve more to the pool address above." : "Revert reason could not be decoded. Likely: 'transferFrom failed' (check balance, try approve 0 then approve amount) or 'commitment already used' (duplicate note)."}`;
-          } else if (params.ownerAddress && contractReason === "transferFrom failed") {
-            const balance = await getTokenBalance(config, params.ownerAddress, config.defaultToken);
-            detail += `Your ${config.defaultToken.symbol} balance: ${balance.toString()}. The pool pulls exactly 1 ${config.defaultToken.symbol} per deposit; ensure you have enough and the token is not paused. Try approve(pool, 0) then approve(pool, amount) if you had a previous approval.`;
-          } else if (params.ownerAddress && contractReason === "commitment already used") {
-            detail += "This note was already deposited (e.g. duplicate or previous run). Create a new payout.";
-          }
-          throw new Error(`Deposit failed on ${config.name}. ${detail}`);
-        }
-        throw err;
-      }
-      await publicClient.waitForTransactionReceipt({ hash: depositTx });
-      lastTxHash = depositTx;
-
-      const payment = newPayments[index];
-      if (!payment) {
-        throw new Error("Missing payment record for deposited note");
-      }
-      const noteRow = await authedApi<Record<string, unknown>>(
-        "/api/notes",
-        { ...params.auth, walletClient: params.walletClient, address: params.ownerAddress },
-        {
-          method: "POST",
-          body: JSON.stringify({
-            payment_id: payment.id,
-            subscriber_id: recipient.subscriberId,
-            chain_id: config.id,
-            commitment: bigintToBytes32(note.commitment),
-            value: bigintToBytes32(note.value),
-            holder_pk: bigintToBytes32(note.holder),
-            randomness: bigintToBytes32(note.random),
-            nullifier: bigintToBytes32(note.nullifier),
-          }),
-        },
-      );
-      if (noteRow?.id) {
-        payment.noteId = String(noteRow.id);
-        payment.chainId = config.id;
+      // Fallback: mock tx hash when no wallet connected
+      lastTxHash = mockTxHash() as Hex;
+      for (const payment of newPayments) {
+        payment.status = "claimable";
+        depositedCount += 1;
       }
     }
 
-    txHash = (lastTxHash ?? approveTxHash) ?? "";
-  } else {
-    // Fallback: mock tx hash when no wallet connected
-    txHash = mockTxHash();
+    const txHash = (lastTxHash ?? approveTxHash) ?? "";
+    const finalizedPayout = await finalizePayoutStatus("deposited", txHash);
+    if (!finalizedPayout) {
+      throw new Error("Failed to finalize payout");
+    }
+
+    commitSuccessfulPaymentsToStore(finalizedPayout, txHash);
+    return payout;
+  } catch (err) {
+    const isNotesSaveFailure =
+      err instanceof Error && err.message.includes("saving note secrets failed");
+
+    // Deposit landed but notes POST failed: leave payout/payments pending so
+    // flushPendingNoteSecrets (localStorage) can still recover without re-depositing.
+    if (isNotesSaveFailure) {
+      throw err;
+    }
+
+    const txHash = (lastTxHash ?? approveTxHash) ?? "";
+    const finalizeStatus = depositedCount > 0 ? "deposited" : "failed";
+    const finalized = await finalizePayoutStatus(finalizeStatus, txHash).catch(() => null);
+
+    if (depositedCount > 0 && finalized) {
+      // Keep successful on-chain notes claimable; surface the partial failure to the UI.
+      commitSuccessfulPaymentsToStore(finalized, txHash);
+    } else if (finalized) {
+      payout.status = "failed";
+      for (const payment of newPayments) {
+        if (payment.status !== "claimable") payment.status = "failed";
+      }
+      state.payouts = [payout, ...state.payouts.filter((p) => p.id !== payout.id)];
+      state.payments = [
+        ...state.payments.filter((p) => p.payoutId !== payout.id),
+        ...newPayments,
+      ];
+      emitChange();
+    }
+
+    // Approve / estimateGas can also fail with insufficient native for gas.
+    const gasMsg = formatInsufficientGasError(err);
+    if (gasMsg) throw new Error(gasMsg);
+    throw err;
   }
-
-  const finalizedPayout = await authedApi<Record<string, unknown>>(
-    `/api/payouts/${payout.id}`,
-    { ...params.auth, walletClient: params.walletClient, address: params.ownerAddress },
-    {
-      method: "PATCH",
-      body: JSON.stringify({
-        status: "deposited",
-        tx_hash: txHash,
-      }),
-    },
-  );
-
-  if (!finalizedPayout) {
-    throw new Error("Failed to finalize payout");
-  }
-
-  payout.status = finalizedPayout.status as Payout["status"];
-  payout.txHash = (finalizedPayout.tx_hash as string) ?? txHash;
-  newPayments.forEach((payment) => {
-    payment.status = "claimable";
-  });
-
-  const org = state.organizers.find((o) => o.id === params.organizerId);
-  if (org) {
-    org.totalDistributed += totalAmount;
-    state.organizers = [...state.organizers];
-  }
-
-  state.payouts = [payout, ...state.payouts];
-  state.payments = [...state.payments, ...newPayments];
-  emitChange();
-  return payout;
 }
 
 export async function claimPayment(
@@ -682,42 +1115,78 @@ export async function claimPayment(
   proofResult?: ProofResult,
   chainConfig?: ChainConfig,
   auth?: WalletAuth,
+  tokenSymbol?: string,
+  /** When set (Alchemy AA ready), prefer sponsored UserOperation withdraw; else EOA walletClient. */
+  smartAccount?: WithdrawSmartAccount | null,
 ): Promise<{ txHash: string }> {
   let txHash: string;
 
   // ── On-chain withdraw flow ─────────────────────────────
-  if (walletClient && proofResult && chainConfig) {
-    const publicClient = getPublicClient(chainConfig);
+  if (proofResult && chainConfig && (smartAccount || walletClient)) {
     const pi = proofResult.publicInputs;
-    const withdrawTx = await withdrawFromPool(walletClient, chainConfig, {
+    const publicInputs: Hex[] = [
+      pi.value,
+      pi.nullifier,
+      `0x${pi.merkleProofLength.toString(16).padStart(64, "0")}` as Hex,
+      pi.expectedRoot,
+      pi.recipient,
+    ];
+    const withdrawParams = {
       proof: proofResult.proof,
-      publicInputs: [
-        pi.value,
-        pi.nullifier,
-        `0x${pi.merkleProofLength.toString(16).padStart(64, "0")}` as Hex,
-        pi.expectedRoot,
-        pi.recipient,
-      ],
-    });
-    await publicClient.waitForTransactionReceipt({ hash: withdrawTx });
-    txHash = withdrawTx;
+      publicInputs,
+      tokenSymbol: tokenSymbol ?? chainConfig.defaultToken.symbol,
+    };
+
+    if (smartAccount) {
+      // AA path waits for UserOperation receipt inside sendTransaction.
+      // If receipt wait fails (e.g. Failed to fetch) but withdraw landed, recover via
+      // public RPC receipt poll / on-chain nullifier (see withdrawFromPoolViaSmartAccount).
+      try {
+        txHash = await withdrawFromPoolViaSmartAccount(
+          smartAccount,
+          chainConfig,
+          withdrawParams,
+        );
+      } catch (err) {
+        const nullifier = publicInputs[1];
+        const onChainUsed = await isNullifierUsed(
+          chainConfig,
+          nullifier,
+          withdrawParams.tokenSymbol,
+        ).catch(() => false);
+        if (isNullifierAlreadyUsedError(err) || onChainUsed) {
+          txHash = extractTxHashFromError(err) ?? "";
+        } else {
+          throw err;
+        }
+      }
+    } else {
+      const publicClient = getPublicClient(chainConfig);
+      const withdrawTx = await withdrawFromPool(walletClient!, chainConfig, withdrawParams);
+      const withdrawReceipt = await publicClient.waitForTransactionReceipt({
+        hash: withdrawTx,
+      });
+      if (withdrawReceipt.status !== "success") {
+        throw new Error(`Withdraw transaction reverted on-chain (${withdrawTx})`);
+      }
+      txHash = withdrawTx;
+    }
   } else {
     txHash = mockTxHash();
   }
 
   const now = new Date().toISOString();
 
-  const data = await authedApi<Record<string, unknown>>(
+  // Prefer throwing API errors so a successful on-chain withdraw still surfaces
+  // DB sync failures (and claim route can reconcile via nullifier on retry).
+  await authedApiOrThrow<Record<string, unknown>>(
     `/api/payments/${paymentId}/claim`,
     { ...auth, walletClient },
     {
       method: "PATCH",
-      body: JSON.stringify({ tx_hash: txHash }),
+      body: JSON.stringify({ tx_hash: txHash || null }),
     },
   );
-  if (!data) {
-    throw new Error("Failed to mark payment as claimed");
-  }
 
   const payment = state.payments.find((p) => p.id === paymentId);
   if (payment) {

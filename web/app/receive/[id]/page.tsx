@@ -24,6 +24,8 @@ import {
   invalidateAndRefetchStore,
 } from "@/lib/store";
 import { useParaWalletClient } from "@/lib/wallet";
+import { useClaimSmartAccount } from "@/lib/alchemy-smart-account";
+import { formatAlchemyPaymasterError } from "@/lib/alchemy";
 import { useChain } from "@/lib/chain-context";
 import { CHAINS, type SupportedChainId } from "@/lib/constants";
 import {
@@ -34,7 +36,7 @@ import {
   type ProofInput,
 } from "@/lib/zk";
 import { buildTreeFromEvents, rootToHex } from "@/lib/merkle";
-import { registerRoot, getPublicClient, isRootKnown } from "@/lib/contracts";
+import { isRootKnown } from "@/lib/contracts";
 import { createWalletAuthHeadersGetter, useApiAuth } from "@/lib/api-auth";
 
 const STEP_MESSAGES: Record<string, string> = {
@@ -52,6 +54,11 @@ export default function ClaimPage() {
 
   const payment = store.payments.find((p) => p.id === paymentId);
   const org = payment ? getOrganizerById(payment.organizerId) : undefined;
+  const payout = payment
+    ? store.payouts.find((p) => p.id === payment.payoutId)
+    : undefined;
+  const paymentTokenSymbol = payout?.token ?? "USDC";
+  const paymentAmountLabel = `${payment?.amount.toLocaleString() ?? "0"} ${paymentTokenSymbol}`;
 
   const [txState, setTxState] = useState<TxState>("idle");
   const [txHash, setTxHash] = useState<string>();
@@ -61,6 +68,12 @@ export default function ClaimPage() {
   const [claimExplorerUrl, setClaimExplorerUrl] = useState<string>("");
   const [claimRecipient, setClaimRecipient] = useState<string>("");
   const { walletClient, address, isReady } = useParaWalletClient();
+  const {
+    smartAccount,
+    alchemyReady,
+    sponsorshipReady,
+    isGasSponsorshipConfigured,
+  } = useClaimSmartAccount();
   const apiAuth = useApiAuth();
   const getAuthHeaders = createWalletAuthHeadersGetter({
     ...apiAuth,
@@ -69,6 +82,7 @@ export default function ClaimPage() {
   });
   const { chainId: selectedChainId } = useChain();
   const [destinationAddress, setDestinationAddress] = useState("");
+  const canSubmitClaim = isReady && (alchemyReady || !!walletClient);
 
   useEffect(() => {
     if (address && !destinationAddress) setDestinationAddress(address);
@@ -97,8 +111,28 @@ export default function ClaimPage() {
     );
   }
 
+  if (payment.status === "failed" || payment.status === "pending" || payment.status === "expired") {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Card className="max-w-md w-full text-center">
+          <CardContent className="py-12 space-y-3">
+            <p className="text-muted-foreground">
+              This payment is not claimable ({payment.status}).
+            </p>
+            <Link href="/receive" className="inline-block">
+              <Button variant="outline" className="gap-2">
+                <ArrowLeft className="h-4 w-4" />
+                Back to Dashboard
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const handleClaim = async () => {
-    if (!walletClient || !isReady) {
+    if (!isReady || (!walletClient && !alchemyReady)) {
       toast.error("Connect your wallet first");
       return;
     }
@@ -111,7 +145,15 @@ export default function ClaimPage() {
     try {
       // Step 1: Fetch note data for this payment
       setClaimStep("loading-notes");
-      let noteData: { commitment?: string; value?: string; holder_pk?: string; randomness?: string; chain_id?: number } | null = null;
+      let noteData: {
+        commitment?: string;
+        value?: string;
+        holder_pk?: string;
+        randomness?: string;
+        chain_id?: number;
+        token_symbol?: string;
+        pool_address?: string;
+      } | null = null;
 
       // Chain we'll use for this claim (needed before fallback so we pick a note for this chain)
       const noteChainId = (payment.chainId ?? selectedChainId) as SupportedChainId;
@@ -181,18 +223,47 @@ export default function ClaimPage() {
         nullifier,
       );
 
-      // Build Merkle tree from on-chain deposits and find this note's path
-      const tree = await buildTreeFromEvents(noteChain);
-      const leafIndex = tree.indexOf(commitment);
+      // Build Merkle tree from indexed Deposit events (server seeds from notes + RPC).
+      const treeOpts = {
+        tokenSymbol: noteData.token_symbol,
+        poolAddress: noteData.pool_address as `0x${string}` | undefined,
+      };
+      let tree = await buildTreeFromEvents(noteChain, treeOpts);
+      let leafIndex = tree.indexOf(commitment);
+      // One retry after indexer/sync — Monad historical scans often need a second pass.
+      if (leafIndex === -1) {
+        try {
+          await fetch("/api/sync-pool-root", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(await getAuthHeaders()),
+            },
+            body: JSON.stringify({
+              chain_id: noteChain.id,
+              pool_address:
+                (noteData.pool_address as string | undefined) ??
+                noteChain.pools[noteData.token_symbol ?? noteChain.defaultToken.symbol]?.pool ??
+                noteChain.contracts.pool,
+              token_symbol: noteData.token_symbol ?? noteChain.defaultToken.symbol,
+            }),
+          });
+        } catch {
+          // fall through to rebuild
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+        tree = await buildTreeFromEvents(noteChain, treeOpts);
+        leafIndex = tree.indexOf(commitment);
+      }
       if (leafIndex === -1) {
         throw new Error(
-          "Note commitment not found in Merkle tree. The deposit may not be indexed yet.",
+          "Note commitment not found in Merkle tree. The deposit may not be indexed yet — wait a few seconds and retry.",
         );
       }
       const { siblings, indices, root } = await tree.getProof(leafIndex);
 
       // Step 3: Generate ZK proof (withdraw circuit)
-      // recipient = where to send the 1 USDC; can be any address (e.g. connected wallet).
+      // recipient = where to send funds; can be any address (e.g. connected wallet).
       // pk_b = note owner (from note data); must match for nullifier/commitment.
       setClaimStep("generating-proof");
       const recipientField = fieldToHex(BigInt(destinationAddress));
@@ -210,28 +281,69 @@ export default function ClaimPage() {
       };
       const proofResult = await generateProof(proofInput);
 
-      // Step 4: Register root on-chain only if not already known (e.g. retry after "nonce too low" skips this)
+      const tokenSymbol = noteData.token_symbol ?? noteChain.defaultToken.symbol;
+
+      // Step 4: Wait for backend root registrar (permissioned). Trigger sync if needed.
       setClaimStep("registering-root");
       const rootHex = rootToHex(root);
-      const known = await isRootKnown(noteChain, rootHex);
+      const poolAddress =
+        (noteData.pool_address as `0x${string}` | undefined) ??
+        noteChain.pools[tokenSymbol]?.pool ??
+        noteChain.contracts.pool;
+
+      let known = await isRootKnown(noteChain, rootHex, tokenSymbol);
+      let syncHint = "";
       if (!known) {
         try {
-          const registerTxHash = await registerRoot(walletClient, noteChain, rootHex);
-          const publicClient = getPublicClient(noteChain);
-          await publicClient.waitForTransactionReceipt({ hash: registerTxHash });
+          const syncRes = await fetch("/api/sync-pool-root", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(await getAuthHeaders()),
+            },
+            body: JSON.stringify({
+              chain_id: noteChain.id,
+              pool_address: poolAddress,
+              token_symbol: tokenSymbol,
+            }),
+          });
+          const syncBody = (await syncRes.json().catch(() => null)) as {
+            ok?: boolean;
+            skipped?: string;
+            error?: string;
+            alreadyKnown?: boolean;
+            txHash?: string;
+          } | null;
+          if (!syncRes.ok) {
+            syncHint = syncBody?.error ?? `sync failed (${syncRes.status})`;
+          } else if (syncBody?.skipped) {
+            syncHint = syncBody.skipped;
+          }
         } catch {
-          // Root may have been registered by another tx - proceed to withdraw
+          // continue polling — sync may already be in flight from deposit
+        }
+        for (let i = 0; i < 30 && !known; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          known = await isRootKnown(noteChain, rootHex, tokenSymbol);
         }
       }
+      if (!known) {
+        const detail = syncHint ? ` (${syncHint})` : "";
+        throw new Error(
+          `Merkle root is not registered yet. The backend registrar may still be syncing — retry in a moment.${detail}`,
+        );
+      }
 
-      // Step 5: Submit withdrawal
+      // Step 5: Submit withdrawal (Alchemy AA when ready, else Para EOA)
       setClaimStep("withdrawing");
       const result = await claimPayment(
         paymentId,
-        walletClient,
+        walletClient ?? undefined,
         proofResult,
         noteChain,
         { ...apiAuth, walletClient, address },
+        tokenSymbol,
+        alchemyReady ? smartAccount : null,
       );
       setTxHash(result.txHash);
       setClaimExplorerUrl(noteChain.explorerUrl);
@@ -242,7 +354,16 @@ export default function ClaimPage() {
     } catch (err) {
       console.error("Claim failed:", err);
       const raw = err instanceof Error ? err.message : String(err);
-      if (raw.toLowerCase().includes("nullifier used")) {
+      const lower = raw.toLowerCase();
+      const alreadyClaimedOnChain =
+        (lower.includes("nullifier") &&
+          (lower.includes("used") ||
+            lower.includes("already") ||
+            lower.includes("spent") ||
+            lower.includes("seen"))) ||
+        lower.includes("already claimed") ||
+        lower.includes("already withdrawn");
+      if (alreadyClaimedOnChain) {
         setTxState("idle");
         try {
           await fetch(`/api/payments/${paymentId}/claim`, {
@@ -258,17 +379,20 @@ export default function ClaimPage() {
           // ignore
         }
         setJustClaimed(true);
-        toast.info(
-          "This payment was already withdrawn on-chain (e.g. from a previous attempt). Marked as claimed. Check your wallet or the chain explorer for the transfer.",
+        toast.success(
+          "Payment claimed successfully. On-chain withdrawal was confirmed.",
         );
         return;
       }
       setTxState("error");
-      const msg = raw.includes("User rejected")
-        ? "Transaction cancelled"
-        : raw.includes("SumcheckFailed") || raw.includes("0x9fc3a218")
-          ? "Proof verification failed (SumcheckFailed). The deployed WithdrawVerifier may not match the circuit used by this app. Recompile and redeploy the verifier from the same zk/circuits build used by /api/generate-proof."
-          : raw;
+      const paymasterMsg = formatAlchemyPaymasterError(err);
+      const msg = paymasterMsg
+        ? paymasterMsg
+        : raw.includes("User rejected")
+          ? "Transaction cancelled"
+          : raw.includes("SumcheckFailed") || raw.includes("0x9fc3a218")
+            ? "Proof verification failed (SumcheckFailed). The deployed WithdrawVerifier may not match the circuit used by this app. Recompile and redeploy the verifier from the same zk/circuits build used by /api/generate-proof."
+            : raw;
       toast.error(msg);
     }
   };
@@ -304,9 +428,9 @@ export default function ClaimPage() {
           <CardContent className="space-y-6">
             <div className="text-center">
               <p className="text-4xl font-bold">
-                ${payment.amount.toLocaleString()}
+                {payment.amount.toLocaleString()} {paymentTokenSymbol}
               </p>
-              <p className="mt-1 text-sm text-muted-foreground">tokens</p>
+              <p className="mt-1 text-sm text-muted-foreground">note amount</p>
             </div>
 
             <Separator />
@@ -356,7 +480,7 @@ export default function ClaimPage() {
               <div className="space-y-3">
                 <div className="space-y-2">
                   <label className="text-sm text-muted-foreground">
-                    Destination wallet (receives the 1 USDC)
+                    Destination wallet (receives {paymentAmountLabel})
                   </label>
                   <Input
                     placeholder="0x..."
@@ -378,11 +502,20 @@ export default function ClaimPage() {
                   size="lg"
                   className="w-full gap-2"
                   onClick={handleClaim}
-                  disabled={!isReady}
+                  disabled={!canSubmitClaim}
                 >
                   <Wallet className="h-5 w-5" />
-                  {isReady ? "Claim Payment" : "Connect wallet to claim"}
+                  {canSubmitClaim ? "Claim Payment" : "Connect wallet to claim"}
                 </Button>
+                <p className="text-center text-xs text-muted-foreground">
+                  {sponsorshipReady
+                    ? "Gas sponsored via Alchemy Gas Manager — you do not need native CELO for this claim."
+                    : isGasSponsorshipConfigured
+                      ? "Gas sponsorship configured — waiting for smart account…"
+                      : alchemyReady
+                        ? "Smart account ready, but gas is not sponsored. Claim will use your CELO for gas."
+                        : `Claim will use your ${CHAINS[selectedChainId].nativeCurrency.symbol} for gas (EOA). Set NEXT_PUBLIC_ALCHEMY_API_KEY + NEXT_PUBLIC_ALCHEMY_GAS_POLICY_ID to enable sponsorship.`}
+                </p>
               </div>
             )}
 

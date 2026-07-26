@@ -30,13 +30,35 @@ create table if not exists subscriptions (
   unique(organizer_id, subscriber_id)
 );
 
+-- Organization invite codes (single- or multi-use via max_uses)
+create table if not exists org_invites (
+  id uuid primary key default gen_random_uuid(),
+  organizer_id uuid not null references organizers(id) on delete cascade,
+  code text not null unique,
+  created_by text not null,
+  created_at timestamptz default now(),
+  used_at timestamptz,
+  used_by_subscriber_id uuid references subscribers(id) on delete set null,
+  expires_at timestamptz,
+  max_uses int not null default 1 check (max_uses >= 1),
+  use_count int not null default 0 check (use_count >= 0)
+);
+
+-- Audit of who redeemed each invite (UNIQUE prevents double-count per subscriber)
+create table if not exists org_invite_redemptions (
+  invite_id uuid not null references org_invites(id) on delete cascade,
+  subscriber_id uuid not null references subscribers(id) on delete cascade,
+  redeemed_at timestamptz default now(),
+  primary key (invite_id, subscriber_id)
+);
+
 -- Payouts (batch distributions created by organizers)
 create table if not exists payouts (
   id uuid primary key default gen_random_uuid(),
   organizer_id uuid references organizers(id) on delete cascade,
   total_amount numeric not null,
   token text default 'MON',
-  status text default 'pending' check (status in ('pending', 'deposited', 'distributed', 'claimed')),
+  status text default 'pending' check (status in ('pending', 'deposited', 'distributed', 'claimed', 'failed')),
   tx_hash text,
   created_at timestamptz default now()
 );
@@ -48,7 +70,7 @@ create table if not exists payments (
   organizer_id uuid references organizers(id) on delete cascade,
   subscriber_id uuid references subscribers(id) on delete cascade,
   amount numeric not null,
-  status text default 'pending' check (status in ('pending', 'claimable', 'claimed', 'expired')),
+  status text default 'pending' check (status in ('pending', 'claimable', 'claimed', 'expired', 'failed')),
   claimed_at timestamptz,
   tx_hash text,
   created_at timestamptz default now()
@@ -71,9 +93,13 @@ create table if not exists notes (
 
 alter table notes drop constraint if exists notes_chain_id_check;
 -- Choose the constraint that matches the target environment.
--- Production DBs: mainnet only.
--- Development DBs: testnet only.
+-- Production DBs: mainnet only (143, 42220).
+-- Development DBs: testnet only (10143, 11142220).
 -- The app runtime (`web/lib/db.ts`) applies the correct variant automatically using `BLIZ_ENV`.
+-- Before ADD CONSTRAINT it deletes notes whose chain_id is outside the active env
+-- set (stale opposite-env leftovers from a shared / reused database).
+-- Manual cleanup if needed (production example):
+--   delete from notes where chain_id not in (143, 42220);
 -- alter table notes add constraint notes_chain_id_check
 -- check (chain_id in (143, 42220));
 -- alter table notes add constraint notes_chain_id_check
@@ -84,6 +110,9 @@ create index if not exists idx_organizers_owner on organizers(owner_address);
 create index if not exists idx_subscribers_address on subscribers(address);
 create index if not exists idx_subscriptions_org on subscriptions(organizer_id);
 create index if not exists idx_subscriptions_sub on subscriptions(subscriber_id);
+create index if not exists idx_org_invites_organizer on org_invites(organizer_id);
+create index if not exists idx_org_invites_available on org_invites(code) where use_count < max_uses;
+create index if not exists idx_org_invite_redemptions_subscriber on org_invite_redemptions(subscriber_id);
 create index if not exists idx_payouts_org on payouts(organizer_id);
 create index if not exists idx_payments_sub on payments(subscriber_id);
 create index if not exists idx_payments_payout on payments(payout_id);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { WalletBalances } from "@/components/wallet-balances";
 import {
   ArrowLeft,
   ArrowRight,
@@ -30,14 +31,65 @@ import {
   useStore,
   getSubscriberById,
   createPayout,
+  invalidateAndRefetchStore,
+  flushPendingNoteSecrets,
 } from "@/lib/store";
 import { useParaWalletClient } from "@/lib/wallet";
 import { useChain } from "@/lib/chain-context";
-import type { TokenConfig } from "@/lib/constants";
+import type { ChainConfig, TokenConfig } from "@/lib/constants";
+import {
+  PROTOCOL_FEE_BPS,
+  FEE_BPS_DENOM,
+  toTokenRawAmount,
+  quoteProtocolFee,
+  quoteMaxNetFromBalance,
+  scaleRawNotesToFitGross,
+  fromTokenRawAmount,
+  fromTokenRawAmountUi,
+  formatTokenRawAmount,
+} from "@/lib/constants";
+import { hasRouter, getTokenBalance } from "@/lib/contracts";
+import { formatInsufficientGasError } from "@/lib/alchemy";
 import { useApiAuth } from "@/lib/api-auth";
 import { useModal } from "@getpara/react-sdk";
+import type { Hex } from "viem";
 
 type Step = "select" | "amounts" | "review";
+
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+
+function hasLivePool(chain: ChainConfig, symbol: string): boolean {
+  const pool = chain.pools[symbol]?.pool;
+  return Boolean(pool && pool.toLowerCase() !== ZERO_ADDR);
+}
+
+function formatTokenAmount(amount: number, symbol: string): string {
+  return `${amount.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${symbol}`;
+}
+
+function formatTokenRaw(raw: bigint, decimals: number, symbol: string): string {
+  return `${formatTokenRawAmount(raw, decimals)} ${symbol}`;
+}
+
+function feeShortfallMessage(params: {
+  symbol: string;
+  decimals: number;
+  haveRaw: bigint;
+  netRaw: bigint;
+  feeRaw: bigint;
+  grossRaw: bigint;
+  feePct: number;
+  maxNetRaw: bigint;
+}): string {
+  const { symbol, decimals, haveRaw, netRaw, feeRaw, grossRaw, feePct, maxNetRaw } =
+    params;
+  const have = formatTokenRaw(haveRaw, decimals, symbol);
+  const net = formatTokenRaw(netRaw, decimals, symbol);
+  const fee = formatTokenRaw(feeRaw, decimals, symbol);
+  const gross = formatTokenRaw(grossRaw, decimals, symbol);
+  const maxNet = formatTokenRaw(maxNetRaw, decimals, symbol);
+  return `Insufficient balance: you have ${have}. Notes (net): ${net}. Fee (${feePct}%): ${fee}. Gross required (notes + fee): ${gross}. Reduce notes to ≤ ${maxNet} or top up the difference.`;
+}
 
 export default function CreatePayoutPage() {
   const searchParams = useSearchParams();
@@ -57,11 +109,67 @@ export default function CreatePayoutPage() {
   const [txState, setTxState] = useState<TxState>("idle");
   const [txHash, setTxHash] = useState<string>();
   const [progressMsg, setProgressMsg] = useState<string>();
+  const [walletBalance, setWalletBalance] = useState<bigint | null>(null);
   const { chain } = useChain();
-  const [selectedToken, setSelectedToken] = useState<TokenConfig>(chain.defaultToken);
+  const selectableTokens = chain.tokens.filter((t) => hasLivePool(chain, t.symbol));
+  const [selectedToken, setSelectedToken] = useState<TokenConfig>(
+    () => selectableTokens.find((t) => t.symbol === chain.defaultToken.symbol) ?? selectableTokens[0] ?? chain.defaultToken,
+  );
   const { walletClient, address, isReady } = useParaWalletClient();
   const apiAuth = useApiAuth();
   const { openModal } = useModal();
+
+  useEffect(() => {
+    const live = chain.tokens.filter((t) => hasLivePool(chain, t.symbol));
+    setSelectedToken((prev) => {
+      if (live.some((t) => t.symbol === prev.symbol)) return prev;
+      return live.find((t) => t.symbol === chain.defaultToken.symbol) ?? live[0] ?? chain.defaultToken;
+    });
+  }, [chain]);
+
+  // Recover note secrets saved locally if a prior deposit succeeded but POST /api/notes failed.
+  useEffect(() => {
+    if (!isReady || !address) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const saved = await flushPendingNoteSecrets({
+          ...apiAuth,
+          walletClient,
+          address,
+        });
+        if (!cancelled && saved > 0) {
+          toast.success(`Recovered ${saved} pending note(s) from local backup.`);
+          invalidateAndRefetchStore();
+        }
+      } catch {
+        // best-effort
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isReady, address, apiAuth, walletClient]);
+
+  useEffect(() => {
+    if (!address || chain.placeholder) {
+      setWalletBalance(null);
+      return;
+    }
+    let cancelled = false;
+    setWalletBalance(null);
+    (async () => {
+      try {
+        const bal = await getTokenBalance(chain, address as Hex, selectedToken);
+        if (!cancelled) setWalletBalance(bal);
+      } catch {
+        if (!cancelled) setWalletBalance(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [address, chain, selectedToken]);
 
   const filtered = availableSubscribers.filter(
     (s) =>
@@ -73,6 +181,55 @@ export default function CreatePayoutPage() {
     (sum, id) => sum + (amounts[id] || 0),
     0
   );
+
+  const feePreview = (() => {
+    const decimals = selectedToken.decimals;
+    const applyFee = hasRouter(chain);
+    const feeBps = applyFee ? PROTOCOL_FEE_BPS : 0;
+    const ids = Array.from(selected);
+    const rawAmounts: bigint[] = [];
+    for (const id of ids) {
+      const human = amounts[id] || 0;
+      if (human <= 0) continue;
+      rawAmounts.push(toTokenRawAmount(human, decimals));
+    }
+    const netRaw = rawAmounts.reduce((a, b) => a + b, 0n);
+    const feeRaw = applyFee
+      ? rawAmounts.reduce((a, raw) => a + quoteProtocolFee(raw, feeBps), 0n)
+      : 0n;
+    const grossRaw = netRaw + feeRaw;
+    return {
+      ids,
+      rawAmounts,
+      netRaw,
+      feeRaw,
+      grossRaw,
+      net: fromTokenRawAmount(netRaw, decimals),
+      fee: fromTokenRawAmount(feeRaw, decimals),
+      gross: fromTokenRawAmount(grossRaw, decimals),
+      bps: feeBps,
+      pct: feeBps / (FEE_BPS_DENOM / 100),
+    };
+  })();
+
+  const balanceCheck = (() => {
+    if (walletBalance === null || feePreview.grossRaw <= 0n) return null;
+    const feeBps = feePreview.bps;
+    const decimals = selectedToken.decimals;
+    const maxNetRaw = quoteMaxNetFromBalance(walletBalance, feeBps);
+    const ok = walletBalance >= feePreview.grossRaw;
+    return {
+      ok,
+      haveRaw: walletBalance,
+      netRaw: feePreview.netRaw,
+      feeRaw: feePreview.feeRaw,
+      grossRaw: feePreview.grossRaw,
+      feePct: feePreview.pct,
+      maxNetRaw,
+      maxNet: fromTokenRawAmountUi(maxNetRaw, decimals),
+      shortfallRaw: ok ? 0n : feePreview.grossRaw - walletBalance,
+    };
+  })();
 
   const toggleSelect = (id: string) => {
     const next = new Set(selected);
@@ -90,14 +247,63 @@ export default function CreatePayoutPage() {
   };
 
   const handleEqualSplit = () => {
-    const splitAmount = prompt("Enter total amount to split equally:");
-    if (!splitAmount) return;
-    const perPerson = Math.floor(Number(splitAmount) / selected.size);
+    if (selected.size === 0) {
+      toast.error("Select at least one recipient.");
+      return;
+    }
+    if (walletBalance === null) {
+      toast.error("Wait for the wallet balance to load.");
+      return;
+    }
+    if (walletBalance <= 0n) {
+      toast.error(`${selectedToken.symbol} balance is zero.`);
+      return;
+    }
+
+    const decimals = selectedToken.decimals;
+    const feeBps = feePreview.bps;
+    // Split spendable net (balance after reserving fee-on-top) across recipients.
+    const maxNetRaw = quoteMaxNetFromBalance(walletBalance, feeBps);
+    const ids = Array.from(selected);
+    const n = BigInt(ids.length);
+    const base = maxNetRaw / n;
+    if (base <= 0n) {
+      toast.error("Balance too low to split after fee.");
+      return;
+    }
+
+    const rawParts = ids.map(() => base);
+    let rem = maxNetRaw % n;
+    for (let i = 0; rem > 0n; i += 1, rem -= 1n) {
+      rawParts[i]! += 1n;
+    }
+
+    const fitted =
+      scaleRawNotesToFitGross(rawParts, walletBalance, feeBps) ?? rawParts;
+
+    // Floor to UI-safe numbers so 18dp tokens (COPm) do not inflate on Number round-trip.
+    let uiParts = fitted.map((r) => fromTokenRawAmountUi(r, decimals));
+    let rawBack = uiParts.map((h) => toTokenRawAmount(h, decimals));
+    const refit = scaleRawNotesToFitGross(rawBack, walletBalance, feeBps);
+    if (refit) {
+      uiParts = refit.map((r) => fromTokenRawAmountUi(r, decimals));
+      rawBack = uiParts.map((h) => toTokenRawAmount(h, decimals));
+    }
+
     const next: Record<string, number> = {};
-    selected.forEach((id) => {
-      next[id] = perPerson;
+    ids.forEach((id, idx) => {
+      next[id] = uiParts[idx]!;
     });
     setAmounts(next);
+
+    const netTotal = rawBack.reduce((a, r) => a + r, 0n);
+    toast.success(
+      `Evenly split spendable net (${formatTokenRaw(
+        netTotal,
+        decimals,
+        selectedToken.symbol,
+      )}).`,
+    );
   };
 
   const handleOneEach = () => {
@@ -109,9 +315,56 @@ export default function CreatePayoutPage() {
     setAmounts(next);
   };
 
+  const handleAdjustToMax = () => {
+    if (walletBalance === null || feePreview.rawAmounts.length === 0) return;
+    const decimals = selectedToken.decimals;
+    const feeBps = feePreview.bps;
+    const scaled = scaleRawNotesToFitGross(
+      feePreview.rawAmounts,
+      walletBalance,
+      feeBps,
+    );
+    if (!scaled) {
+      toast.error("Balance too low to cover any note plus fee.");
+      return;
+    }
+
+    let uiParts = scaled.map((r) => fromTokenRawAmountUi(r, decimals));
+    let rawBack = uiParts.map((h) => toTokenRawAmount(h, decimals));
+    const refit = scaleRawNotesToFitGross(rawBack, walletBalance, feeBps);
+    if (refit) {
+      uiParts = refit.map((r) => fromTokenRawAmountUi(r, decimals));
+    }
+
+    const next: Record<string, number> = { ...amounts };
+    let scaledIdx = 0;
+    for (const id of feePreview.ids) {
+      const human = amounts[id] || 0;
+      if (human <= 0) continue;
+      next[id] = uiParts[scaledIdx]!;
+      scaledIdx += 1;
+    }
+    setAmounts(next);
+    toast.success("Amounts adjusted so notes + fee fit your balance.");
+  };
+
   const handleDeposit = async () => {
+    if (balanceCheck && !balanceCheck.ok) {
+      const msg = feeShortfallMessage({
+        symbol: selectedToken.symbol,
+        decimals: selectedToken.decimals,
+        haveRaw: balanceCheck.haveRaw,
+        netRaw: balanceCheck.netRaw,
+        feeRaw: balanceCheck.feeRaw,
+        grossRaw: balanceCheck.grossRaw,
+        feePct: balanceCheck.feePct,
+        maxNetRaw: balanceCheck.maxNetRaw,
+      });
+      toast.error(msg);
+      return;
+    }
     setTxState("pending");
-    setProgressMsg("Preparing deposit...");
+    setProgressMsg("Generating ZK proof...");
     try {
       const result = await createPayout({
         organizerId: orgId,
@@ -125,7 +378,17 @@ export default function CreatePayoutPage() {
         chainConfig: chain,
         ownerAddress: address ?? undefined,
         onProgress: (step, current, total) => {
-          setProgressMsg(`${step} (${current}/${total})`);
+          const label =
+            step === "Proving deposit"
+              ? "Generating ZK proof"
+              : step === "Depositing note"
+                ? "Submitting deposit"
+                : step === "Preparing payout"
+                  ? "Preparing payout"
+                  : step;
+          setProgressMsg(
+            total > 0 ? `${label} (${current}/${total})` : label,
+          );
         },
       });
       setTxHash(result.txHash);
@@ -133,8 +396,29 @@ export default function CreatePayoutPage() {
       toast.success("Payout created successfully!");
     } catch (err) {
       setTxState("error");
-      const msg = err instanceof Error ? err.message : "Transaction failed";
-      toast.error(msg.includes("User rejected") ? "Transaction cancelled" : msg);
+      const gasMsg = formatInsufficientGasError(err);
+      const msg = gasMsg ?? (err instanceof Error ? err.message : "Transaction failed");
+      const cancelled = msg.includes("User rejected");
+      const notesSaveFailed = msg.includes("saving note secrets failed");
+      toast.error(
+        cancelled
+          ? "Transaction cancelled"
+          : notesSaveFailed
+            ? "Deposit on-chain OK but note secrets were not saved. Do not re-deposit — reload this page to retry saving from local backup."
+            : msg,
+      );
+      // Partial success (some notes deposited) is persisted as claimable; refresh dashboard data.
+      // Also retry flushing any localStorage-backed secrets after a notes POST failure.
+      if (!cancelled) {
+        if (notesSaveFailed) {
+          try {
+            await flushPendingNoteSecrets({ ...apiAuth, walletClient, address });
+          } catch {
+            // best-effort; toast already explained recovery
+          }
+        }
+        invalidateAndRefetchStore();
+      }
     }
   };
 
@@ -260,13 +544,18 @@ export default function CreatePayoutPage() {
             exit={{ opacity: 0, x: 20 }}
             className="space-y-4"
           >
+            <WalletBalances
+              address={address}
+              highlightSymbol={selectedToken.symbol}
+            />
+
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <label className="text-sm text-muted-foreground">Token</label>
                 <Select
                   value={selectedToken.symbol}
                   onValueChange={(val) => {
-                    const t = chain.tokens.find((t) => t.symbol === val);
+                    const t = selectableTokens.find((t) => t.symbol === val);
                     if (t) setSelectedToken(t);
                   }}
                 >
@@ -274,28 +563,26 @@ export default function CreatePayoutPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {chain.tokens.map((t) => {
-                      const supported = t.symbol === "USDC";
-                      return (
-                        <SelectItem
-                          key={t.symbol}
-                          value={t.symbol}
-                          disabled={!supported}
-                        >
-                          {t.symbol}
-                          {!supported && (
-                            <span className="ml-2 text-[10px] text-muted-foreground">
-                              Soon
-                            </span>
-                          )}
-                        </SelectItem>
-                      );
-                    })}
+                    {selectableTokens.map((t) => (
+                      <SelectItem key={t.symbol} value={t.symbol}>
+                        {t.symbol}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
+                {selectableTokens.length < 2 && (
+                  <span className="text-xs text-muted-foreground">
+                    Only tokens with a live pool on {chain.name} are listed.
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={handleEqualSplit}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleEqualSplit}
+                  title="Split spendable net (balance after fee) across selected recipients"
+                >
                   Equal Split
                 </Button>
                 <Button variant="outline" size="sm" onClick={handleOneEach}>
@@ -321,17 +608,16 @@ export default function CreatePayoutPage() {
                         <Input
                           type="number"
                           min={0}
+                          step="any"
                           placeholder="0"
                           value={amounts[id] || ""}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const n = Number(e.target.value);
                             setAmounts({
                               ...amounts,
-                              [id]: Math.max(
-                                0,
-                                Math.floor(Number(e.target.value) || 0),
-                              ),
-                            })
-                          }
+                              [id]: Number.isFinite(n) && n > 0 ? n : 0,
+                            });
+                          }}
                           className="w-28 text-right"
                         />
                         <span className="text-xs font-medium text-muted-foreground w-10">
@@ -345,13 +631,51 @@ export default function CreatePayoutPage() {
             </Card>
 
             <div className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
-              <span className="text-sm font-medium">Total</span>
+              <span className="text-sm font-medium">Total (notes)</span>
               <span className="text-xl font-bold">
                 {totalAmount.toLocaleString()} {selectedToken.symbol}
               </span>
             </div>
+            {feePreview.fee > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Protocol fee ({feePreview.pct}%) is charged on top: you will need{" "}
+                <span className="font-medium text-foreground">
+                  {formatTokenAmount(feePreview.gross, selectedToken.symbol)}
+                </span>{" "}
+                in your wallet to deposit.
+              </p>
+            )}
+            {balanceCheck && !balanceCheck.ok && (
+              <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                <p>
+                  {feeShortfallMessage({
+                    symbol: selectedToken.symbol,
+                    decimals: selectedToken.decimals,
+                    haveRaw: balanceCheck.haveRaw,
+                    netRaw: balanceCheck.netRaw,
+                    feeRaw: balanceCheck.feeRaw,
+                    grossRaw: balanceCheck.grossRaw,
+                    feePct: balanceCheck.feePct,
+                    maxNetRaw: balanceCheck.maxNetRaw,
+                  })}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAdjustToMax}
+                  className="border-destructive/40 text-destructive hover:bg-destructive/10"
+                >
+                  {`Adjust to max (${formatTokenRaw(
+                    balanceCheck.maxNetRaw,
+                    selectedToken.decimals,
+                    selectedToken.symbol,
+                  )})`}
+                </Button>
+              </div>
+            )}
             <p className="text-xs text-muted-foreground">
-              Only whole token amounts are supported. Values are rounded down to 1-token notes.
+              Amounts use token decimals (e.g. 1.5 USDT or 5500 COPm). One payout uses a single token for all recipients — for mixed tokens, create separate payouts.
             </p>
 
             <div className="flex justify-between">
@@ -400,14 +724,56 @@ export default function CreatePayoutPage() {
                       })}
                     </div>
                     <Separator />
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Users className="h-4 w-4" />
-                        {selected.size} recipients
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between text-muted-foreground">
+                        <span>Recipients total (notes)</span>
+                        <span>{formatTokenAmount(feePreview.net, selectedToken.symbol)}</span>
                       </div>
-                      <span className="text-2xl font-bold">
-                        {totalAmount.toLocaleString()} {selectedToken.symbol}
-                      </span>
+                      <div className="flex items-center justify-between text-muted-foreground">
+                        <span>Protocol fee ({feePreview.pct}%)</span>
+                        <span>{formatTokenAmount(feePreview.fee, selectedToken.symbol)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <Users className="h-4 w-4" />
+                          {selected.size} recipients
+                        </div>
+                        <span className="text-2xl font-bold">
+                          {formatTokenAmount(feePreview.gross, selectedToken.symbol)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        You pay the gross amount. Recipients claim the note amounts; the fee funds protocol ops and gas sponsorship.
+                      </p>
+                      {balanceCheck && !balanceCheck.ok && (
+                        <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                          <p>
+                            {feeShortfallMessage({
+                              symbol: selectedToken.symbol,
+                              decimals: selectedToken.decimals,
+                              haveRaw: balanceCheck.haveRaw,
+                              netRaw: balanceCheck.netRaw,
+                              feeRaw: balanceCheck.feeRaw,
+                              grossRaw: balanceCheck.grossRaw,
+                              feePct: balanceCheck.feePct,
+                              maxNetRaw: balanceCheck.maxNetRaw,
+                            })}
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleAdjustToMax}
+                            className="border-destructive/40 text-destructive hover:bg-destructive/10"
+                          >
+                            {`Adjust notes to max ${formatTokenRaw(
+                              balanceCheck.maxNetRaw,
+                              selectedToken.decimals,
+                              selectedToken.symbol,
+                            )}`}
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -420,11 +786,12 @@ export default function CreatePayoutPage() {
                   <Button
                     size="lg"
                     onClick={isReady ? handleDeposit : () => openModal()}
+                    disabled={Boolean(isReady && balanceCheck && !balanceCheck.ok)}
                     className="gap-2"
                   >
                     <CircleDollarSign className="h-5 w-5" />
                     {isReady
-                      ? `Deposit ${totalAmount.toLocaleString()} ${selectedToken.symbol}`
+                      ? `Deposit ${formatTokenAmount(feePreview.gross, selectedToken.symbol)}`
                       : "Connect wallet to deposit"}
                   </Button>
                 </div>

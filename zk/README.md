@@ -4,6 +4,8 @@ Noir ZK circuits and Foundry smart contracts for the Blizkperse shielded pool.
 
 > **Withdraw verifier + frontend:** For withdrawals from the web to work, the verifier must be compiled from this repo with `circuits/scripts/compile_withdraw_verifier.sh` and the API must use the same flags (`bb prove --oracle_hash keccak`). See **[docs/build-and-deploy.md](docs/build-and-deploy.md)** to avoid SumcheckFailed errors.
 
+> **Arbitrary amounts + multi-token:** See **[docs/arbitrary-amounts-multitoken.md](docs/arbitrary-amounts-multitoken.md)**. One pool per token, `PoolRouter` entrypoint, deposit circuit binds `amount`↔`commitment`. Legacy 1 USDC pools are not migrated.
+
 ## Prerequisites
 
 1. Install [noirup](https://noir-lang.org/docs/getting_started/noir_installation):

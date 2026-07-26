@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useAccount } from "@getpara/react-sdk";
@@ -35,18 +35,73 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Plus, Users, CircleDollarSign, Clock, Building2, Loader2, Pencil, Trash2 } from "lucide-react";
+import { Plus, Users, CircleDollarSign, Clock, Building2, Loader2, Pencil, Trash2, Link2, Copy, Check } from "lucide-react";
 import {
   useStore,
   getSubscriberById,
   createOrganizer,
   updateOrganizer,
   deleteOrganizer,
+  createInvite,
+  invalidateAndRefetchStore,
+  type Payout,
 } from "@/lib/store";
 import { useChain } from "@/lib/chain-context";
 import { CHAINS } from "@/lib/constants";
 import { useParaWalletClient } from "@/lib/wallet";
 import { useApiAuth } from "@/lib/api-auth";
+import { WalletBalances } from "@/components/wallet-balances";
+
+function payoutStatusLabel(status: Payout["status"]): string {
+  switch (status) {
+    case "pending":
+      return "Awaiting deposit";
+    case "deposited":
+      return "Ready to claim";
+    case "distributed":
+      return "Distributed";
+    case "claimed":
+      return "Claimed";
+    case "failed":
+      return "Failed";
+    default:
+      return status;
+  }
+}
+
+function payoutStatusVariant(
+  status: Payout["status"]
+): "default" | "secondary" | "destructive" | "outline" {
+  switch (status) {
+    case "distributed":
+    case "claimed":
+      return "default";
+    case "deposited":
+      return "secondary";
+    case "failed":
+      return "destructive";
+    case "pending":
+    default:
+      return "outline";
+  }
+}
+
+/** Deposited / distributed / claimed payouts only — never sum across tokens as one number. */
+function distributedByToken(payouts: Payout[]): { token: string; amount: number }[] {
+  const map = new Map<string, number>();
+  for (const p of payouts) {
+    if (p.status === "failed" || p.status === "pending") continue;
+    const token = p.token?.trim() || "USDC";
+    map.set(token, (map.get(token) ?? 0) + p.totalAmount);
+  }
+  return [...map.entries()]
+    .map(([token, amount]) => ({ token, amount }))
+    .sort((a, b) => a.token.localeCompare(b.token));
+}
+
+function formatTokenAmount(amount: number, symbol: string): string {
+  return `${amount.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${symbol}`;
+}
 
 export default function PayerDashboard() {
   const { embedded } = useAccount();
@@ -55,6 +110,11 @@ export default function PayerDashboard() {
   const apiAuth = useApiAuth();
   const store = useStore();
   const { chainId: selectedChainId } = useChain();
+
+  // Refetch so payout statuses (pending vs deposited) match the API/DB.
+  useEffect(() => {
+    invalidateAndRefetchStore();
+  }, []);
 
   // Filter my orgs to those active on the selected chain (or with no chain-linked payments yet)
   const orgIdsOnChain = new Set<string>();
@@ -83,19 +143,23 @@ export default function PayerDashboard() {
   const orgPayouts = selectedOrg
     ? store.payouts.filter((p) => p.organizerId === selectedOrg.id)
     : [];
+  // Recent: hide failures and abandoned empty pending drafts.
+  const recentPayouts = orgPayouts.filter((p) => {
+    if (p.status === "failed") return false;
+    if (p.status === "pending" && p.totalAmount <= 0) return false;
+    return true;
+  });
 
-  const totalDistributed = orgPayouts.reduce((s, p) => s + p.totalAmount, 0);
-  const pendingPayouts = orgPayouts.filter(
-    (p) => p.status === "deposited" || p.status === "pending"
-  ).length;
+  const distributedTotals = distributedByToken(orgPayouts);
+  const readyToClaimPayouts = orgPayouts.filter((p) => p.status === "deposited").length;
 
-  // Check if selected org can be deleted (no payments or all claimed)
+  // Check if selected org can be deleted (no payments or all claimed/failed)
   const orgPayments = selectedOrg
     ? store.payments.filter((p) => p.organizerId === selectedOrg.id)
     : [];
   const canDelete =
     orgPayments.length === 0 ||
-    orgPayments.every((p) => p.status === "claimed");
+    orgPayments.every((p) => p.status === "claimed" || p.status === "failed");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState("");
@@ -105,6 +169,14 @@ export default function PayerDashboard() {
   const [editName, setEditName] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteLink, setInviteLink] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [inviteMaxUses, setInviteMaxUses] = useState("1");
+  const [inviteCreatedMaxUses, setInviteCreatedMaxUses] = useState<number | null>(null);
+  const [generatingInvite, setGeneratingInvite] = useState(false);
+  const [copiedInvite, setCopiedInvite] = useState(false);
 
   const handleCreateOrg = async () => {
     if (!newOrgName.trim()) return;
@@ -155,6 +227,51 @@ export default function PayerDashboard() {
       toast.error(err instanceof Error ? err.message : "Failed to delete.");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleGenerateInvite = async () => {
+    if (!selectedOrg) return;
+    const parsed = Number.parseInt(inviteMaxUses, 10);
+    const maxUses = Number.isFinite(parsed)
+      ? Math.min(1000, Math.max(1, parsed))
+      : 1;
+    setGeneratingInvite(true);
+    setCopiedInvite(false);
+    try {
+      const invite = await createInvite(
+        selectedOrg.id,
+        {
+          ...apiAuth,
+          walletClient,
+          address,
+        },
+        { maxUses },
+      );
+      setInviteCode(invite.code);
+      setInviteLink(invite.joinUrl);
+      setInviteCreatedMaxUses(invite.maxUses);
+      setInviteMaxUses(String(invite.maxUses));
+      toast.success(
+        invite.maxUses === 1
+          ? "Invite link created."
+          : `Invite link created (valid for ${invite.maxUses} joins).`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create invite.");
+    } finally {
+      setGeneratingInvite(false);
+    }
+  };
+
+  const handleCopyInvite = async () => {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setCopiedInvite(true);
+      toast.success("Invite link copied.");
+    } catch {
+      toast.error("Could not copy link.");
     }
   };
 
@@ -209,6 +326,8 @@ export default function PayerDashboard() {
 
   return (
     <div className="space-y-8">
+      <WalletBalances address={address || undefined} />
+
       {/* Org selector + Create */}
       <div className="flex items-center gap-3 flex-wrap">
         {myOrganizers.map((org) => (
@@ -348,6 +467,99 @@ export default function PayerDashboard() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+
+            <Dialog
+              open={inviteOpen}
+              onOpenChange={(open) => {
+                setInviteOpen(open);
+                if (!open) {
+                  setInviteLink("");
+                  setInviteCode("");
+                  setInviteMaxUses("1");
+                  setInviteCreatedMaxUses(null);
+                  setCopiedInvite(false);
+                }
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2 ml-1">
+                  <Link2 className="h-4 w-4" />
+                  Invite
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Invite to {selectedOrg.name}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 pt-2">
+                  <p className="text-sm text-muted-foreground">
+                    Generate an invite link. Set how many different people can join with the same
+                    code (default 1 = single-use).
+                  </p>
+                  {!inviteLink && (
+                    <div className="space-y-2">
+                      <label htmlFor="invite-max-uses" className="text-sm font-medium">
+                        Valid for N joins
+                      </label>
+                      <Input
+                        id="invite-max-uses"
+                        type="number"
+                        min={1}
+                        max={1000}
+                        step={1}
+                        value={inviteMaxUses}
+                        onChange={(e) => setInviteMaxUses(e.target.value)}
+                        disabled={generatingInvite}
+                      />
+                    </div>
+                  )}
+                  <Button
+                    className="w-full gap-2"
+                    onClick={handleGenerateInvite}
+                    disabled={generatingInvite || Boolean(inviteLink)}
+                  >
+                    {generatingInvite ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Link2 className="h-4 w-4" />
+                        Generate invite link
+                      </>
+                    )}
+                  </Button>
+                  {inviteLink && (
+                    <div className="space-y-2">
+                      <Input readOnly value={inviteLink} className="font-mono text-xs" />
+                      {inviteCode && (
+                        <p className="text-xs text-muted-foreground font-mono">
+                          Code: {inviteCode}
+                          {inviteCreatedMaxUses != null && (
+                            <> · Valid for {inviteCreatedMaxUses} join{inviteCreatedMaxUses === 1 ? "" : "s"}</>
+                          )}
+                        </p>
+                      )}
+                      <Button
+                        variant="outline"
+                        className="w-full gap-2"
+                        onClick={handleCopyInvite}
+                      >
+                        {copiedInvite ? (
+                          <>
+                            <Check className="h-4 w-4" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-4 w-4" />
+                            Copy link
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
 
           {/* Stats */}
@@ -355,9 +567,26 @@ export default function PayerDashboard() {
             <Card>
               <CardContent className="flex items-center gap-4 p-6">
                 <CircleDollarSign className="h-6 w-6 text-muted-foreground" />
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm text-muted-foreground">Total Distributed</p>
-                  <p className="text-2xl font-bold">${totalDistributed.toLocaleString()}</p>
+                  {distributedTotals.length === 0 ? (
+                    <p className="text-2xl font-bold">—</p>
+                  ) : distributedTotals.length === 1 ? (
+                    <p className="text-2xl font-bold truncate">
+                      {formatTokenAmount(
+                        distributedTotals[0].amount,
+                        distributedTotals[0].token
+                      )}
+                    </p>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {distributedTotals.map(({ token, amount }) => (
+                        <p key={token} className="text-lg font-bold leading-tight truncate">
+                          {formatTokenAmount(amount, token)}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -374,8 +603,8 @@ export default function PayerDashboard() {
               <CardContent className="flex items-center gap-4 p-6">
                 <Clock className="h-6 w-6 text-muted-foreground" />
                 <div>
-                  <p className="text-sm text-muted-foreground">Pending Payouts</p>
-                  <p className="text-2xl font-bold">{pendingPayouts}</p>
+                  <p className="text-sm text-muted-foreground">Ready to claim</p>
+                  <p className="text-2xl font-bold">{readyToClaimPayouts}</p>
                 </div>
               </CardContent>
             </Card>
@@ -427,7 +656,7 @@ export default function PayerDashboard() {
                 {orgSubs.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
-                      No subscribers yet. Share your organization so people can join.
+                      No subscribers yet. Generate an invite link so people can join.
                     </TableCell>
                   </TableRow>
                 )}
@@ -448,33 +677,31 @@ export default function PayerDashboard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {orgPayouts.map((payout) => (
+                {recentPayouts.map((payout) => (
                   <TableRow key={payout.id}>
                     <TableCell className="text-sm text-muted-foreground">
                       {new Date(payout.createdAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      {store.payments.filter((p) => p.payoutId === payout.id).length}
+                      {
+                        store.payments.filter(
+                          (p) =>
+                            p.payoutId === payout.id &&
+                            (p.status === "claimable" || p.status === "claimed")
+                        ).length
+                      }
                     </TableCell>
                     <TableCell className="font-medium">
-                      ${payout.totalAmount.toLocaleString()}
+                      {formatTokenAmount(payout.totalAmount, payout.token || "USDC")}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant={
-                          payout.status === "distributed"
-                            ? "default"
-                            : payout.status === "deposited"
-                              ? "secondary"
-                              : "outline"
-                        }
-                      >
-                        {payout.status}
+                      <Badge variant={payoutStatusVariant(payout.status)}>
+                        {payoutStatusLabel(payout.status)}
                       </Badge>
                     </TableCell>
                   </TableRow>
                 ))}
-                {orgPayouts.length === 0 && (
+                {recentPayouts.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
                       No payouts yet.

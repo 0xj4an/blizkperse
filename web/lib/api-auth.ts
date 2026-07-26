@@ -9,11 +9,20 @@ import {
   AUTH_ADDRESS_HEADER,
   AUTH_SIGNATURE_HEADER,
   AUTH_TIMESTAMP_HEADER,
+  AUTH_TTL_MS,
   buildWalletAuthMessage,
 } from "./auth-shared";
 import { useParaWalletClient } from "./wallet";
 
-const AUTH_TTL_MS = 5 * 60 * 1000;
+/** Re-export for callers that previously imported from this module. */
+export { AUTH_TTL_MS };
+
+/**
+ * Client must refresh *before* the server TTL. Using the same 5m window caused
+ * POST /api/notes to send a near-expiry cached signature after proving+deposit,
+ * yielding 401 and losing note secrets after a successful on-chain deposit.
+ */
+const AUTH_CACHE_TTL_MS = Math.floor(AUTH_TTL_MS * 0.75);
 
 export type ParaSignMessageResult =
   | { signature: string }
@@ -38,6 +47,11 @@ type CachedAuth = {
 };
 
 let cachedAuth: CachedAuth | null = null;
+
+/** Drop cached wallet auth headers (e.g. after a 401 from the API). */
+export function clearWalletAuthCache() {
+  cachedAuth = null;
+}
 
 function normalizeParaSignature(rawSignature: string): `0x${string}` {
   const sigHex = rawSignature.startsWith("0x")
@@ -109,7 +123,7 @@ export async function getWalletAuthHeaders(
 
   cachedAuth = {
     address: normalizedAddress,
-    expiresAt: now + AUTH_TTL_MS,
+    expiresAt: now + AUTH_CACHE_TTL_MS,
     headers,
   };
 
