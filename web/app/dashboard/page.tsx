@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Header } from "@/components/header";
+import { Footer } from "@/components/footer";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent } from "@/components/ui/card";
 import { LayoutDashboard, HandCoins, ArrowRight } from "lucide-react";
@@ -24,10 +25,10 @@ const roles = [
 
 export default function DashboardPage() {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="flex min-h-screen flex-col bg-background">
       <Header />
       <AuthGuard>
-        <main className="container mx-auto flex max-w-2xl flex-col items-center px-4 py-20">
+        <main className="container mx-auto flex max-w-2xl flex-1 flex-col items-center px-4 py-20">
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
@@ -72,6 +73,7 @@ export default function DashboardPage() {
           </div>
         </main>
       </AuthGuard>
+      <Footer />
     </div>
   );
 }

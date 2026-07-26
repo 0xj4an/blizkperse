@@ -1,4 +1,5 @@
 import { Header } from "@/components/header";
+import { Footer } from "@/components/footer";
 
 export function PageShell({
   title,
@@ -10,9 +11,9 @@ export function PageShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="flex min-h-screen flex-col bg-background">
       <Header />
-      <main className="container mx-auto max-w-6xl px-4 py-8">
+      <main className="container mx-auto max-w-6xl flex-1 px-4 py-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold">{title}</h1>
           {description && (
@@ -21,6 +22,7 @@ export function PageShell({
         </div>
         {children}
       </main>
+      <Footer />
     </div>
   );
 }

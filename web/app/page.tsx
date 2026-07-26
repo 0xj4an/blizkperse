@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useChain } from "@/lib/chain-context";
 import { CHAINS, CHAIN_IDS, type SupportedChainId } from "@/lib/constants";
+import { Footer } from "@/components/footer";
 
 const CHAIN_DOT: Record<string, string> = {
   monad: "bg-purple-500",
@@ -34,8 +35,8 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className="flex items-center justify-center min-h-screen">
+    <div className="flex min-h-screen flex-col bg-background">
+      <main className="flex flex-1 items-center justify-center">
         <div className="mx-4 w-full max-w-lg space-y-8 text-center">
           <div className="space-y-4">
             <pre
@@ -76,6 +77,7 @@ export default function Home() {
           </div>
         </div>
       </main>
+      <Footer />
     </div>
   );
 }
