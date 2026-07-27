@@ -2,6 +2,12 @@
 
 import { AuthGuard } from "@/components/auth-guard";
 import { PageShell } from "@/components/page-shell";
+import { useFlushPendingNotes } from "@/hooks/use-flush-pending-notes";
+
+function PayerPendingNoteRecovery() {
+  useFlushPendingNotes(true);
+  return null;
+}
 
 export default function PayerLayout({
   children,
@@ -10,6 +16,7 @@ export default function PayerLayout({
 }) {
   return (
     <AuthGuard>
+      <PayerPendingNoteRecovery />
       <PageShell
         title="Organizer Dashboard"
         description="Manage your subscribers and distribute payouts"

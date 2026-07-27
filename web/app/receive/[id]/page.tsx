@@ -22,10 +22,14 @@ import {
   getOrganizerById,
   claimPayment,
   invalidateAndRefetchStore,
+  refetchStoreIfStale,
 } from "@/lib/store";
 import { useParaWalletClient } from "@/lib/wallet";
 import { useClaimSmartAccount } from "@/lib/alchemy-smart-account";
-import { formatAlchemyPaymasterError } from "@/lib/alchemy";
+import {
+  formatAlchemyPaymasterError,
+  formatInsufficientGasError,
+} from "@/lib/alchemy";
 import { useChain } from "@/lib/chain-context";
 import { CHAINS, type SupportedChainId } from "@/lib/constants";
 import {
@@ -88,9 +92,9 @@ export default function ClaimPage() {
     if (address && !destinationAddress) setDestinationAddress(address);
   }, [address, destinationAddress]);
 
-  // Refetch store when opening this claim so status (claimable/claimed) matches DB
+  // Soft refetch — avoid full /api/data on every claim-page open if store is fresh.
   useEffect(() => {
-    invalidateAndRefetchStore();
+    refetchStoreIfStale();
   }, []);
 
   if (!payment) {
@@ -386,13 +390,16 @@ export default function ClaimPage() {
       }
       setTxState("error");
       const paymasterMsg = formatAlchemyPaymasterError(err);
+      const gasMsg = formatInsufficientGasError(err, "claim");
       const msg = paymasterMsg
         ? paymasterMsg
-        : raw.includes("User rejected")
-          ? "Transaction cancelled"
-          : raw.includes("SumcheckFailed") || raw.includes("0x9fc3a218")
-            ? "Proof verification failed (SumcheckFailed). The deployed WithdrawVerifier may not match the circuit used by this app. Recompile and redeploy the verifier from the same zk/circuits build used by /api/generate-proof."
-            : raw;
+        : gasMsg
+          ? gasMsg
+          : raw.includes("User rejected")
+            ? "Transaction cancelled"
+            : raw.includes("SumcheckFailed") || raw.includes("0x9fc3a218")
+              ? "Proof verification failed (SumcheckFailed). The deployed WithdrawVerifier may not match the circuit used by this app. Recompile and redeploy the verifier from the same zk/circuits build used by /api/generate-proof."
+              : raw;
       toast.error(msg);
     }
   };

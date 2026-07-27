@@ -43,7 +43,11 @@ import {
   updateOrganizer,
   deleteOrganizer,
   createInvite,
+  refetchStoreIfStale,
   invalidateAndRefetchStore,
+  flushPendingNoteSecrets,
+  hasAnyPendingNoteSecrets,
+  hasFlushablePendingNoteSecrets,
   type Payout,
 } from "@/lib/store";
 import { useChain } from "@/lib/chain-context";
@@ -111,9 +115,9 @@ export default function PayerDashboard() {
   const store = useStore();
   const { chainId: selectedChainId } = useChain();
 
-  // Refetch so payout statuses (pending vs deposited) match the API/DB.
+  // Soft refetch — reuse in-memory store if still fresh (avoid full /api/data on every visit).
   useEffect(() => {
-    invalidateAndRefetchStore();
+    refetchStoreIfStale();
   }, []);
 
   // Filter my orgs to those active on the selected chain (or with no chain-linked payments yet)
@@ -177,6 +181,40 @@ export default function PayerDashboard() {
   const [inviteCreatedMaxUses, setInviteCreatedMaxUses] = useState<number | null>(null);
   const [generatingInvite, setGeneratingInvite] = useState(false);
   const [copiedInvite, setCopiedInvite] = useState(false);
+  const [recoveringNotes, setRecoveringNotes] = useState(false);
+  const [showNoteRecovery, setShowNoteRecovery] = useState(false);
+
+  useEffect(() => {
+    setShowNoteRecovery(hasAnyPendingNoteSecrets());
+  }, [store.loaded, store.payments, store.payouts]);
+
+  const handleRecoverPendingNotes = async () => {
+    if (!address) return;
+    setRecoveringNotes(true);
+    try {
+      const saved = await flushPendingNoteSecrets({
+        ...apiAuth,
+        walletClient,
+        address,
+      });
+      if (saved > 0) {
+        toast.success(`Recovered ${saved} pending note(s) from local backup.`);
+        invalidateAndRefetchStore();
+        setShowNoteRecovery(hasAnyPendingNoteSecrets());
+      } else {
+        toast.message(
+          hasFlushablePendingNoteSecrets()
+            ? "Could not save pending notes yet — check the console or try again."
+            : "Falta deposit_tx en el backup. En consola: await __blizRecoverPendingNotes('0x…')",
+        );
+        setShowNoteRecovery(hasAnyPendingNoteSecrets());
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Recovery failed");
+    } finally {
+      setRecoveringNotes(false);
+    }
+  };
 
   const handleCreateOrg = async () => {
     if (!newOrgName.trim()) return;
@@ -327,6 +365,30 @@ export default function PayerDashboard() {
   return (
     <div className="space-y-8">
       <WalletBalances address={address || undefined} />
+
+      {showNoteRecovery ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
+          <p className="text-muted-foreground">
+            Local backup has note secrets from a deposit that may not be saved yet.
+            Recover to mark the payout claimable.
+          </p>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={recoveringNotes || !address}
+            onClick={handleRecoverPendingNotes}
+          >
+            {recoveringNotes ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Recovering…
+              </>
+            ) : (
+              "Recover pending notes"
+            )}
+          </Button>
+        </div>
+      ) : null}
 
       {/* Org selector + Create */}
       <div className="flex items-center gap-3 flex-wrap">

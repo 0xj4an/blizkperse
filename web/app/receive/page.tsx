@@ -25,8 +25,10 @@ import {
   ensureSubscriber,
   fetchInvite,
   joinWithInvite,
+  refetchStoreIfStale,
   invalidateAndRefetchStore,
   reconcileClaimedPayments,
+  hasClaimablePayments,
   type Payment,
   type Payout,
 } from "@/lib/store";
@@ -135,14 +137,22 @@ function ReceiveDashboardInner() {
   const apiAuth = useApiAuth();
   const store = useStore();
 
-  // ensure current user exists as subscriber
-  const [subId, setSubId] = useState("");
+  // Prefer subscriber already in the hydrated store — avoid waiting on ensureSubscriber for join UI.
+  const storeSubId =
+    address
+      ? store.subscribers.find(
+          (s) => s.address.toLowerCase() === address.toLowerCase(),
+        )?.id ?? ""
+      : "";
+  const [ensuredSubId, setEnsuredSubId] = useState("");
+  const subId = storeSubId || ensuredSubId;
+
   useEffect(() => {
-    if (!address) return;
+    if (!address || storeSubId) return;
     ensureSubscriber(address, undefined, undefined, { ...apiAuth, walletClient, address })
-      .then((sub) => setSubId(sub.id))
+      .then((sub) => setEnsuredSubId(sub.id))
       .catch(() => {});
-  }, [address, walletClient, apiAuth]);
+  }, [address, storeSubId, walletClient, apiAuth]);
 
   const { chainId: selectedChainId } = useChain();
   const mySubscriptions = store.subscriptions.filter(
@@ -203,28 +213,61 @@ function ReceiveDashboardInner() {
     setInviteInput(queryInvite);
   }, [queryInvite]);
 
-  // Refetch store + reconcile claims that already landed on-chain but DB lagged.
+  // Soft store refresh on mount; reconcile claimables in the background (never block first paint).
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      if (address && walletClient) {
-        const n = await reconcileClaimedPayments({
-          ...apiAuth,
-          walletClient,
-          address,
-        });
-        if (cancelled) return;
-        if (n > 0) {
-          invalidateAndRefetchStore();
-          return;
-        }
-      }
+    let idleId: number | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    const runReconcile = async () => {
+      if (cancelled || !address || !walletClient) return;
+
+      await refetchStoreIfStale();
+      if (cancelled) return;
+
+      if (!hasClaimablePayments(subId || undefined)) return;
+
+      const n = await reconcileClaimedPayments({
+        ...apiAuth,
+        walletClient,
+        address,
+      });
+      if (cancelled || n <= 0) return;
       invalidateAndRefetchStore();
-    })();
+    };
+
+    // Paint first with existing store data; soft-refresh + reconcile after idle.
+    refetchStoreIfStale();
+
+    const schedule =
+      typeof window !== "undefined" && "requestIdleCallback" in window
+        ? () => {
+            idleId = window.requestIdleCallback(
+              () => {
+                void runReconcile();
+              },
+              { timeout: 2500 },
+            );
+          }
+        : () => {
+            timeoutId = setTimeout(() => {
+              void runReconcile();
+            }, 400);
+          };
+    schedule();
+
     return () => {
       cancelled = true;
+      if (
+        idleId != null &&
+        typeof window !== "undefined" &&
+        "cancelIdleCallback" in window
+      ) {
+        window.cancelIdleCallback(idleId);
+      }
+      if (timeoutId != null) clearTimeout(timeoutId);
     };
-  }, [address, walletClient, apiAuth]);
+  }, [address, walletClient, apiAuth, subId]);
 
   useEffect(() => {
     if (!activeInviteCode) {
@@ -285,11 +328,19 @@ function ReceiveDashboardInner() {
     if (!subId || !inviteInfo?.valid) return;
     setJoining(true);
     try {
-      await joinWithInvite(inviteInfo.code, subId, {
-        ...apiAuth,
-        walletClient,
-        address,
-      });
+      await joinWithInvite(
+        inviteInfo.code,
+        subId,
+        {
+          ...apiAuth,
+          walletClient,
+          address,
+        },
+        {
+          id: inviteInfo.organizerId,
+          name: inviteInfo.organizerName,
+        },
+      );
       toast.success("Joined successfully!");
       const remaining = Math.max(0, inviteInfo.remaining - 1);
       const exhausted = remaining <= 0;

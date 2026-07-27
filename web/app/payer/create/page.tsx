@@ -26,13 +26,16 @@ import {
   Users,
   CircleDollarSign,
   Check,
+  Loader2,
 } from "lucide-react";
 import {
   useStore,
   getSubscriberById,
   createPayout,
   invalidateAndRefetchStore,
+  refetchStoreIfStale,
   flushPendingNoteSecrets,
+  type Organizer,
 } from "@/lib/store";
 import { useParaWalletClient } from "@/lib/wallet";
 import { useChain } from "@/lib/chain-context";
@@ -47,6 +50,7 @@ import {
   fromTokenRawAmount,
   fromTokenRawAmountUi,
   formatTokenRawAmount,
+  formatInsufficientDepositBalanceMessage,
 } from "@/lib/constants";
 import { hasRouter, getTokenBalance } from "@/lib/contracts";
 import { formatInsufficientGasError } from "@/lib/alchemy";
@@ -81,14 +85,7 @@ function feeShortfallMessage(params: {
   feePct: number;
   maxNetRaw: bigint;
 }): string {
-  const { symbol, decimals, haveRaw, netRaw, feeRaw, grossRaw, feePct, maxNetRaw } =
-    params;
-  const have = formatTokenRaw(haveRaw, decimals, symbol);
-  const net = formatTokenRaw(netRaw, decimals, symbol);
-  const fee = formatTokenRaw(feeRaw, decimals, symbol);
-  const gross = formatTokenRaw(grossRaw, decimals, symbol);
-  const maxNet = formatTokenRaw(maxNetRaw, decimals, symbol);
-  return `Insufficient balance: you have ${have}. Notes (net): ${net}. Fee (${feePct}%): ${fee}. Gross required (notes + fee): ${gross}. Reduce notes to ≤ ${maxNet} or top up the difference.`;
+  return formatInsufficientDepositBalanceMessage({ ...params, withSymbol: true });
 }
 
 export default function CreatePayoutPage() {
@@ -96,7 +93,12 @@ export default function CreatePayoutPage() {
   const orgId = searchParams.get("org") ?? "";
   const store = useStore();
 
-  const org = store.organizers.find((o) => o.id === orgId);
+  const orgFromStore = store.organizers.find((o) => o.id === orgId);
+  // Survive transient empty store during post-deposit invalidate/refetch.
+  const [cachedOrg, setCachedOrg] = useState<Organizer | null>(null);
+  const org =
+    orgFromStore ?? (cachedOrg?.id === orgId ? cachedOrg : null);
+
   const orgSubs = store.subscriptions.filter((s) => s.organizerId === orgId);
   const availableSubscribers = orgSubs
     .map((s) => getSubscriberById(s.subscriberId))
@@ -120,36 +122,21 @@ export default function CreatePayoutPage() {
   const { openModal } = useModal();
 
   useEffect(() => {
+    if (orgFromStore) setCachedOrg(orgFromStore);
+  }, [orgFromStore]);
+
+  // Soft refetch on mount — tolerate AuthGuard cache rendering children before hydrate.
+  useEffect(() => {
+    refetchStoreIfStale();
+  }, []);
+
+  useEffect(() => {
     const live = chain.tokens.filter((t) => hasLivePool(chain, t.symbol));
     setSelectedToken((prev) => {
       if (live.some((t) => t.symbol === prev.symbol)) return prev;
       return live.find((t) => t.symbol === chain.defaultToken.symbol) ?? live[0] ?? chain.defaultToken;
     });
   }, [chain]);
-
-  // Recover note secrets saved locally if a prior deposit succeeded but POST /api/notes failed.
-  useEffect(() => {
-    if (!isReady || !address) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const saved = await flushPendingNoteSecrets({
-          ...apiAuth,
-          walletClient,
-          address,
-        });
-        if (!cancelled && saved > 0) {
-          toast.success(`Recovered ${saved} pending note(s) from local backup.`);
-          invalidateAndRefetchStore();
-        }
-      } catch {
-        // best-effort
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isReady, address, apiAuth, walletClient]);
 
   useEffect(() => {
     if (!address || chain.placeholder) {
@@ -422,7 +409,15 @@ export default function CreatePayoutPage() {
     }
   };
 
+  // Don't treat transient empty store (initial load / post-mutation refetch) as missing org.
   if (!org) {
+    if (!store.loaded || store.hydrating) {
+      return (
+        <div className="flex min-h-[40vh] items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
     return (
       <div className="py-12 text-center text-muted-foreground">
         Organization not found.{" "}
