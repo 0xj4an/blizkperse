@@ -24,6 +24,17 @@ import {
 import { LogIn, ShieldCheck, User, Loader2 } from "lucide-react";
 
 type ProfileState = "loading" | "needs-username" | "ready";
+type ResolvedProfileState = Exclude<ProfileState, "loading">;
+
+/** Survives AuthGuard remount when switching /payer ↔ /receive. */
+let profileCache: { address: string; state: ResolvedProfileState } | null =
+  null;
+
+function cachedProfileFor(address: string): ResolvedProfileState | null {
+  const normalized = address.toLowerCase();
+  if (profileCache?.address === normalized) return profileCache.state;
+  return null;
+}
 
 function normalizeParaSignature(rawSignature: string): `0x${string}` {
   const sigHex = rawSignature.startsWith("0x")
@@ -47,7 +58,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const address = walletAddress ?? fallbackAddress;
   const walletId = embeddedWallet?.id;
 
-  const [profileState, setProfileState] = useState<ProfileState>("loading");
+  const [profileState, setProfileState] = useState<ProfileState>(() => {
+    if (!address) return "loading";
+    return cachedProfileFor(address) ?? "loading";
+  });
   const [username, setUsername] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -57,6 +71,15 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const normalized = address.toLowerCase();
+    const cached = cachedProfileFor(address);
+    // Remount / route switch: keep prior ready state — no spinner flash.
+    if (cached) {
+      setProfileState(cached);
+    } else {
+      setProfileState("loading");
+    }
+
     let cancelled = false;
 
     (async () => {
@@ -64,20 +87,19 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         const res = await fetch(
           `/api/subscribers?address=${encodeURIComponent(address)}`
         );
-        if (!cancelled) {
-          if (res.ok) {
-            const data = await res.json();
-            if (data?.name) {
-              setProfileState("ready");
-            } else {
-              setProfileState("needs-username");
-            }
-          } else {
-            setProfileState("needs-username");
-          }
+        if (cancelled) return;
+        let next: ResolvedProfileState = "needs-username";
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.name) next = "ready";
         }
+        profileCache = { address: normalized, state: next };
+        setProfileState(next);
       } catch {
-        if (!cancelled) setProfileState("needs-username");
+        if (!cancelled) {
+          // Keep cached ready if revalidation failed mid-session.
+          if (!cached) setProfileState("needs-username");
+        }
       }
     })();
 
@@ -140,6 +162,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
             : "Failed to save username";
         throw new Error(message);
       }
+      profileCache = { address: address.toLowerCase(), state: "ready" };
       setProfileState("ready");
       toast.success(`Welcome, ${trimmed}!`);
     } catch (error) {
