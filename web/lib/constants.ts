@@ -15,13 +15,15 @@ export interface PoolConfig {
   deployBlock: bigint;
 }
 
-export type ChainSlug = "monad" | "celo";
+export type ChainSlug = "monad" | "celo" | "robinhood";
 
 export enum ChainId {
   MONAD = 143,
   MONAD_TESTNET = 10143,
   CELO = 42220,
   CELO_TESTNET = 11142220,
+  ROBINHOOD = 4663,
+  ROBINHOOD_TESTNET = 46630,
 }
 
 export type SupportedChainId = ChainId;
@@ -141,6 +143,29 @@ const PUBLIC_ENV: Record<string, string | undefined> = {
   NEXT_PUBLIC_MONAD_POOL_DENOMINATION: process.env.NEXT_PUBLIC_MONAD_POOL_DENOMINATION,
   NEXT_PUBLIC_MONAD_DEPLOY_BLOCK: process.env.NEXT_PUBLIC_MONAD_DEPLOY_BLOCK,
   NEXT_PUBLIC_MONAD_PLACEHOLDER: process.env.NEXT_PUBLIC_MONAD_PLACEHOLDER,
+
+  NEXT_PUBLIC_ROBINHOOD_CHAIN_ID: process.env.NEXT_PUBLIC_ROBINHOOD_CHAIN_ID,
+  NEXT_PUBLIC_ROBINHOOD_RPC_URL: process.env.NEXT_PUBLIC_ROBINHOOD_RPC_URL,
+  NEXT_PUBLIC_ROBINHOOD_EXPLORER_URL: process.env.NEXT_PUBLIC_ROBINHOOD_EXPLORER_URL,
+  NEXT_PUBLIC_ROBINHOOD_ROUTER_ADDRESS: process.env.NEXT_PUBLIC_ROBINHOOD_ROUTER_ADDRESS,
+  NEXT_PUBLIC_ROBINHOOD_POOL_ADDRESS: process.env.NEXT_PUBLIC_ROBINHOOD_POOL_ADDRESS,
+  NEXT_PUBLIC_ROBINHOOD_POOL_USDG_ADDRESS: process.env.NEXT_PUBLIC_ROBINHOOD_POOL_USDG_ADDRESS,
+  NEXT_PUBLIC_ROBINHOOD_POOL_USDE_ADDRESS: process.env.NEXT_PUBLIC_ROBINHOOD_POOL_USDE_ADDRESS,
+  NEXT_PUBLIC_ROBINHOOD_POOL_WETH_ADDRESS: process.env.NEXT_PUBLIC_ROBINHOOD_POOL_WETH_ADDRESS,
+  NEXT_PUBLIC_ROBINHOOD_TOKEN_USDG_ADDRESS: process.env.NEXT_PUBLIC_ROBINHOOD_TOKEN_USDG_ADDRESS,
+  NEXT_PUBLIC_ROBINHOOD_TOKEN_USDE_ADDRESS: process.env.NEXT_PUBLIC_ROBINHOOD_TOKEN_USDE_ADDRESS,
+  NEXT_PUBLIC_ROBINHOOD_TOKEN_WETH_ADDRESS: process.env.NEXT_PUBLIC_ROBINHOOD_TOKEN_WETH_ADDRESS,
+  NEXT_PUBLIC_ROBINHOOD_VERIFIER_ADDRESS: process.env.NEXT_PUBLIC_ROBINHOOD_VERIFIER_ADDRESS,
+  NEXT_PUBLIC_ROBINHOOD_WITHDRAW_VERIFIER_ADDRESS:
+    process.env.NEXT_PUBLIC_ROBINHOOD_WITHDRAW_VERIFIER_ADDRESS,
+  NEXT_PUBLIC_ROBINHOOD_DEPOSIT_VERIFIER_ADDRESS:
+    process.env.NEXT_PUBLIC_ROBINHOOD_DEPOSIT_VERIFIER_ADDRESS,
+  NEXT_PUBLIC_ROBINHOOD_STABLECOIN_ADDRESS: process.env.NEXT_PUBLIC_ROBINHOOD_STABLECOIN_ADDRESS,
+  NEXT_PUBLIC_ROBINHOOD_STABLECOIN_SYMBOL: process.env.NEXT_PUBLIC_ROBINHOOD_STABLECOIN_SYMBOL,
+  NEXT_PUBLIC_ROBINHOOD_POOL_TOKEN_DECIMALS: process.env.NEXT_PUBLIC_ROBINHOOD_POOL_TOKEN_DECIMALS,
+  NEXT_PUBLIC_ROBINHOOD_POOL_DENOMINATION: process.env.NEXT_PUBLIC_ROBINHOOD_POOL_DENOMINATION,
+  NEXT_PUBLIC_ROBINHOOD_DEPLOY_BLOCK: process.env.NEXT_PUBLIC_ROBINHOOD_DEPLOY_BLOCK,
+  NEXT_PUBLIC_ROBINHOOD_PLACEHOLDER: process.env.NEXT_PUBLIC_ROBINHOOD_PLACEHOLDER,
 };
 
 const DEPLOY_ENV: DeployEnv =
@@ -153,12 +178,23 @@ const CELO_CHAIN_IDS = new Set<SupportedChainId>([
   ChainId.CELO,
   ChainId.CELO_TESTNET,
 ]);
+const ROBINHOOD_CHAIN_IDS = new Set<SupportedChainId>([
+  ChainId.ROBINHOOD,
+  ChainId.ROBINHOOD_TESTNET,
+]);
 const ALL_CHAIN_IDS = new Set<SupportedChainId>([
   ChainId.MONAD,
   ChainId.MONAD_TESTNET,
   ChainId.CELO,
   ChainId.CELO_TESTNET,
+  ChainId.ROBINHOOD,
+  ChainId.ROBINHOOD_TESTNET,
 ]);
+const CHAIN_IDS_BY_SLUG: Record<ChainSlug, Set<SupportedChainId>> = {
+  monad: MONAD_CHAIN_IDS,
+  celo: CELO_CHAIN_IDS,
+  robinhood: ROBINHOOD_CHAIN_IDS,
+};
 
 const MONAD_USDC = "0x754704Bc059F8C67012fEd69BC8A327a5aafb603" as const;
 const MONAD_USDT = "0xe7cd86e13AC4309349F30B3435a9d337750fC82D" as const;
@@ -171,6 +207,12 @@ const CELO_USDT = "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e" as const;
 const CELO_COPM = "0x8A567e2aE79CA692Bd748aB832081C45de4041eA" as const;
 /** Celo GoldToken: native CELO ↔ ERC-20 duality (no wrap/unwrap). */
 const CELO_TOKEN = "0x471EcE3750Da237f93B8E339c536989b8978a438" as const;
+
+/** Robinhood mainnet tokens (verified via public RPC). */
+const ROBINHOOD_USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168" as const;
+const ROBINHOOD_USDE = "0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34" as const;
+/** Wrapped ETH on Robinhood — WETH-style wrap/unwrap (Monad WMON pattern). */
+const ROBINHOOD_WETH = "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73" as const;
 
 const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
   monad: {
@@ -230,6 +272,43 @@ const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
       COPm: "0x5862FFF8085d009354d78273DC8f8545f51dB72F",
     },
     deployBlock: BigInt(61_379_350),
+  },
+  robinhood: {
+    id: ChainId.ROBINHOOD,
+    name: "Robinhood Chain",
+    rpcUrl: "https://rpc.mainnet.chain.robinhood.com",
+    explorerUrl: "https://robinhoodchain.blockscout.com",
+    explorerName: "Robinhood Chain Explorer",
+    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    router: "0xcDc6AdE9d348572f302690bD39BA8120F8E91db3",
+    contracts: {
+      // Default pool entry = USDG (stablecoin).
+      pool: "0xf62E5a932a832C8EA990DedD87a05162C8905224",
+      verifier: "0x8d10Ad45B21d4db2e7270E519a757c764c6501Ac",
+      withdrawVerifier: "0xD9AeE9351f7685b05a6B7BD8c1Ca509D24bE1e57",
+      depositVerifier: "0x1d42C0cD5fF14Ee71456473828996b1bC251a735",
+      stablecoin: ROBINHOOD_USDG,
+    },
+    poolTokenDecimals: 6,
+    poolDenomination: BigInt(1_000_000),
+    stablecoinSymbol: "USDG",
+    stablecoinName: "Global Dollar",
+    poolTokens: [
+      { symbol: "USDG", name: "Global Dollar", decimals: 6, address: ROBINHOOD_USDG },
+      { symbol: "USDe", name: "USDe", decimals: 18, address: ROBINHOOD_USDE },
+      {
+        symbol: "WETH",
+        name: "WETH",
+        decimals: 18,
+        address: ROBINHOOD_WETH,
+        wrapsNative: true,
+      },
+    ],
+    poolAddresses: {
+      USDe: "0x038803A40130734E6aB711489060Ea55F05BB475",
+      WETH: "0x27c575a0CDbBAcCFaCC6085164186B19F74b77B4",
+    },
+    deployBlock: BigInt(20_324_129),
   },
 };
 
@@ -292,6 +371,39 @@ const DEV_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
     ],
     deployBlock: BigInt(19901100),
   },
+  /** No dedicated RH testnet deploy yet — env overrides point at mainnet 4663. */
+  robinhood: {
+    id: ChainId.ROBINHOOD_TESTNET,
+    name: "Robinhood Chain Testnet",
+    rpcUrl: "https://rpc.mainnet.chain.robinhood.com",
+    explorerUrl: "https://robinhoodchain.blockscout.com",
+    explorerName: "Robinhood Chain Explorer",
+    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    router: ZERO_ADDR,
+    contracts: {
+      pool: ZERO_ADDR,
+      verifier: ZERO_ADDR,
+      withdrawVerifier: ZERO_ADDR,
+      depositVerifier: ZERO_ADDR,
+      stablecoin: ROBINHOOD_USDG,
+    },
+    poolTokenDecimals: 6,
+    poolDenomination: BigInt(1_000_000),
+    stablecoinSymbol: "USDG",
+    stablecoinName: "Global Dollar",
+    poolTokens: [
+      { symbol: "USDG", name: "Global Dollar", decimals: 6, address: ROBINHOOD_USDG },
+      { symbol: "USDe", name: "USDe", decimals: 18, address: ROBINHOOD_USDE },
+      {
+        symbol: "WETH",
+        name: "WETH",
+        decimals: 18,
+        address: ROBINHOOD_WETH,
+        wrapsNative: true,
+      },
+    ],
+    deployBlock: BigInt(0),
+  },
 };
 
 const DEFAULTS = DEPLOY_ENV === "development" ? DEV_DEFAULTS : PROD_DEFAULTS;
@@ -313,7 +425,7 @@ function isKnownChainId(value: number): value is SupportedChainId {
 }
 
 function isChainIdValidForSlug(slug: ChainSlug, value: SupportedChainId): boolean {
-  return slug === "monad" ? MONAD_CHAIN_IDS.has(value) : CELO_CHAIN_IDS.has(value);
+  return CHAIN_IDS_BY_SLUG[slug].has(value);
 }
 
 function getEnvChainId(
@@ -488,26 +600,40 @@ function buildChainConfig(slug: ChainSlug): ChainConfig {
 
 const monadChain = buildChainConfig("monad");
 const celoChain = buildChainConfig("celo");
+const robinhoodChain = buildChainConfig("robinhood");
 
 if (monadChain.id === celoChain.id) {
   throw new Error("Monad and Celo chain IDs must be different");
+}
+if (
+  robinhoodChain.id === monadChain.id ||
+  robinhoodChain.id === celoChain.id
+) {
+  throw new Error("Robinhood chain ID must differ from Monad and Celo");
 }
 
 export const CHAINS: Record<number, ChainConfig> = Object.freeze({
   [celoChain.id]: celoChain,
   [monadChain.id]: monadChain,
+  [robinhoodChain.id]: robinhoodChain,
 });
 
-export const CHAIN_IDS = Object.freeze([celoChain.id, monadChain.id]);
+export const CHAIN_IDS = Object.freeze([
+  celoChain.id,
+  monadChain.id,
+  robinhoodChain.id,
+]);
 
 const defaultChainSlug = getEnv("NEXT_PUBLIC_DEFAULT_CHAIN") as ChainSlug | undefined;
 
 export const DEFAULT_CHAIN_ID =
   defaultChainSlug === "monad"
     ? monadChain.id
-    : defaultChainSlug === "celo"
-      ? celoChain.id
-      : celoChain.id;
+    : defaultChainSlug === "robinhood"
+      ? robinhoodChain.id
+      : defaultChainSlug === "celo"
+        ? celoChain.id
+        : celoChain.id;
 
 export function isSupportedChainId(value: unknown): value is SupportedChainId {
   return (
@@ -557,6 +683,58 @@ export function quoteMaxNetFromBalance(
   if (balanceRaw <= 0n) return 0n;
   if (feeBps <= 0) return balanceRaw;
   return (balanceRaw * BigInt(FEE_BPS_DENOM)) / BigInt(FEE_BPS_DENOM + feeBps);
+}
+
+/**
+ * Clear shortfall copy for deposit / createPayout balance checks.
+ * Avoids confusing "reduce notes to ≤ 0" when the wallet cannot fund any note after fee.
+ */
+export function formatInsufficientDepositBalanceMessage(params: {
+  symbol: string;
+  decimals: number;
+  haveRaw: bigint;
+  netRaw: bigint;
+  feeRaw: bigint;
+  grossRaw: bigint;
+  feePct: number;
+  maxNetRaw: bigint;
+  /** Include symbol on each amount (UI toast) vs bare numbers (createPayout throw). */
+  withSymbol?: boolean;
+}): string {
+  const {
+    symbol,
+    decimals,
+    haveRaw,
+    netRaw,
+    feeRaw,
+    grossRaw,
+    feePct,
+    maxNetRaw,
+    withSymbol = false,
+  } = params;
+  const fmt = (raw: bigint) => {
+    const n = formatTokenRawAmount(raw, decimals);
+    return withSymbol ? `${n} ${symbol}` : n;
+  };
+  const have = fmt(haveRaw);
+  const net = fmt(netRaw);
+  const fee = fmt(feeRaw);
+  const gross = fmt(grossRaw);
+  const shortfall = grossRaw > haveRaw ? grossRaw - haveRaw : 0n;
+  const head = withSymbol
+    ? `Insufficient balance: you have ${have}. Notes (net): ${net}. Fee (${feePct}%): ${fee}. Gross required (notes + fee): ${gross}.`
+    : `Insufficient ${symbol} balance: you have ${have}. Notes (net): ${net}. Fee (${feePct}%): ${fee}. Gross required: ${gross}.`;
+
+  if (maxNetRaw <= 0n) {
+    const need = fmt(shortfall > 0n ? shortfall : grossRaw);
+    return `${head} Your balance is too low to fund any notes after the fee — top up at least ${need} (plus native gas).`;
+  }
+
+  const maxNet = fmt(maxNetRaw);
+  if (shortfall > 0n) {
+    return `${head} Reduce notes to ≤ ${maxNet} or top up at least ${fmt(shortfall)}.`;
+  }
+  return `${head} Reduce notes to ≤ ${maxNet} or top up the difference.`;
 }
 
 /**

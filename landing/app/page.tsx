@@ -888,15 +888,23 @@ export default function LandingPage() {
           <p className="font-mono text-xs text-muted-foreground/60">
             Privacy you can prove.
           </p>
-          <a
-            href="https://github.com/0xj4an/blizkperse"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-sm text-muted-foreground/60 transition-colors hover:text-foreground"
-          >
-            <Github className="h-3.5 w-3.5" />
-            GitHub
-          </a>
+          <div className="flex items-center gap-4">
+            <a
+              href={`${APP_URL}/terms`}
+              className="text-sm text-muted-foreground/60 transition-colors hover:text-foreground"
+            >
+              Terms
+            </a>
+            <a
+              href="https://github.com/0xj4an/blizkperse"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-sm text-muted-foreground/60 transition-colors hover:text-foreground"
+            >
+              <Github className="h-3.5 w-3.5" />
+              GitHub
+            </a>
+          </div>
         </div>
       </footer>
     </div>

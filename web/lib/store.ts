@@ -6,9 +6,9 @@ import {
   type ChainConfig,
   getPoolConfig,
   toTokenRawAmount,
-  formatTokenRawAmount,
   quoteProtocolFee,
   quoteMaxNetFromBalance,
+  formatInsufficientDepositBalanceMessage,
   PROTOCOL_FEE_BPS,
   FEE_BPS_DENOM,
 } from "./constants";
@@ -90,11 +90,82 @@ function upsertPendingNoteSecret(note: PendingNoteSecret) {
 
 function removePendingNoteSecret(paymentId: string, commitment?: string) {
   writePendingNoteSecrets(
-    readPendingNoteSecrets().filter(
-      (n) =>
-        n.payment_id !== paymentId &&
-        (!commitment || n.commitment !== commitment),
-    ),
+    readPendingNoteSecrets().filter((n) => {
+      if (n.payment_id === paymentId) return false;
+      if (commitment && n.commitment.toLowerCase() === commitment.toLowerCase()) {
+        return false;
+      }
+      return true;
+    }),
+  );
+}
+
+/** True when localStorage has secrets that are safe to POST (deposit already confirmed). */
+export function hasFlushablePendingNoteSecrets(): boolean {
+  return readPendingNoteSecrets().some((n) => Boolean(n.deposit_tx));
+}
+
+/** Any local backup entries (with or without deposit_tx). */
+export function hasAnyPendingNoteSecrets(): boolean {
+  return readPendingNoteSecrets().length > 0;
+}
+
+/**
+ * Safe peek for recovery UI/console — never returns holder_pk / randomness / nullifier.
+ */
+export function peekPendingNoteSecretsMeta(): Array<{
+  payment_id: string;
+  commitment_prefix: string;
+  chain_id: number;
+  has_deposit_tx: boolean;
+  savedAt: number;
+}> {
+  return readPendingNoteSecrets().map((n) => ({
+    payment_id: n.payment_id,
+    commitment_prefix: n.commitment.slice(0, 14),
+    chain_id: n.chain_id,
+    has_deposit_tx: Boolean(n.deposit_tx),
+    savedAt: n.savedAt,
+  }));
+}
+
+/**
+ * Attach a confirmed deposit tx to a pending local secret (recovery when the
+ * pre-deposit draft was saved but the post-receipt upsert never ran).
+ * Does not print or return secret fields.
+ */
+export function attachDepositTxToPendingNote(
+  paymentId: string,
+  depositTx: string,
+  commitment?: string,
+): boolean {
+  const tx = depositTx.trim().toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(tx)) return false;
+  const pending = readPendingNoteSecrets();
+  let updated = false;
+  const next = pending.map((n) => {
+    const paymentMatch = n.payment_id === paymentId;
+    const commitmentMatch = commitment
+      ? n.commitment.toLowerCase() === commitment.trim().toLowerCase()
+      : true;
+    if (!paymentMatch || !commitmentMatch) return n;
+    updated = true;
+    return { ...n, deposit_tx: tx, savedAt: Date.now() };
+  });
+  if (updated) writePendingNoteSecrets(next);
+  return updated;
+}
+
+/**
+ * If exactly one pending secret exists, attach deposit_tx to it (console recovery).
+ */
+export function attachDepositTxToOnlyPendingNote(depositTx: string): boolean {
+  const pending = readPendingNoteSecrets();
+  if (pending.length !== 1) return false;
+  return attachDepositTxToPendingNote(
+    pending[0].payment_id,
+    depositTx,
+    pending[0].commitment,
   );
 }
 
@@ -161,6 +232,8 @@ interface StoreState {
   payouts: Payout[];
   payments: Payment[];
   loaded: boolean;
+  /** True while a hydrate fetch is in flight (keeps prior orgs visible). */
+  hydrating: boolean;
 }
 
 let state: StoreState = {
@@ -170,6 +243,7 @@ let state: StoreState = {
   payouts: [],
   payments: [],
   loaded: false,
+  hydrating: false,
 };
 
 const listeners = new Set<() => void>();
@@ -334,10 +408,28 @@ async function saveNoteSecretsWithRetry(
  * Best-effort: flush note secrets left in localStorage after a prior crash.
  * Only posts notes that already have a confirmed deposit_tx — never promotes
  * pre-deposit local drafts into claimable DB rows.
+ *
+ * Also tries to backfill deposit_tx from the related payout.txHash in memory
+ * when the post-receipt localStorage upsert never ran.
  */
 export async function flushPendingNoteSecrets(auth: WalletAuth): Promise<number> {
-  const pending = readPendingNoteSecrets();
+  let pending = readPendingNoteSecrets();
   if (pending.length === 0) return 0;
+
+  // Enrich drafts that lost deposit_tx but whose payout already recorded the hash.
+  for (const note of pending) {
+    if (note.deposit_tx) continue;
+    const payment = state.payments.find((p) => p.id === note.payment_id);
+    const payout = payment
+      ? state.payouts.find((p) => p.id === payment.payoutId)
+      : undefined;
+    const tx = payout?.txHash?.trim().toLowerCase();
+    if (tx && /^0x[0-9a-f]{64}$/.test(tx)) {
+      attachDepositTxToPendingNote(note.payment_id, tx, note.commitment);
+    }
+  }
+  pending = readPendingNoteSecrets();
+
   let saved = 0;
   for (const note of pending) {
     if (!note.deposit_tx) {
@@ -381,90 +473,134 @@ export async function reconcileClaimedPayments(auth: WalletAuth): Promise<number
   }
 }
 
+/** True when local store already knows about claimable notes (skip reconcile RPC otherwise). */
+export function hasClaimablePayments(subscriberId?: string): boolean {
+  return state.payments.some(
+    (p) =>
+      p.status === "claimable" &&
+      Boolean(p.noteId) &&
+      (!subscriberId || p.subscriberId === subscriberId),
+  );
+}
+
 // ── Hydrate ──────────────────────────────────────────────
 
-let hydratePromise: Promise<void> | null = null;
+/** Soft-refresh window: remounts reuse in-memory data within this TTL. */
+const STORE_STALE_MS = 45_000;
 
-/** Force a fresh fetch from the API (e.g. so payment status matches DB). */
-export function invalidateAndRefetchStore() {
+let hydratePromise: Promise<void> | null = null;
+let lastHydratedAt = 0;
+
+/**
+ * Soft refetch for page mounts — skips network if store is fresh.
+ * Mutations that need a hard refresh should call invalidateAndRefetchStore().
+ */
+export function refetchStoreIfStale(staleMs: number = STORE_STALE_MS) {
+  if (hydratePromise && state.hydrating) return hydratePromise;
+  if (state.loaded && Date.now() - lastHydratedAt < staleMs) {
+    return hydratePromise ?? Promise.resolve();
+  }
   hydratePromise = null;
-  hydrateStore();
+  return hydrateStore();
+}
+
+/** Force a fresh fetch from the API (e.g. after mutations so status matches DB). */
+export function invalidateAndRefetchStore() {
+  lastHydratedAt = 0;
+  // Drop in-flight promise so a post-mutation refetch is not coalesced with a stale one.
+  // The superseded run skips applying results (see hydrateStore).
+  hydratePromise = null;
+  return hydrateStore();
 }
 
 export function hydrateStore() {
   if (hydratePromise) return hydratePromise;
-  hydratePromise = (async () => {
-    const data = await api<{
-      organizers: Array<Record<string, unknown>>;
-      subscribers: Array<Record<string, unknown>>;
-      subscriptions: Array<Record<string, unknown>>;
-      payouts: Array<Record<string, unknown>>;
-      payments: Array<Record<string, unknown>>;
-    }>("/api/data");
-
-    if (!data) {
-      // API unavailable - start with empty state
-      state.loaded = true;
-      emitChange();
-      return;
-    }
-
-    state.organizers = data.organizers.map((r) => ({
-      id: r.id as string,
-      name: r.name as string,
-      address: r.owner_address as string,
-      totalDistributed: Number(r.total_distributed),
-      subscriberCount: Number(r.subscriber_count),
-    }));
-
-    state.subscribers = data.subscribers.map((r) => ({
-      id: r.id as string,
-      address: r.address as string,
-      name: r.name as string,
-      email: (r.email as string) ?? undefined,
-      joinedAt: r.created_at as string,
-    }));
-
-    state.subscriptions = data.subscriptions.map((r) => ({
-      id: r.id as string,
-      organizerId: r.organizer_id as string,
-      subscriberId: r.subscriber_id as string,
-      status: r.status as "active" | "pending",
-      joinedAt: r.created_at as string,
-    }));
-
-    state.payouts = data.payouts.map((r) => ({
-      id: r.id as string,
-      organizerId: r.organizer_id as string,
-      totalAmount: Number(r.total_amount),
-      token: (r.token as string) ?? "USDC",
-      status: r.status as Payout["status"],
-      createdAt: r.created_at as string,
-      txHash: (r.tx_hash as string) ?? undefined,
-    }));
-
-    state.payments = data.payments.map((r) => ({
-      id: r.id as string,
-      payoutId: r.payout_id as string,
-      organizerId: r.organizer_id as string,
-      subscriberId: r.subscriber_id as string,
-      amount: Number(r.amount),
-      status: r.status as Payment["status"],
-      claimedAt: (r.claimed_at as string) ?? undefined,
-      txHash: (r.tx_hash as string) ?? undefined,
-      chainId: r.chain_id != null ? Number(r.chain_id) : undefined,
-      noteId: r.note_id != null ? String(r.note_id) : undefined,
-      depositTx: (r.deposit_tx as string) ?? undefined,
-      depositConfirmed:
-        r.deposit_confirmed === true ||
-        r.deposit_confirmed === "t" ||
-        r.deposit_confirmed === "true",
-    }));
-
-    state.loaded = true;
+  const run = (async () => {
+    state.hydrating = true;
     emitChange();
+
+    try {
+      const data = await api<{
+        organizers: Array<Record<string, unknown>>;
+        subscribers: Array<Record<string, unknown>>;
+        subscriptions: Array<Record<string, unknown>>;
+        payouts: Array<Record<string, unknown>>;
+        payments: Array<Record<string, unknown>>;
+      }>("/api/data");
+
+      // Superseded by a newer invalidate/refetch that cleared hydratePromise.
+      if (hydratePromise !== run) return;
+
+      if (!data) {
+        // Keep prior organizers/payments — never wipe to empty on a failed fetch.
+        // Do not mark loaded / freshness on failure so mounts can retry via refetchStoreIfStale.
+        return;
+      }
+
+      // Replace only after a successful response (no clear-then-fill gap).
+      state.organizers = data.organizers.map((r) => ({
+        id: r.id as string,
+        name: r.name as string,
+        address: r.owner_address as string,
+        totalDistributed: Number(r.total_distributed),
+        subscriberCount: Number(r.subscriber_count),
+      }));
+
+      state.subscribers = data.subscribers.map((r) => ({
+        id: r.id as string,
+        address: r.address as string,
+        name: r.name as string,
+        email: (r.email as string) ?? undefined,
+        joinedAt: r.created_at as string,
+      }));
+
+      state.subscriptions = data.subscriptions.map((r) => ({
+        id: r.id as string,
+        organizerId: r.organizer_id as string,
+        subscriberId: r.subscriber_id as string,
+        status: r.status as "active" | "pending",
+        joinedAt: r.created_at as string,
+      }));
+
+      state.payouts = data.payouts.map((r) => ({
+        id: r.id as string,
+        organizerId: r.organizer_id as string,
+        totalAmount: Number(r.total_amount),
+        token: (r.token as string) ?? "USDC",
+        status: r.status as Payout["status"],
+        createdAt: r.created_at as string,
+        txHash: (r.tx_hash as string) ?? undefined,
+      }));
+
+      state.payments = data.payments.map((r) => ({
+        id: r.id as string,
+        payoutId: r.payout_id as string,
+        organizerId: r.organizer_id as string,
+        subscriberId: r.subscriber_id as string,
+        amount: Number(r.amount),
+        status: r.status as Payment["status"],
+        claimedAt: (r.claimed_at as string) ?? undefined,
+        txHash: (r.tx_hash as string) ?? undefined,
+        chainId: r.chain_id != null ? Number(r.chain_id) : undefined,
+        noteId: r.note_id != null ? String(r.note_id) : undefined,
+        depositTx: (r.deposit_tx as string) ?? undefined,
+        depositConfirmed:
+          r.deposit_confirmed === true ||
+          r.deposit_confirmed === "t" ||
+          r.deposit_confirmed === "true",
+      }));
+
+      state.loaded = true;
+      lastHydratedAt = Date.now();
+    } finally {
+      if (hydratePromise === run) {
+        state.hydrating = false;
+        emitChange();
+      }
+    }
   })();
-  return hydratePromise;
+  hydratePromise = run;
+  return run;
 }
 
 // ── React hook ─────────────────────────────────────────
@@ -706,6 +842,7 @@ export async function joinWithInvite(
   inviteCode: string,
   subscriberId: string,
   auth: WalletAuth,
+  organizerHint?: { id: string; name: string; address?: string },
 ): Promise<Subscription> {
   const authHeaders = await getWalletAuthHeaders(auth);
   const res = await fetch("/api/subscriptions", {
@@ -735,11 +872,22 @@ export async function joinWithInvite(
   const alreadyCached = state.subscriptions.some((s) => s.id === subData.id);
   if (!alreadyCached) {
     state.subscriptions = [...state.subscriptions, subData];
-    const org = state.organizers.find((o) => o.id === subData.organizerId);
-    if (org) {
-      org.subscriberCount += 1;
-      state.organizers = [...state.organizers];
-    }
+  }
+
+  let org = state.organizers.find((o) => o.id === subData.organizerId);
+  if (!org && organizerHint && organizerHint.id === subData.organizerId) {
+    org = {
+      id: organizerHint.id,
+      name: organizerHint.name,
+      address: organizerHint.address ?? "",
+      totalDistributed: 0,
+      subscriberCount: 0,
+    };
+    state.organizers = [...state.organizers, org];
+  }
+  if (org && !alreadyCached) {
+    org.subscriberCount += 1;
+    state.organizers = [...state.organizers];
   }
 
   emitChange();
@@ -802,17 +950,19 @@ export async function createPayout(params: {
   if (params.walletClient && params.ownerAddress) {
     const balance = await getTokenBalance(config, params.ownerAddress, tokenCfg);
     if (balance < required) {
-      const have = formatTokenRawAmount(balance, tokenCfg.decimals);
-      const need = formatTokenRawAmount(required, tokenCfg.decimals);
-      const netHuman = formatTokenRawAmount(netTotal, tokenCfg.decimals);
-      const feeHuman = formatTokenRawAmount(feeTotal, tokenCfg.decimals);
-      const maxNet = formatTokenRawAmount(
-        quoteMaxNetFromBalance(balance, hasRouter(config) ? PROTOCOL_FEE_BPS : 0),
-        tokenCfg.decimals,
-      );
+      const feeBps = hasRouter(config) ? PROTOCOL_FEE_BPS : 0;
       const feePct = PROTOCOL_FEE_BPS / (FEE_BPS_DENOM / 100);
       throw new Error(
-        `Insufficient ${tokenCfg.symbol} balance: you have ${have}. Notes (net): ${netHuman}. Fee (${feePct}%): ${feeHuman}. Gross required: ${need}. Reduce notes to ≤ ${maxNet} or top up the difference.`,
+        formatInsufficientDepositBalanceMessage({
+          symbol: tokenCfg.symbol,
+          decimals: tokenCfg.decimals,
+          haveRaw: balance,
+          netRaw: netTotal,
+          feeRaw: feeTotal,
+          grossRaw: required,
+          feePct,
+          maxNetRaw: quoteMaxNetFromBalance(balance, feeBps),
+        }),
       );
     }
   }
@@ -1137,39 +1287,46 @@ export async function claimPayment(
       tokenSymbol: tokenSymbol ?? chainConfig.defaultToken.symbol,
     };
 
-    if (smartAccount) {
-      // AA path waits for UserOperation receipt inside sendTransaction.
-      // If receipt wait fails (e.g. Failed to fetch) but withdraw landed, recover via
-      // public RPC receipt poll / on-chain nullifier (see withdrawFromPoolViaSmartAccount).
-      try {
-        txHash = await withdrawFromPoolViaSmartAccount(
-          smartAccount,
-          chainConfig,
-          withdrawParams,
-        );
-      } catch (err) {
-        const nullifier = publicInputs[1];
-        const onChainUsed = await isNullifierUsed(
-          chainConfig,
-          nullifier,
-          withdrawParams.tokenSymbol,
-        ).catch(() => false);
-        if (isNullifierAlreadyUsedError(err) || onChainUsed) {
-          txHash = extractTxHashFromError(err) ?? "";
-        } else {
-          throw err;
+    try {
+      if (smartAccount) {
+        // AA path waits for UserOperation receipt inside sendTransaction.
+        // If receipt wait fails (e.g. Failed to fetch) but withdraw landed, recover via
+        // public RPC receipt poll / on-chain nullifier (see withdrawFromPoolViaSmartAccount).
+        try {
+          txHash = await withdrawFromPoolViaSmartAccount(
+            smartAccount,
+            chainConfig,
+            withdrawParams,
+          );
+        } catch (err) {
+          const nullifier = publicInputs[1];
+          const onChainUsed = await isNullifierUsed(
+            chainConfig,
+            nullifier,
+            withdrawParams.tokenSymbol,
+          ).catch(() => false);
+          if (isNullifierAlreadyUsedError(err) || onChainUsed) {
+            txHash = extractTxHashFromError(err) ?? "";
+          } else {
+            throw err;
+          }
         }
+      } else {
+        // RH / Para EOA claim — estimateGas / send can fail with insufficient native for gas.
+        const publicClient = getPublicClient(chainConfig);
+        const withdrawTx = await withdrawFromPool(walletClient!, chainConfig, withdrawParams);
+        const withdrawReceipt = await publicClient.waitForTransactionReceipt({
+          hash: withdrawTx,
+        });
+        if (withdrawReceipt.status !== "success") {
+          throw new Error(`Withdraw transaction reverted on-chain (${withdrawTx})`);
+        }
+        txHash = withdrawTx;
       }
-    } else {
-      const publicClient = getPublicClient(chainConfig);
-      const withdrawTx = await withdrawFromPool(walletClient!, chainConfig, withdrawParams);
-      const withdrawReceipt = await publicClient.waitForTransactionReceipt({
-        hash: withdrawTx,
-      });
-      if (withdrawReceipt.status !== "success") {
-        throw new Error(`Withdraw transaction reverted on-chain (${withdrawTx})`);
-      }
-      txHash = withdrawTx;
+    } catch (err) {
+      const gasMsg = formatInsufficientGasError(err, "claim");
+      if (gasMsg) throw new Error(gasMsg);
+      throw err;
     }
   } else {
     txHash = mockTxHash();

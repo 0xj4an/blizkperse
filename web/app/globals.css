@@ -192,6 +192,43 @@ html[data-chain="celo"] .dark {
   --sidebar-ring: oklch(0.95 0.19 110);
 }
 
+/* ── Robinhood Theme (green accent on near-black) ────── */
+
+html[data-chain="robinhood"],
+html[data-chain="robinhood"] .dark {
+  --background: oklch(0.09 0.01 150);
+  --foreground: oklch(0.96 0.005 150);
+  --card: oklch(0.13 0.015 150);
+  --card-foreground: oklch(0.96 0.005 150);
+  --popover: oklch(0.13 0.015 150);
+  --popover-foreground: oklch(0.96 0.005 150);
+  --primary: oklch(0.72 0.19 145);
+  --primary-foreground: oklch(0.12 0.02 150);
+  --secondary: oklch(0.18 0.02 150);
+  --secondary-foreground: oklch(0.92 0.01 150);
+  --muted: oklch(0.18 0.015 150);
+  --muted-foreground: oklch(0.6 0.02 150);
+  --accent: oklch(0.78 0.16 145);
+  --accent-foreground: oklch(0.12 0.02 150);
+  --destructive: oklch(0.65 0.22 25);
+  --border: oklch(0.22 0.02 150);
+  --input: oklch(0.22 0.02 150);
+  --ring: oklch(0.72 0.19 145);
+  --chart-1: oklch(0.72 0.19 145);
+  --chart-2: oklch(0.7 0.15 200);
+  --chart-3: oklch(0.77 0.14 90);
+  --chart-4: oklch(0.65 0.18 30);
+  --chart-5: oklch(0.68 0.12 280);
+  --sidebar: oklch(0.11 0.015 150);
+  --sidebar-foreground: oklch(0.96 0.005 150);
+  --sidebar-primary: oklch(0.72 0.19 145);
+  --sidebar-primary-foreground: oklch(0.12 0.02 150);
+  --sidebar-accent: oklch(0.18 0.02 150);
+  --sidebar-accent-foreground: oklch(0.92 0.01 150);
+  --sidebar-border: oklch(0.22 0.02 150);
+  --sidebar-ring: oklch(0.72 0.19 145);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

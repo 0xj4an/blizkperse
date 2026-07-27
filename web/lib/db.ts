@@ -6,8 +6,12 @@ const appEnv =
   process.env.NEXT_PUBLIC_BLIZ_ENV === "development"
     ? "development"
     : "production";
+// Must include every chain the app can deposit on. Missing ids make
+// POST /api/notes fail AFTER on-chain Deposit (cache may land, note INSERT not).
 const validNoteChainIds =
-  appEnv === "development" ? [10143, 11142220] : [143, 42220];
+  appEnv === "development"
+    ? [10143, 11142220, 4663, 46630] // monad/celo testnets + Robinhood (mainnet deploy used in RH envs)
+    : [143, 42220, 4663, 46630];
 const validNoteChainIdsSql = validNoteChainIds.join(", ");
 
 if (!connectionString) {

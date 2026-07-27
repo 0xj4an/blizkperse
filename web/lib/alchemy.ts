@@ -1,18 +1,21 @@
 import {
   celoMainnet,
   celoSepolia,
+  defineAlchemyChain,
   monadMainnet,
   monadTestnet,
 } from "@account-kit/infra";
-import type { Chain } from "viem";
+import { defineChain, type Chain } from "viem";
 import { ChainId, type ChainConfig } from "./constants";
 
 /**
- * Alchemy AA (Account Kit / Gas Manager) coverage verified in SDK:
- * - Chains in `@account-kit/infra`: Celo mainnet/Sepolia + Monad mainnet/testnet (IDs match).
- * - Paymaster addresses: explicit cases for `celoMainnet` and `monadTestnet`.
- * - Celo Sepolia / Monad mainnet: AA via chain defs + bundler; confirm Gas Manager
- *   sponsorship in the Alchemy dashboard before production.
+ * Alchemy AA (Account Kit / Gas Manager) coverage:
+ * - Presets in `@account-kit/infra`: Celo mainnet/Sepolia + Monad mainnet/testnet.
+ * - Robinhood (4663 / 46630): not a preset yet (aa-sdk PR #2505 still open), but Para
+ *   `@getpara/aa-alchemy` accepts any chain with `rpcUrls.alchemy` via
+ *   `defineAlchemyChain` — see `ensureAlchemyChain` in aa-alchemy.
+ * - On-chain RH: EntryPoint v0.6 + Modular Account v1 factory/impl are deployed
+ *   (Para `mode: "4337"` → `createModularAccountAlchemyClient` / EP v0.6).
  *
  * Para `mode: "4337"` uses Modular Account → EntryPoint **v0.6**
  * (`0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789`). That is expected, not a bug.
@@ -20,8 +23,50 @@ import { ChainId, type ChainConfig } from "./constants";
  * Gas Manager checklist (avoids `Policy ID(s) not found`):
  * 1. `NEXT_PUBLIC_ALCHEMY_API_KEY` and `NEXT_PUBLIC_ALCHEMY_GAS_POLICY_ID` belong to the **same** Alchemy app.
  * 2. Policy status is **Active**.
- * 3. Policy networks include the claim chain (e.g. **Celo Mainnet 42220**).
+ * 3. Policy networks include the claim chain (e.g. **Celo 42220**, **Robinhood 4663**).
+ * 4. Policy allows EntryPoint v0.6 for Modular Account sponsorship.
  */
+
+/** RH not in `@account-kit/infra` yet — wire Alchemy RPC via `defineAlchemyChain`. */
+const robinhoodMainnet = defineAlchemyChain({
+  chain: defineChain({
+    id: 4663,
+    name: "Robinhood Mainnet",
+    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    rpcUrls: {
+      default: { http: ["https://robinhood-mainnet.g.alchemy.com/v2"] },
+      public: { http: ["https://rpc.mainnet.chain.robinhood.com"] },
+    },
+    blockExplorers: {
+      default: {
+        name: "Robinhood Chain Explorer",
+        url: "https://robinhoodchain.blockscout.com",
+      },
+    },
+  }),
+  rpcBaseUrl: "https://robinhood-mainnet.g.alchemy.com/v2",
+});
+
+const robinhoodTestnet = defineAlchemyChain({
+  chain: defineChain({
+    id: 46630,
+    name: "Robinhood Testnet",
+    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    rpcUrls: {
+      default: { http: ["https://robinhood-testnet.g.alchemy.com/v2"] },
+      public: { http: ["https://rpc.testnet.chain.robinhood.com"] },
+    },
+    blockExplorers: {
+      default: {
+        name: "Robinhood Chain Testnet Explorer",
+        url: "https://explorer.testnet.chain.robinhood.com",
+      },
+    },
+    testnet: true,
+  }),
+  rpcBaseUrl: "https://robinhood-testnet.g.alchemy.com/v2",
+});
+
 
 export const ALCHEMY_API_KEY =
   process.env.NEXT_PUBLIC_ALCHEMY_API_KEY?.trim() || "";
@@ -43,6 +88,8 @@ const ALCHEMY_CHAIN_BY_ID: Record<number, Chain> = {
   [ChainId.CELO_TESTNET]: celoSepolia,
   [ChainId.MONAD]: monadMainnet,
   [ChainId.MONAD_TESTNET]: monadTestnet,
+  [ChainId.ROBINHOOD]: robinhoodMainnet,
+  [ChainId.ROBINHOOD_TESTNET]: robinhoodTestnet,
 };
 
 /** Map app ChainConfig → Alchemy Account Kit chain (required by `@getpara/aa-alchemy`). */
@@ -102,17 +149,20 @@ export function formatAlchemyPaymasterError(err: unknown): string | null {
   return ALCHEMY_SPONSORSHIP_USER_MESSAGE;
 }
 
-const INSUFFICIENT_GAS_USER_MESSAGE =
-  "You don't have enough gas to complete this deposit.";
+export type InsufficientGasAction = "deposit" | "claim";
 
 /**
  * Map viem/RPC insufficient-native-balance (gas) errors to short English UI copy.
  * Covers Celo ("insufficient funds"), Monad/viem ("Signer had insufficient balance"),
- * and related RPC shapes. Does not match our preflight token shortfall messages
+ * InsufficientFundsError / estimateGas, and related RPC shapes.
+ * Does not match our preflight token shortfall messages
  * ("Insufficient USDC balance…") — those are thrown before the wallet send.
  * Returns null when the error is unrelated.
  */
-export function formatInsufficientGasError(err: unknown): string | null {
+export function formatInsufficientGasError(
+  err: unknown,
+  action: InsufficientGasAction = "deposit",
+): string | null {
   const raw = errorToRawString(err);
   const lower = raw.toLowerCase();
 
@@ -132,9 +182,10 @@ export function formatInsufficientGasError(err: unknown): string | null {
     lower.includes("insufficient balance") ||
     lower.includes("gas * price + value") ||
     lower.includes("gas * gas price + value") ||
+    lower.includes("gas * gas fee + value") ||
     lower.includes("exceeds the balance");
   if (!isInsufficientGas) return null;
 
-  console.warn("[deposit] Insufficient native balance for gas:", raw);
-  return INSUFFICIENT_GAS_USER_MESSAGE;
+  console.warn(`[${action}] Insufficient native balance for gas:`, raw);
+  return `You don't have enough gas to complete this ${action}.`;
 }

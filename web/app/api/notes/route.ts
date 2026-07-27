@@ -189,14 +189,54 @@ export async function POST(req: NextRequest) {
     WHERE id = ${payment.id} AND status IN ('pending', 'failed')
   `;
 
-  await sql`
-    UPDATE payouts
-    SET status = 'deposited'
-    WHERE id = (
-      SELECT payout_id FROM payments WHERE id = ${payment.id}
-    )
-    AND status = 'failed'
+  // After-the-fact recovery (flush from localStorage): payout often stays `pending`
+  // because createPayout intentionally skips finalize when notes POST failed.
+  // Must promote pending → deposited (not only failed), or UI stays "Awaiting deposit".
+  const [payoutMeta] = await sql`
+    SELECT p.id, p.status, p.organizer_id, p.tx_hash
+    FROM payouts p
+    JOIN payments pay ON pay.payout_id = p.id
+    WHERE pay.id = ${payment.id}
   `;
+
+  if (payoutMeta) {
+    const [sumRow] = await sql`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM payments
+      WHERE payout_id = ${payoutMeta.id}
+        AND status IN ('claimable', 'claimed')
+    `;
+    const depositedTotal = Number(sumRow.total);
+    const prevStatus = String(payoutMeta.status);
+    const nextTx =
+      (typeof payoutMeta.tx_hash === "string" && payoutMeta.tx_hash) ||
+      String(deposit_tx);
+
+    await sql`
+      UPDATE payouts
+      SET status = 'deposited',
+          tx_hash = ${nextTx},
+          total_amount = ${depositedTotal}
+      WHERE id = ${payoutMeta.id}
+        AND status IN ('pending', 'failed')
+    `;
+
+    // If already deposited (partial multi-note), still refresh totals / tx.
+    if (prevStatus === "deposited") {
+      await sql`
+        UPDATE payouts
+        SET total_amount = ${depositedTotal},
+            tx_hash = COALESCE(NULLIF(tx_hash, ''), ${String(deposit_tx)})
+        WHERE id = ${payoutMeta.id}
+      `;
+    } else if (prevStatus === "pending" || prevStatus === "failed") {
+      await sql`
+        UPDATE organizers
+        SET total_distributed = total_distributed + ${depositedTotal}
+        WHERE id = ${payoutMeta.organizer_id}
+      `;
+    }
+  }
 
   if (poolForSync && poolForSync !== "0x0000000000000000000000000000000000000000") {
     void import("../../lib/rootRegistrar")
