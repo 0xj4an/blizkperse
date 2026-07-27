@@ -19,9 +19,9 @@ const REPO_CIRCUITS = `${REPO}/tree/main/zk/circuits`;
 const REPO_FRONTEND = `${REPO}/tree/main/web`;
 
 /**
- * Production addresses as configured for the hosted app (Celo 42220 / Monad 143)
- * and verified on-chain via public RPC reads (feeBps, treasury, owner, poolOf).
- * Do not invent missing pools — only list deployments that exist.
+ * Production addresses as configured for the hosted app (Celo 42220 / Monad 143 /
+ * Robinhood 4663) and verified on-chain via public RPC reads (feeBps, treasury,
+ * owner, poolOf). Do not invent missing pools — only list deployments that exist.
  */
 const DEPLOYMENTS = {
   celo: {
@@ -56,6 +56,30 @@ const DEPLOYMENTS = {
     transferVerifier: "0xcDC754C538968434AfBc2f2c545A8261063Fa05E",
     withdrawVerifier: "0xcAAb0B768993663145fc1467029Da7E7E6a1b52D",
     depositVerifier: "0x50b78768E965Eeed19613D3B0Cd0245B1A12D351",
+  },
+  robinhood: {
+    chainId: 4663,
+    router: "0xcDc6AdE9d348572f302690bD39BA8120F8E91db3",
+    pools: [
+      {
+        symbol: "USDG",
+        pool: "0xf62E5a932a832C8EA990DedD87a05162C8905224",
+        token: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+      },
+      {
+        symbol: "USDe",
+        pool: "0x038803A40130734E6aB711489060Ea55F05BB475",
+        token: "0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34",
+      },
+      {
+        symbol: "WETH",
+        pool: "0x27c575a0CDbBAcCFaCC6085164186B19F74b77B4",
+        token: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+      },
+    ],
+    transferVerifier: "0x8d10Ad45B21d4db2e7270E519a757c764c6501Ac",
+    withdrawVerifier: "0xD9AeE9351f7685b05a6B7BD8c1Ca509D24bE1e57",
+    depositVerifier: "0x1d42C0cD5fF14Ee71456473828996b1bC251a735",
   },
   /** On-chain PoolRouter.feeBps / treasury / Ownable.owner (same EOA on both chains as of July 26, 2026). */
   feeBps: 30,
@@ -679,8 +703,9 @@ export default function TermsPage() {
             <p className="mb-4 text-xs text-muted-foreground">
               Snapshot of production deployments used by the hosted app (Celo
               chainId {DEPLOYMENTS.celo.chainId}, Monad chainId{" "}
-              {DEPLOYMENTS.monad.chainId}), cross-checked with on-chain reads on{" "}
-              {EFFECTIVE_DATE}. Older legacy pools listed in README /{" "}
+              {DEPLOYMENTS.monad.chainId}, Robinhood Chain chainId{" "}
+              {DEPLOYMENTS.robinhood.chainId}), cross-checked with on-chain reads
+              on {EFFECTIVE_DATE}. Older legacy pools listed in README /{" "}
               <code className="text-foreground/80">zk/README.md</code> may still
               exist on-chain but are not the multi-token router deployment
               described here.
@@ -763,7 +788,46 @@ export default function TermsPage() {
             </ul>
 
             <h3 className="mb-2 text-sm font-semibold text-foreground">
-              Protocol fee &amp; admin (both chains, on-chain)
+              Network: Robinhood Chain (chainId {DEPLOYMENTS.robinhood.chainId})
+            </h3>
+            <ul className="mb-4 list-disc space-y-1 pl-5 font-mono text-xs text-muted-foreground">
+              <li>
+                PoolRouter:{" "}
+                <span className="text-foreground/90">
+                  {DEPLOYMENTS.robinhood.router}
+                </span>
+              </li>
+              {DEPLOYMENTS.robinhood.pools.map((p) => (
+                <li key={p.pool}>
+                  ShieldedPool ({p.symbol}):{" "}
+                  <span className="text-foreground/90">{p.pool}</span>
+                  <span className="block pl-0 sm:pl-4">
+                    token: {p.token}
+                  </span>
+                </li>
+              ))}
+              <li>
+                Transfer / HonkVerifier:{" "}
+                <span className="text-foreground/90">
+                  {DEPLOYMENTS.robinhood.transferVerifier}
+                </span>
+              </li>
+              <li>
+                WithdrawVerifier:{" "}
+                <span className="text-foreground/90">
+                  {DEPLOYMENTS.robinhood.withdrawVerifier}
+                </span>
+              </li>
+              <li>
+                DepositVerifier:{" "}
+                <span className="text-foreground/90">
+                  {DEPLOYMENTS.robinhood.depositVerifier}
+                </span>
+              </li>
+            </ul>
+
+            <h3 className="mb-2 text-sm font-semibold text-foreground">
+              Protocol fee &amp; admin (all chains, on-chain)
             </h3>
             <ul className="mb-4 list-disc space-y-1 pl-5 font-mono text-xs text-muted-foreground">
               <li>

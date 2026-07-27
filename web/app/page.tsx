@@ -8,6 +8,7 @@ import { Footer } from "@/components/footer";
 const CHAIN_DOT: Record<string, string> = {
   monad: "bg-purple-500",
   celo: "bg-yellow-400",
+  robinhood: "bg-emerald-500",
 };
 
 // prettier-ignore
