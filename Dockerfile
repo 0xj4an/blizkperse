@@ -86,18 +86,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   apt-get update && apt-get install -y --no-install-recommends nodejs && \
   rm -rf /var/lib/apt/lists/*
 
-# Copy circuit files to same path as builder so the backend can load with_foundry.json
+# Circuits first, then standalone — Docker COPY merges and must not wipe zk/
 WORKDIR /app
 COPY --from=builder /app/zk/circuits/ ./zk/circuits/
+# Belt-and-suspenders: also expose at /app/circuits for older docs/configs
+COPY --from=builder /app/zk/circuits/ ./circuits/
 
-# Create writable dirs for proof generation temp files
-RUN mkdir -p ./zk/circuits/proofs
+RUN mkdir -p ./zk/circuits/proofs ./circuits/proofs
 
-# Copy Next.js standalone output
+# Copy Next.js standalone output (server.js lives at /app)
 COPY --from=builder /app/web/.next/standalone ./
 COPY --from=builder /app/web/.next/static ./.next/static
 COPY --from=builder /app/web/public ./public
 
+# Fail the image build if circuits vanished (e.g. bad COPY order / empty standalone zk/)
+RUN test -f /app/zk/circuits/Nargo.toml && \
+  test -f /app/zk/circuits/target/deposit_circuit.json && \
+  test -f /app/zk/circuits/target/with_foundry.json
+
+WORKDIR /app
 ENV CIRCUITS_DIR=/app/zk/circuits
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000

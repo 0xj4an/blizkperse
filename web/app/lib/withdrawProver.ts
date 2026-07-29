@@ -21,23 +21,30 @@ let barretenbergInstance: Barretenberg | null = null;
 let initialized = false;
 
 function resolveCircuitDir(): string {
-  if (process.env.CIRCUITS_DIR) {
-    return process.env.CIRCUITS_DIR;
-  }
+  const envCircuitsDir = process.env.CIRCUITS_DIR;
   const candidates = [
-    path.resolve(process.cwd(), "..", "zk", "circuits"),
+    ...(envCircuitsDir ? [envCircuitsDir] : []),
+    "/app/zk/circuits",
+    "/app/circuits",
     path.resolve(process.cwd(), "zk", "circuits"),
+    path.resolve(process.cwd(), "circuits"),
+    path.resolve(process.cwd(), "..", "zk", "circuits"),
     path.resolve(process.cwd(), "..", "..", "zk", "circuits"),
   ];
-  for (const dir of candidates) {
+  const unique = [...new Set(candidates)];
+
+  for (const dir of unique) {
     if (existsSync(path.join(dir, "Nargo.toml"))) {
+      console.info(`[withdrawProver] resolved CIRCUITS_DIR=${dir}`);
       return dir;
     }
   }
+
+  const status = unique
+    .map((dir) => `${dir} (exists=${existsSync(dir) ? "yes" : "no"})`)
+    .join("; ");
   throw new Error(
-    `Circuit directory not found. Set CIRCUITS_DIR env var. Searched: ${candidates.join(
-      ", ",
-    )}`,
+    `Circuit directory not found (need Nargo.toml). cwd=${process.cwd()} CIRCUITS_DIR=${envCircuitsDir ?? "(unset)"} candidates: ${status}`,
   );
 }
 
