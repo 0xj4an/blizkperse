@@ -41,7 +41,10 @@ import {
   getWalletAuthHeaders,
   type WalletAuth,
 } from "./api-auth";
-import { formatInsufficientGasError } from "./alchemy";
+import {
+  formatAlchemyPaymasterError,
+  formatInsufficientGasError,
+} from "./alchemy";
 
 const PENDING_NOTES_STORAGE_KEY = "blizkperse-pending-note-secrets";
 
@@ -1324,6 +1327,12 @@ export async function claimPayment(
         txHash = withdrawTx;
       }
     } catch (err) {
+      // AA path: paymaster failures are already mapped in withdrawFromPoolViaSmartAccount.
+      // Re-check here in case a wrapped error still carries Gas Manager signals.
+      if (smartAccount) {
+        const paymasterMsg = formatAlchemyPaymasterError(err);
+        if (paymasterMsg) throw new Error(paymasterMsg);
+      }
       const gasMsg = formatInsufficientGasError(err, "claim");
       if (gasMsg) throw new Error(gasMsg);
       throw err;
