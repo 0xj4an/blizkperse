@@ -177,12 +177,15 @@ The app uses a **Dockerfile** at the repo root so that proof generation works in
 ### Railway config
 
 - `railway.toml`: `builder = "DOCKERFILE"`, `dockerfilePath = "Dockerfile"`.
+- **Root Directory (UI): leave blank / `/`** — the Dockerfile does `COPY web/` and `COPY zk/circuits/` from the monorepo root. If Root Directory is `web`, the build fails with `"/web": not found`.
+- Dockerfile path: `Dockerfile` (repo root). Do not point the service at `web/` as the build root.
 - No extra env vars are required for proof generation; `CIRCUITS_DIR` is set in the image.
 
 ### Checklist so the flow does not fail on Railway
 
 | Check | Why |
 |-------|-----|
+| **Root Directory empty (not `web`)** | Build context must be the repo root so `COPY web/` and `COPY zk/circuits/` resolve. |
 | **`zk/circuits/src/main.nr` is the withdraw circuit** | Docker only runs `nargo compile` (no script). If `main.nr` were another circuit, `with_foundry.json` would not match the deployed WithdrawVerifier → SumcheckFailed. |
 | **Build passes the `target/with_foundry.json` check** | The Dockerfile runs `test -f target/with_foundry.json` after compile; if it fails, the image is not built. |
 | **API timeouts** | `/api/generate-proof` has `maxDuration = 120` and `/api/deposit-events` has `maxDuration = 60` so long-running steps are not cut off. |

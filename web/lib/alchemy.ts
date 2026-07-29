@@ -139,6 +139,8 @@ export function formatAlchemyPaymasterError(err: unknown): string | null {
     lower.includes("requestgasandpaymaster") ||
     lower.includes("gas manager") ||
     lower.includes("paymaster") ||
+    lower.includes("sponsorship") ||
+    (lower.includes("useroperation") && lower.includes("insufficient")) ||
     (lower.includes("policy") && lower.includes("not found"));
   if (!isPaymaster) return null;
 

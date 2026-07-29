@@ -75,8 +75,9 @@ export default function ClaimPage() {
   const {
     smartAccount,
     alchemyReady,
+    isLoading: alchemyLoading,
+    isAlchemyConfigured,
     sponsorshipReady,
-    isGasSponsorshipConfigured,
   } = useClaimSmartAccount();
   const apiAuth = useApiAuth();
   const getAuthHeaders = createWalletAuthHeadersGetter({
@@ -86,7 +87,12 @@ export default function ClaimPage() {
   });
   const { chainId: selectedChainId } = useChain();
   const [destinationAddress, setDestinationAddress] = useState("");
-  const canSubmitClaim = isReady && (alchemyReady || !!walletClient);
+  // When Alchemy is configured, wait for the smart account — do not let EOA claim
+  // race ahead while AA is still loading (that path needs native gas, no sponsorship).
+  const canSubmitClaim =
+    isReady &&
+    !alchemyLoading &&
+    (alchemyReady || (!isAlchemyConfigured && !!walletClient));
 
   useEffect(() => {
     if (address && !destinationAddress) setDestinationAddress(address);
@@ -136,7 +142,21 @@ export default function ClaimPage() {
   }
 
   const handleClaim = async () => {
-    if (!isReady || (!walletClient && !alchemyReady)) {
+    if (!isReady || alchemyLoading) {
+      toast.error(
+        alchemyLoading
+          ? "Smart account still loading — try again in a moment"
+          : "Connect your wallet first",
+      );
+      return;
+    }
+    if (isAlchemyConfigured && !alchemyReady) {
+      toast.error(
+        "Gas sponsorship wallet is not ready. Refresh and try again, or check Alchemy config.",
+      );
+      return;
+    }
+    if (!alchemyReady && !walletClient) {
       toast.error("Connect your wallet first");
       return;
     }
@@ -340,6 +360,15 @@ export default function ClaimPage() {
 
       // Step 5: Submit withdrawal (Alchemy AA when ready, else Para EOA)
       setClaimStep("withdrawing");
+      // Prefer AA whenever the smart account is ready. Sponsorship needs policy ID
+      // baked at build time (`NEXT_PUBLIC_ALCHEMY_GAS_POLICY_ID`); without it AA
+      // still runs but the UserOp is not gas-sponsored.
+      if (isAlchemyConfigured && !sponsorshipReady) {
+        console.warn(
+          "[claim] Alchemy AA without gas policy — UserOp will not be sponsored",
+          { alchemyReady, sponsorshipReady },
+        );
+      }
       const result = await claimPayment(
         paymentId,
         walletClient ?? undefined,
@@ -512,17 +541,14 @@ export default function ClaimPage() {
                   disabled={!canSubmitClaim}
                 >
                   <Wallet className="h-5 w-5" />
-                  {canSubmitClaim ? "Claim Payment" : "Connect wallet to claim"}
+                  {alchemyLoading
+                    ? "Preparing sponsored wallet…"
+                    : canSubmitClaim
+                      ? "Claim Payment"
+                      : isAlchemyConfigured && isReady && !alchemyReady
+                        ? "Sponsored wallet unavailable"
+                        : "Connect wallet to claim"}
                 </Button>
-                <p className="text-center text-xs text-muted-foreground">
-                  {sponsorshipReady
-                    ? "Gas sponsored via Alchemy Gas Manager — you do not need native CELO for this claim."
-                    : isGasSponsorshipConfigured
-                      ? "Gas sponsorship configured — waiting for smart account…"
-                      : alchemyReady
-                        ? "Smart account ready, but gas is not sponsored. Claim will use your CELO for gas."
-                        : `Claim will use your ${CHAINS[selectedChainId].nativeCurrency.symbol} for gas (EOA). Set NEXT_PUBLIC_ALCHEMY_API_KEY + NEXT_PUBLIC_ALCHEMY_GAS_POLICY_ID to enable sponsorship.`}
-                </p>
               </div>
             )}
 

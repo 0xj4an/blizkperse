@@ -95,6 +95,8 @@ const PUBLIC_ENV: Record<string, string | undefined> = {
   NEXT_PUBLIC_BLIZ_ENV: process.env.NEXT_PUBLIC_BLIZ_ENV,
   NEXT_PUBLIC_DEFAULT_CHAIN: process.env.NEXT_PUBLIC_DEFAULT_CHAIN,
   NEXT_PUBLIC_PROTOCOL_FEE_BPS: process.env.NEXT_PUBLIC_PROTOCOL_FEE_BPS,
+  /** Optional alias; prefer NEXT_PUBLIC_PROTOCOL_FEE_BPS. Not the Foundry FEE_BPS deploy var. */
+  NEXT_PUBLIC_FEE_BPS: process.env.NEXT_PUBLIC_FEE_BPS,
 
   NEXT_PUBLIC_CELO_CHAIN_ID: process.env.NEXT_PUBLIC_CELO_CHAIN_ID,
   NEXT_PUBLIC_CELO_RPC_URL: process.env.NEXT_PUBLIC_CELO_RPC_URL,
@@ -652,8 +654,18 @@ export function getPoolConfig(config: ChainConfig, symbol: string): PoolConfig {
   return pool;
 }
 
-/** Protocol fee in basis points (30 = 0.3%). Must match PoolRouter.feeBps after deploy. */
-export const PROTOCOL_FEE_BPS = Number(PUBLIC_ENV.NEXT_PUBLIC_PROTOCOL_FEE_BPS ?? "30");
+/**
+ * Protocol fee in basis points (30 = 0.3%). Must match PoolRouter.feeBps after deploy.
+ * UI/client reads NEXT_PUBLIC_PROTOCOL_FEE_BPS (or alias NEXT_PUBLIC_FEE_BPS).
+ * Foundry deploy uses FEE_BPS — that name alone is not available in the browser bundle.
+ * Create-payment UI also forces 0 when no PoolRouter is configured (hasRouter).
+ * Empty strings (common when Docker ARG is unset) fall through to the default.
+ */
+export const PROTOCOL_FEE_BPS = Number(
+  PUBLIC_ENV.NEXT_PUBLIC_PROTOCOL_FEE_BPS ||
+    PUBLIC_ENV.NEXT_PUBLIC_FEE_BPS ||
+    "30",
+);
 export const FEE_BPS_DENOM = 10_000;
 
 /** Fee charged on top of the note/pool amount (raw units). */

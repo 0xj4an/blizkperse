@@ -1,3 +1,8 @@
+# Monorepo Docker build: context MUST be the repository root.
+# In Railway → Service → Settings → Build:
+#   - Root Directory: leave EMPTY (not "web")
+#   - Dockerfile path: Dockerfile (this file's dockerfilePath)
+# COPY web/ and COPY zk/circuits/ fail with "/web: not found" if Root Directory is "web".
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
