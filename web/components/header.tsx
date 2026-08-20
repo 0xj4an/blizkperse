@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useAccount, useModal, useLogout, useExportPrivateKey } from "@getpara/react-sdk";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +28,11 @@ export function Header() {
   const [copied, setCopied] = useState(false);
 
   const address = embedded?.wallets?.[0]?.address;
+  // Session-only Para identity (not persisted by Blizkperse).
+  const sessionEmail =
+    typeof embedded?.email === "string" && embedded.email.trim()
+      ? embedded.email.trim()
+      : null;
 
   const copyAddress = async () => {
     if (!address) return;
@@ -84,25 +88,52 @@ export function Header() {
 
           {isConnected && address ? (
             <>
-              <Badge
-                variant="secondary"
-                className="cursor-pointer gap-1.5 font-mono text-xs transition-colors hover:bg-secondary/80"
-                onClick={(e) => { e.stopPropagation(); copyAddress(); }}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  copyAddress();
+                }}
+                className="flex max-w-[12rem] flex-col items-start gap-0 rounded-md border border-transparent bg-secondary px-2.5 py-1 text-left transition-colors hover:bg-secondary/80 sm:max-w-[18rem]"
+                title={copied ? "Copied!" : `Copy ${address}`}
               >
-                {copied ? "Copied!" : truncateAddress(address)}
-                {copied ? (
-                  <Check className="h-3 w-3 text-green-500" />
-                ) : (
-                  <Copy className="h-3 w-3 text-muted-foreground" />
-                )}
-              </Badge>
+                <span className="flex items-center gap-1.5 font-mono text-xs leading-tight">
+                  <span className="truncate">{copied ? "Copied!" : truncateAddress(address)}</span>
+                  {copied ? (
+                    <Check className="h-3 w-3 shrink-0 text-green-500" />
+                  ) : (
+                    <Copy className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  )}
+                </span>
+                {sessionEmail ? (
+                  <span className="w-full truncate text-[10px] leading-tight text-muted-foreground">
+                    {sessionEmail}
+                  </span>
+                ) : null}
+              </button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="icon" className="h-8 w-8">
                     <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuContent align="end" className="w-64">
+                  {sessionEmail ? (
+                    <>
+                      <div className="px-2 py-1.5">
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Signed in as
+                        </p>
+                        <p className="truncate text-sm" title={sessionEmail}>
+                          {sessionEmail}
+                        </p>
+                        <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                          {truncateAddress(address)}
+                        </p>
+                      </div>
+                      <DropdownMenuSeparator />
+                    </>
+                  ) : null}
                   <Link href="/payer" className="md:hidden">
                     <DropdownMenuItem>
                       <LayoutDashboard className="mr-2 h-4 w-4" />
