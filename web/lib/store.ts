@@ -1360,6 +1360,19 @@ export async function claimPayment(
     payment.claimedAt = now;
     payment.txHash = txHash;
     state.payments = [...state.payments];
+
+    const siblings = state.payments.filter((p) => p.payoutId === payment.payoutId);
+    const anyClaimed = siblings.some((p) => p.status === "claimed");
+    const allDone = siblings.every(
+      (p) => p.status === "claimed" || p.status === "failed" || p.status === "expired",
+    );
+    if (anyClaimed && allDone) {
+      const payout = state.payouts.find((p) => p.id === payment.payoutId);
+      if (payout && (payout.status === "deposited" || payout.status === "distributed")) {
+        payout.status = "claimed";
+        state.payouts = [...state.payouts];
+      }
+    }
     emitChange();
   }
 

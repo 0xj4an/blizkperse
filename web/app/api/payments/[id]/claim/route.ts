@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import sql, { ensureSchema } from "@/lib/db";
 import { requireWalletAuth } from "@/lib/server-auth";
 import { verifyClaimOnChain } from "@/lib/chain-verify";
+import { markPayoutClaimedIfComplete } from "@/lib/payout-status";
 
 export async function PATCH(
   req: NextRequest,
@@ -19,6 +20,7 @@ export async function PATCH(
   const [payment] = await sql`
     SELECT
       p.id,
+      p.payout_id,
       p.status,
       s.address,
       n.nullifier,
@@ -38,6 +40,9 @@ export async function PATCH(
   }
 
   if (payment.status === "claimed") {
+    await markPayoutClaimedIfComplete(
+      payment.payout_id ? String(payment.payout_id) : null,
+    );
     const [existing] = await sql`SELECT * FROM payments WHERE id = ${id}`;
     return NextResponse.json(existing);
   }
@@ -75,6 +80,10 @@ export async function PATCH(
   if (!row) {
     return NextResponse.json({ error: "Payment not found" }, { status: 404 });
   }
+
+  await markPayoutClaimedIfComplete(
+    row.payout_id ? String(row.payout_id) : null,
+  );
 
   return NextResponse.json(row);
 }
