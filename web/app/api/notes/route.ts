@@ -166,7 +166,7 @@ export async function POST(req: NextRequest) {
     VALUES (
       ${payment.id}, ${payment.subscriber_id}, ${normalizedChainId}, ${commitment},
       ${value}, ${holder_pk}, ${randomness}, ${nullifier},
-      ${token_symbol ?? null}, ${pool_address ?? null}, ${deposit_tx}
+      ${token_symbol ?? null}, ${verified.poolAddress}, ${deposit_tx}
     )
     ON CONFLICT (payment_id) DO UPDATE SET
       subscriber_id = EXCLUDED.subscriber_id,
