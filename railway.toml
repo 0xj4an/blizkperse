@@ -1,7 +1,14 @@
-# Monorepo Docker build: context MUST be the repository root.
-# In Railway → Service → Settings → Build:
+# Monorepo Docker build for the APP service (web + ZK toolchain).
+# Context MUST be the repository root.
+#
+# Railway → App service → Settings → Build:
 #   - Root Directory: leave EMPTY (not "web")
 #   - Dockerfile path: Dockerfile (this file's dockerfilePath)
+#
+# Railway → Landing service → Settings → Build:
+#   - Root Directory: landing
+#   - Uses landing/railway.toml + landing/Dockerfile (do NOT use this file)
+#
 # COPY web/ and COPY zk/circuits/ fail with "/web: not found" if Root Directory is "web".
 [build]
 builder = "DOCKERFILE"

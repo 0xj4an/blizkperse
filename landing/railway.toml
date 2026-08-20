@@ -1,0 +1,10 @@
+# Landing service only — set Railway Root Directory to `landing`.
+# (Repo-root railway.toml is for the app + ZK Dockerfile.)
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

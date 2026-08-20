@@ -1,21 +1,26 @@
-# Deprecated: use landing/Dockerfile with Railway Root Directory = `landing`.
-# Kept as a thin wrapper for local builds from the monorepo root:
-#   docker build -f Dockerfile.landing .
+# Build context = landing/ (Railway Root Directory: landing)
+#   docker build -f landing/Dockerfile landing/
 FROM node:22-alpine AS builder
 WORKDIR /app
-COPY landing/package*.json ./
+
+COPY package*.json ./
 RUN npm ci
-COPY landing/ ./
+
+COPY . .
+
 ARG NEXT_PUBLIC_APP_URL=https://app.blizkperse.com
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+
 RUN npm run build
 
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+
 EXPOSE 3000
 CMD ["node", "server.js"]

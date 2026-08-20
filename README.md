@@ -234,9 +234,10 @@ Open [http://localhost:3000](http://localhost:3000).
 
 **Landing** (`blizkperse.com`):
 
-1. Service → `Dockerfile.landing`
-2. `NEXT_PUBLIC_APP_URL=https://app.blizkperse.com`
+1. Railway service → **Root Directory: `landing`** (uses `landing/Dockerfile` + `landing/railway.toml`)
+2. Set `NEXT_PUBLIC_APP_URL=https://app.blizkperse.com` (build-time)
 3. Watch path: `/landing/**`
+4. Do **not** use the repo-root `Dockerfile` — that image installs Noir/bb for the app and will fail or OOM on the landing service
 
 **App** (`app.blizkperse.com`):
 
