@@ -48,13 +48,25 @@ import {
   flushPendingNoteSecrets,
   hasAnyPendingNoteSecrets,
   hasFlushablePendingNoteSecrets,
+  type Payment,
   type Payout,
 } from "@/lib/store";
+import { effectivePayoutStatus } from "@/lib/payout-status";
 import { useChain } from "@/lib/chain-context";
 import { CHAINS } from "@/lib/constants";
 import { useParaWalletClient } from "@/lib/wallet";
 import { useApiAuth } from "@/lib/api-auth";
 import { WalletBalances } from "@/components/wallet-balances";
+
+function payoutDisplayStatus(
+  payout: Payout,
+  payments: Payment[],
+): Payout["status"] {
+  return effectivePayoutStatus(
+    payout.status,
+    payments.filter((p) => p.payoutId === payout.id).map((p) => p.status),
+  );
+}
 
 function payoutStatusLabel(status: Payout["status"]): string {
   switch (status) {
@@ -155,7 +167,9 @@ export default function PayerDashboard() {
   });
 
   const distributedTotals = distributedByToken(orgPayouts);
-  const readyToClaimPayouts = orgPayouts.filter((p) => p.status === "deposited").length;
+  const readyToClaimPayouts = orgPayouts.filter(
+    (p) => payoutDisplayStatus(p, store.payments) === "deposited",
+  ).length;
 
   // Check if selected org can be deleted (no payments or all claimed/failed)
   const orgPayments = selectedOrg
@@ -757,9 +771,14 @@ export default function PayerDashboard() {
                       {formatTokenAmount(payout.totalAmount, payout.token || "USDC")}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={payoutStatusVariant(payout.status)}>
-                        {payoutStatusLabel(payout.status)}
-                      </Badge>
+                      {(() => {
+                        const status = payoutDisplayStatus(payout, store.payments);
+                        return (
+                          <Badge variant={payoutStatusVariant(status)}>
+                            {payoutStatusLabel(status)}
+                          </Badge>
+                        );
+                      })()}
                     </TableCell>
                   </TableRow>
                 ))}

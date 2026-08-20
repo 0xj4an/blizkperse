@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import sql, { ensureSchema } from "@/lib/db";
+import { syncFullyClaimedPayouts } from "@/lib/payout-status";
 
 export async function GET() {
   await ensureSchema();
+
+  // Backfill payouts stuck on "deposited" after all payments were claimed.
+  await syncFullyClaimedPayouts();
 
   const [organizers, subscribers, subscriptions, payouts, payments] =
     await Promise.all([
