@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import sql, { ensureSchema } from "@/lib/db";
 import { requireWalletAuth } from "@/lib/server-auth";
 import { verifyClaimOnChain } from "@/lib/chain-verify";
-import { markPayoutClaimedIfComplete } from "@/lib/payout-status";
+import { markPayoutClaimedIfComplete } from "@/lib/payout-status-db";
 
 export async function PATCH(
   req: NextRequest,

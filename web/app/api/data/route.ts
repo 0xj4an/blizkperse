@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import sql, { ensureSchema } from "@/lib/db";
-import { syncFullyClaimedPayouts } from "@/lib/payout-status";
+import { syncFullyClaimedPayouts } from "@/lib/payout-status-db";
 
 export async function GET() {
   await ensureSchema();
