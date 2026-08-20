@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -62,23 +63,26 @@ export function ClaimDestinationTip({
         />
       )}
       <div className={cn("relative space-y-2", open && "z-50")}>
-        <div
-          className={cn(
-            "rounded-md transition-[box-shadow,ring] duration-200",
-            open && "ring-2 ring-accent ring-offset-2 ring-offset-background",
-          )}
-        >
-          {children}
-        </div>
         {open && (
-          <div
+          <motion.div
             role="dialog"
             aria-modal="true"
             aria-labelledby="claim-destination-tip-title"
-            className="absolute left-0 right-0 top-full z-50 mt-3 rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-xl"
+            className="absolute left-0 right-0 bottom-full z-50 mb-3 rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-xl"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: [0, -5, 0] }}
+            transition={{
+              opacity: { duration: 0.25 },
+              y: {
+                duration: 2.8,
+                repeat: Infinity,
+                ease: "easeInOut",
+                delay: 0.25,
+              },
+            }}
           >
             <div
-              className="absolute -top-2 left-6 size-4 rotate-45 border-l border-t border-border bg-popover"
+              className="absolute -bottom-2 left-6 size-4 rotate-45 border-r border-b border-border bg-popover"
               aria-hidden
             />
             <p
@@ -93,8 +97,16 @@ export function ClaimDestinationTip({
             <Button className="mt-3 w-full sm:w-auto" onClick={dismiss}>
               I understand
             </Button>
-          </div>
+          </motion.div>
         )}
+        <div
+          className={cn(
+            "rounded-md transition-[box-shadow,ring] duration-200",
+            open && "ring-2 ring-accent ring-offset-2 ring-offset-background",
+          )}
+        >
+          {children}
+        </div>
       </div>
     </>
   );
