@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { TxStatus, type TxState } from "@/components/tx-status";
+import { ClaimDestinationTip } from "@/components/claim-destination-tip";
 import {
   ArrowLeft,
   CircleDollarSign,
@@ -514,26 +515,29 @@ export default function ClaimPage() {
 
             {!claimed && txState === "idle" && (
               <div className="space-y-3">
-                <div className="space-y-2">
-                  <label className="text-sm text-muted-foreground">
-                    Destination wallet (receives {paymentAmountLabel})
-                  </label>
-                  <Input
-                    placeholder="0x..."
-                    value={destinationAddress}
-                    onChange={(e) => setDestinationAddress(e.target.value)}
-                    className="font-mono text-sm"
-                  />
-                  {address && destinationAddress !== address && (
-                    <button
-                      type="button"
-                      onClick={() => setDestinationAddress(address)}
-                      className="text-xs text-muted-foreground hover:text-foreground hover:underline"
-                    >
-                      Use connected wallet ({address.slice(0, 6)}...{address.slice(-4)})
-                    </button>
-                  )}
-                </div>
+                <ClaimDestinationTip enabled>
+                  <div className="space-y-2">
+                    <label className="text-sm text-muted-foreground">
+                      Destination wallet (receives {paymentAmountLabel})
+                    </label>
+                    <Input
+                      placeholder="0x..."
+                      value={destinationAddress}
+                      onChange={(e) => setDestinationAddress(e.target.value)}
+                      className="font-mono text-sm"
+                    />
+                    {address && destinationAddress !== address && (
+                      <button
+                        type="button"
+                        onClick={() => setDestinationAddress(address)}
+                        className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                      >
+                        Use connected wallet ({address.slice(0, 6)}...
+                        {address.slice(-4)})
+                      </button>
+                    )}
+                  </div>
+                </ClaimDestinationTip>
                 <Button
                   size="lg"
                   className="w-full gap-2"
