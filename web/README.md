@@ -7,7 +7,9 @@ Next.js 16 frontend for the Blizkperse private payments platform.
 - **Framework**: Next.js 16 (App Router, Webpack)
 - **Styling**: Tailwind CSS v4, shadcn/ui (new-york style)
 - **Auth**: Para SDK (`@getpara/react-sdk`) for social login + embedded wallets
-- **ZK**: `@noir-lang/noir_js` + `@aztec/bb.js` for in-browser proof generation
+- **ZK**: `@noir-lang/noir_js` + `@aztec/bb.js` for deposit/withdraw proofs
+- **Contracts**: `PoolRouter` + per-token `ShieldedPool` (via `lib/contracts.ts`)
+- **Gasless claim (optional)**: Alchemy Account Kit / Gas Manager
 - **Database**: PostgreSQL via `postgres` npm package
 
 ## Getting Started
@@ -15,7 +17,8 @@ Next.js 16 frontend for the Blizkperse private payments platform.
 ```bash
 npm install
 cp .env.example .env.local
-# Fill in NEXT_PUBLIC_PARA_API_KEY, DATABASE_URL, and chain env vars
+# Fill in NEXT_PUBLIC_PARA_API_KEY, DATABASE_URL, routers/pools,
+# ROOT_REGISTRAR_PRIVATE_KEY, optional Alchemy vars
 npm run dev -- --webpack
 ```
 
@@ -25,110 +28,83 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Environment Variables
 
+See [`.env.example`](.env.example) for the full list. Groups:
+
 | Variable | Description |
 |---|---|
 | `NEXT_PUBLIC_PARA_API_KEY` | Para SDK API key |
 | `DATABASE_URL` | PostgreSQL connection string |
-| `BLIZ_ENV` | Server-side environment selector for DB/runtime checks: `production` or `development` |
-| `NEXT_PUBLIC_BLIZ_ENV` | `production` for mainnet deploys, `development` for testnet deploys |
-| `NEXT_PUBLIC_DEFAULT_CHAIN` | Initial chain slug: `celo` or `monad` |
-| `NEXT_PUBLIC_MONAD_*` | Monad RPC, explorer, chain id, deployed contracts, token, deploy block |
-| `NEXT_PUBLIC_CELO_*` | Celo RPC, explorer, chain id, deployed contracts, token, deploy block |
+| `BLIZ_ENV` / `NEXT_PUBLIC_BLIZ_ENV` | `production` (mainnet) or `development` (testnet defaults) |
+| `NEXT_PUBLIC_DEFAULT_CHAIN` | `celo` \| `monad` \| `robinhood` |
+| `NEXT_PUBLIC_{CHAIN}_ROUTER_ADDRESS` | PoolRouter |
+| `NEXT_PUBLIC_{CHAIN}_POOL_{TOKEN}_ADDRESS` | Per-token ShieldedPool |
+| `NEXT_PUBLIC_{CHAIN}_DEPOSIT_VERIFIER_ADDRESS` | Deposit Honk verifier |
+| `NEXT_PUBLIC_PROTOCOL_FEE_BPS` | Fee display / quotes (default 30) |
+| `ROOT_REGISTRAR_PRIVATE_KEY` | Server-only; `registerRoot` signer |
+| `NEXT_PUBLIC_ALCHEMY_*` | Optional AA / gas sponsorship for claims |
+
+Chain address defaults live in `lib/constants.ts`.
 
 ## Project Structure
 
-> For the full repo structure (landing, zk, docs, sql) see the [root README](../README.md#project-structure).
+> Full repo layout: [root README](../README.md#project-structure).
 
 ```
 app/
-  api/                    # API routes
-    data/                 # GET: fetch all store data
-    deposit-events/       # GET: fetch deposit events by chain
-    generate-proof/       # POST: server-side proof generation
-    notes/                # POST: store generated ZK notes
-    organizers/           # POST/GET: create/fetch organizers
-    payments/             # PATCH: claim payment
-    payouts/              # POST/GET: create/fetch payouts
-    subscribers/          # POST/GET: create/fetch subscribers
-    subscriptions/        # POST: subscribe to organizer
-  dashboard/              # Role selector (payer vs receiver)
-  lib/                    # Server-side helpers (withdrawProver.ts)
-  payer/                  # Organizer dashboard + payout creation
-    create/               # Multi-step payout creation flow
-  receive/                # Subscriber dashboard + claim pages
-    [id]/                 # Claim page (ZK proof generation + withdrawal)
-  client-shell.tsx        # Client-side app shell (providers + ChainProvider)
-  globals.css             # Chain-adaptive themes (neutral default, per-chain overrides)
-  layout.tsx              # Root layout: dark theme, Geist font
-  page.tsx                # Chain selector (network selection entry)
+  api/
+    data/                 # Hydration + payout claimed backfill
+    generate-deposit-proof/
+    generate-proof/       # Withdraw proof
+    notes/
+    payments/[id]/claim
+    payments/reconcile
+    sync-pool-root/       # Registrar Merkle tip sync
+    …
+  payer/                  # Distribute dashboard + create payout
+  receive/                # Receive dashboard + claim (destination tip)
+  terms/
 components/
-  ui/                     # shadcn/ui components
-  auth-guard.tsx          # Route protection
-  chain-selector.tsx      # Chain switcher (Monad/Celo)
-  header.tsx              # Nav bar with chain selector
-  page-shell.tsx          # Page layout wrapper
-  para-wrapper.tsx        # Para SDK modal wrapper
-  providers.tsx           # ParaProvider + QueryClient
-  tx-status.tsx           # Transaction status with explorer link
-  wallet-display.tsx      # Wallet address display
+  claim-destination-tip.tsx
+  …
 lib/
-  api-auth.ts             # API route auth middleware
-  auth-shared.ts          # Shared auth logic
-  chain-context.tsx       # ChainProvider + useChain() hook
-  constants.ts            # Chain registry (source of truth for addresses)
-  contracts.ts            # Viem contract interactions
-  database.types.ts       # TypeScript types for DB tables
-  db.ts                   # PostgreSQL client + auto-schema
-  merkle.ts               # Client-side Merkle tree from on-chain events
-  server-auth.ts          # Server-side auth helpers
-  store.ts                # Reactive store (useSyncExternalStore + PostgreSQL)
-  utils.ts                # Shared utilities (cn helper)
-  wallet.ts               # Wallet utilities
-  zk.ts                   # Noir proof generation + crypto primitives
+  constants.ts            # Chain registry (source of truth)
+  contracts.ts
+  payout-status.ts        # Client-safe status helpers (import from UI)
+  payout-status-db.ts     # Server SQL only — never import from client
+  store.ts
+  zk.ts
 ```
 
 ## Architecture Overview
 
-The frontend is chain-adaptive: it starts with a neutral grayscale theme and applies chain-specific colors (purple for Monad, yellow for Celo) when the user selects a chain. The `ChainProvider` context gates the entire app behind chain selection, then exposes the active `ChainConfig` to all components.
+Chain-adaptive UI: neutral grayscale until a network is selected (Monad / Celo / Robinhood). `ChainProvider` exposes `ChainConfig` to contracts and theming.
 
-State management uses a reactive store pattern (`useSyncExternalStore`) backed by PostgreSQL. Mutations write to the database first, then update the local cache and trigger re-renders.
+Reactive store (`useSyncExternalStore`) syncs with PostgreSQL. Auth is Para (wallet-signed API auth by address).
 
-Authentication is handled by Para SDK, which provides social login and embedded wallets as a client-only provider.
+**Claim UX:** destination address field + one-time coachmark; optional Alchemy AA for gasless claim.
 
-## Key Libraries
-
-| Package | Version | Purpose |
-|---|---|---|
-| `@noir-lang/noir_js` | `1.0.0-beta.19` | Noir circuit compilation and witness generation |
-| `@aztec/bb.js` | `4.0.4` | Barretenberg WASM prover (UltraHonk) |
-| `@getpara/react-sdk` | latest | Social login + embedded wallets |
-| `viem` | latest | EVM contract interactions |
-| `postgres` | latest | PostgreSQL client (no ORM) |
+**Payer status:** payout badge derives from payments (`effectivePayoutStatus`); server promotes payout → `claimed` when all payments are done.
 
 ## Common Issues
 
 | Issue | Cause | Fix |
 |---|---|---|
-| `worker_threads` error on dev/build | Turbopack incompatible with `@aztec/bb.js` WASM | Use `--webpack` flag: `npm run dev -- --webpack` |
-| Para hydration mismatch | Para SDK is client-only | Wrap Para components with `"use client"` directive |
-| Framer Motion `ease` type error | TypeScript strict mode | Add `as const` to ease arrays |
+| `worker_threads` / WASM on build | Turbopack + bb.js | Use `--webpack` |
+| `Can't resolve 'net'` / `tls` in build | Client imported `lib/db` or `payout-status-db` | Import only `payout-status.ts` from client pages |
+| SumcheckFailed on withdraw | Verifier ≠ circuit / prove flags | See [`zk/docs/build-and-deploy.md`](../zk/docs/build-and-deploy.md) |
+| Deposit succeeded but no note | Wrong pool address in env | Pool must match receipt / router mapping |
 
 ## Deployment (Railway)
 
-1. Connect GitHub repo for automated deployments
-2. Add PostgreSQL service in Railway
-3. Set environment variables for the target environment (`NEXT_PUBLIC_PARA_API_KEY`, `NEXT_PUBLIC_BLIZ_ENV`, `NEXT_PUBLIC_MONAD_*`, `NEXT_PUBLIC_CELO_*`)
-4. Railway auto-injects `DATABASE_URL`
-
-Build uses `output: "standalone"` in `next.config.ts`.
-
-## Landing Page
-
-The marketing landing page is a separate Next.js project in `landing/` at the repo root. It has its own `package.json`, no Para SDK, no ZK, and no database. See the [root README](../README.md#project-structure) for details.
+1. PostgreSQL + `DATABASE_URL`
+2. Build-time `NEXT_PUBLIC_*` (Para, routers, pools, Alchemy, fee)
+3. Runtime `ROOT_REGISTRAR_PRIVATE_KEY`
+4. Watch path `/web/**`; Dockerfile runs `next build --webpack`
 
 ## Related Documentation
 
-- [Technical Spec](../docs/technical_spec.md) - Full architecture, contract interfaces, DB schema
-- [Integration Guide](../docs/integration_guide.md) - Frontend to ZK to Contract wiring
-- [Brand Kit](../docs/brand_kit.md) - Color palette, typography, theming rules
-- [ZK README](../zk/README.md) - Circuits, contracts, deployment
+- [Technical Spec](../docs/technical_spec.md)
+- [Integration Guide](../docs/integration_guide.md)
+- [Arbitrary amounts + multi-token](../zk/docs/arbitrary-amounts-multitoken.md)
+- [Brand Kit](../docs/brand_kit.md)
+- [ZK README](../zk/README.md)

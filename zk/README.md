@@ -1,46 +1,17 @@
 # Blizkperse ZK Circuits & Contracts
 
-Noir ZK circuits and Foundry smart contracts for the Blizkperse shielded pool.
+Noir ZK circuits and Foundry smart contracts for the Blizkperse shielded pools.
 
-> **Withdraw verifier + frontend:** For withdrawals from the web to work, the verifier must be compiled from this repo with `circuits/scripts/compile_withdraw_verifier.sh` and the API must use the same flags (`bb prove --oracle_hash keccak`). See **[docs/build-and-deploy.md](docs/build-and-deploy.md)** to avoid SumcheckFailed errors.
+> **Withdraw verifier + frontend:** Compile with `circuits/scripts/compile_withdraw_verifier.sh` and prove with `--oracle_hash keccak`. See **[docs/build-and-deploy.md](docs/build-and-deploy.md)** to avoid SumcheckFailed.
 
-> **Arbitrary amounts + multi-token:** See **[docs/arbitrary-amounts-multitoken.md](docs/arbitrary-amounts-multitoken.md)**. One pool per token, `PoolRouter` entrypoint, deposit circuit binds `amount`↔`commitment`. Legacy 1 USDC pools are not migrated.
+> **Current model (arbitrary amounts + multi-token):** **[docs/arbitrary-amounts-multitoken.md](docs/arbitrary-amounts-multitoken.md)** — one pool per token, `PoolRouter`, deposit circuit, protocol fee, registrar-only `registerRoot`. Legacy 1 USDC pools are not migrated.
 
 ## Prerequisites
 
-1. Install [noirup](https://noir-lang.org/docs/getting_started/noir_installation):
-
-   ```bash
-   curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
-   ```
-
-2. Install Nargo:
-
-   ```bash
-   noirup
-   ```
-
-3. Install Foundry:
-
-   ```bash
-   curl -L https://foundry.paradigm.xyz | bash
-   foundryup
-   ```
-
-4. Install foundry dependencies:
-
-   ```bash
-   forge install 0xnonso/foundry-noir-helper --no-commit
-   ```
-
-5. Install [bbup](https://github.com/AztecProtocol/aztec-packages/blob/master/barretenberg/bbup/README.md#installation) (Barretenberg CLI manager), then run `bbup`.
-
-6. Configure environment:
-
-   ```bash
-   cp .env.example .env
-   # Fill in PRIVATE_KEY, USDC_ADDRESS, RPC URL, and later POOL_ADDRESS after deploy
-   ```
+1. [noirup](https://noir-lang.org/docs/getting_started/noir_installation) + `noirup` (align with `1.0.0-beta.19` for web)
+2. [Foundry](https://book.getfoundry.sh) + `forge install`
+3. [bbup](https://github.com/AztecProtocol/aztec-packages/blob/master/barretenberg/bbup/README.md) / `bb` (prefer bb.js path used by compile scripts when noted)
+4. `cp .env.example .env` — `PRIVATE_KEY`, RPC, `TOKEN_ADDRESSES`, `TREASURY_ADDRESS`, `FEE_BPS`, `ROOT_REGISTRAR_ADDRESS`, optional `WRAPPED_NATIVE`
 
 ## Project Structure
 
@@ -48,77 +19,91 @@ Noir ZK circuits and Foundry smart contracts for the Blizkperse shielded pool.
 zk/
   circuits/
     src/
-      main.nr           # Transfer circuit (deposit commitment)
-      withdraw.nr       # Withdraw circuit (claim with ZK proof)
-    scripts/            # CLI scripts for deposit, withdraw, proof generation
-    WithdrawProver.toml # Prover inputs for the withdraw circuit
+      deposit.nr        # Binds amount ↔ commitment
+      withdraw.nr       # Claim / withdraw
+      main.nr / pay.nr  # Transfer circuit
+    scripts/            # Compile verifiers, CLI deposit/withdraw helpers
   contract/
-    ShieldedPool.sol    # Main pool contract (deposit, withdraw, Merkle tree)
-    Verifier.sol        # HonkVerifier (transfer)
-    WithdrawVerifier.sol # WithdrawVerifier (5 public inputs)
+    PoolRouter.sol
+    ShieldedPool.sol
+    DepositVerifier.sol
+    WithdrawVerifier.sol
+    Verifier.sol          # Transfer HonkVerifier
   script/
-    Deploy.s.sol        # Deployment script (deploys all 3 contracts)
-  docs/                 # Build, deploy, and testing guides
+    DeployDepositVerifier.s.sol
+    Deploy.s.sol          # DeployMultiPool, …
+    AddPool.s.sol         # Add one pool to an existing router
+  docs/
+    arbitrary-amounts-multitoken.md
+    build-and-deploy.md
+    …
 ```
 
-## Generate Verifier Contract
+## Generate Verifiers
 
 ```bash
 cd circuits
-nargo compile
-bb write_vk -b ./target/with_foundry.json
-bb contract
-```
-
-For the withdraw verifier specifically:
-
-```bash
-cd circuits
+./scripts/compile_deposit_verifier.sh
 ./scripts/compile_withdraw_verifier.sh
 ```
 
-## Test with Foundry
+## Test
 
 ```bash
 forge test --optimize --optimizer-runs 5000 --evm-version cancun
 ```
 
-> Optimizer settings are required to suppress "stack too deep" errors in the solc compiler.
-
-## Deploy
+## Deploy (multi-pool)
 
 ```bash
-source .env   # PRIVATE_KEY, USDC_ADDRESS, MONAD_RPC (or CELO_RPC)
-forge script script/Deploy.s.sol:DeployPool --rpc-url "$MONAD_RPC" --broadcast
+cd zk
+source .env
+forge script script/DeployDepositVerifier.s.sol:DeployDepositVerifier --rpc-url "$RPC_URL" --broadcast
+export DEPOSIT_VERIFIER_ADDRESS=0x...
+
+export TOKEN_ADDRESSES=0xTokenA,0xTokenB
+# Monad WMON only — leave unset on Celo
+# export WRAPPED_NATIVE=0x...
+export FEE_BPS=30
+export TREASURY_ADDRESS=0x...
+export ROOT_REGISTRAR_ADDRESS=0x...
+
+forge script script/Deploy.s.sol:DeployMultiPool --rpc-url "$RPC_URL" --broadcast
 ```
 
-Deploys three contracts: **HonkVerifier**, **WithdrawVerifier**, **ShieldedPool**.
+Add a token later:
 
-After deploying, update:
-- `zk/.env` with the new `POOL_ADDRESS`
-- `web/.env` / Railway env vars with the new contract addresses and deploy block
+```bash
+export POOL_ROUTER_ADDRESS=0x...
+export TOKEN_ADDRESS=0x...
+# plus verifier addresses as required by AddPool.s.sol
+forge script script/AddPool.s.sol:AddPool --rpc-url "$RPC_URL" --broadcast
+```
 
-For testnet deployment guidance, see [docs/testnet-deploy.md](docs/testnet-deploy.md).
+Then set web env: `NEXT_PUBLIC_*_ROUTER_ADDRESS`, `NEXT_PUBLIC_*_POOL_*_ADDRESS`, deposit/withdraw verifiers, `ROOT_REGISTRAR_PRIVATE_KEY`.
 
-## Deployed Contracts
+## Deployed Contracts (production defaults)
 
-### Mainnet
+Source of truth: [`web/lib/constants.ts`](../web/lib/constants.ts). Summary:
 
-| Chain | ShieldedPool | HonkVerifier | WithdrawVerifier |
+| Chain | ID | Router | Default pool token |
 | --- | --- | --- | --- |
-| **Monad** (143) | `0x97268f95e49bC5C7C8711111cCFe509D76C00674` | `0x4eE52aEb000B91853A5a6f9db9B1f969f1b0c393` | `0x0D70d098085CeD93864B41cD0fF506C2CD329D94` |
-| **Celo** (42220) | `0x1aBee1E0205BB4E6d0b95a2C1F5072d9f3064778` | `0x3D76FC7Ce515aB1d69A4e734354c6EC94c22CCb9` | `0x6e4794166dE8Af43D1720f66bA39f561F2C0eD95` |
+| Monad | 143 | `0x6c1e06C0b652A4F14bD6b4DC647C2BC94e970C47` | USDC `0x80B7399669116f62Aa69B73aA06400EB648E22d2` |
+| Celo | 42220 | `0x5aC1F6d71Dd91fcbEDEDeaB07cf07D5FaBCc405c` | USDT `0x228006c6Ba6F0fB7376DC5b69f40Ee570C7369CC` |
+| Robinhood | 4663 | `0xB3a0a715ffa799349ccc06F6e6169C96c97EfDc8` | USDG `0x481C87F6fe1f75238523DD8f5d386Fb8A8428A19` |
+
+Per-token pools, deposit/withdraw/honk verifiers, and deploy blocks are listed in the [root README](../README.md#supported-chains).
 
 ### Testnet
 
-| Chain | ShieldedPool | Verifier | WithdrawVerifier |
-| --- | --- | --- | --- |
-| **Monad Testnet** (10143) | `0xcdc6ade9d348572f302690bd39ba8120f8e91db3` | `0x8d10ad45b21d4db2e7270e519a757c764c6501ac` | `0xd9aee9351f7685b05a6b7bd8c1ca509d24be1e57` |
-| **Celo Testnet** (11142220) | `0x038803a40130734e6ab711489060ea55f05bb475` | `0x0f86796c3f3254442debd0705a56bdd82c69f4a6` | `0xd850af48bddf6e568a994a870aa684b86bb5054f` |
+Legacy single-pool USDC addresses remain for Monad testnet (10143) and Celo testnet (11142220) when `BLIZ_ENV=development`. Prefer multi-pool mainnet flow for new work.
 
 ## Documentation
 
-- [Build & Deploy Guide](docs/build-and-deploy.md) - Avoiding SumcheckFailed, deployment checklist
-- [Testnet Deploy Guide](docs/testnet-deploy.md) - Monad testnet and Celo testnet deployment checklist
-- [Deposit/Withdraw Demo](docs/demo-deposit-withdraw.md) - Step-by-step CLI demo
-- [Testing Guide](docs/test-deposit-withdraw.md) - Anonymity validation, proof generation
+| Doc | Description |
+| --- | --- |
+| [arbitrary-amounts-multitoken.md](docs/arbitrary-amounts-multitoken.md) | Router, fees, registrar, deposit circuit |
+| [build-and-deploy.md](docs/build-and-deploy.md) | Verifier fingerprints, SumcheckFailed |
+| [demo-deposit-withdraw.md](docs/demo-deposit-withdraw.md) | CLI demo (may include legacy notes) |
+| [test-deposit-withdraw.md](docs/test-deposit-withdraw.md) | Testing notes |
+| [testnet-deploy.md](docs/testnet-deploy.md) | Testnet guidance |
