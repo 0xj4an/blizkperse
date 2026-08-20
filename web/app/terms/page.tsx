@@ -9,8 +9,8 @@ export const metadata: Metadata = {
     "Terms of use for Blizkperse — experimental ZK shielded-pool payout software.",
 };
 
-const EFFECTIVE_DATE = "July 26, 2026";
-const VERSION = "v1.0.0";
+const EFFECTIVE_DATE = "August 20, 2026";
+const VERSION = "v1.1.0";
 
 /** Monorepo — contracts, circuits, and frontend live in the same GitHub repo. */
 const REPO = "https://github.com/Blizkperse/blizkperse";
@@ -26,64 +26,85 @@ const REPO_FRONTEND = `${REPO}/tree/main/web`;
 const DEPLOYMENTS = {
   celo: {
     chainId: 42220,
-    router: "0xFB9eBD23cD1A58C6B670653C98a49Fb4cb7A2c0e",
+    router: "0x5aC1F6d71Dd91fcbEDEDeaB07cf07D5FaBCc405c",
     pools: [
       {
         symbol: "USDT",
-        pool: "0x4319216C4f9343702Bee96345da0099F3dD5a7C1",
+        pool: "0x228006c6Ba6F0fB7376DC5b69f40Ee570C7369CC",
         token: "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e",
       },
       {
+        symbol: "USDC",
+        pool: "0xd4840951858413d959Ed9E448b5bF79B4c3bb475",
+        token: "0xcebA9300f2b948710d2653dD7B07f33A8B32118C",
+      },
+      {
         symbol: "COPm",
-        pool: "0x5862FFF8085d009354d78273DC8f8545f51dB72F",
+        pool: "0xE0d3a7A5061E29cAF8Ffc85579162620F42A0EB4",
         token: "0x8A567e2aE79CA692Bd748aB832081C45de4041eA",
       },
+      {
+        symbol: "CELO",
+        pool: "0x1CF43c08545E9F36395DcDFFdC839F98841Eceb9",
+        token: "0x471EcE3750Da237f93B8E339c536989b8978a438",
+      },
     ],
-    transferVerifier: "0x49E2c70927F571B86a36F1C780D713A58703bfDF",
-    withdrawVerifier: "0x177cADF8C301A0f1264F402ed2c58e95223b5b2D",
-    depositVerifier: "0xD4dFD33Ae7c1f2B034D442ddCB0535BD43325DB4",
+    transferVerifier: "0xd9C9bC4f84476feF018F47621531526823E13b3C",
+    withdrawVerifier: "0xC54A859c187fFAF1C1f9d5AE4a0E90f0Ad58953F",
+    depositVerifier: "0x15A82F907e7B57f21909DB74816f8F96C4224c99",
   },
   monad: {
     chainId: 143,
-    router: "0x0bAF1357eD81Bd200f0DF7ea559af550C2E5b1a7",
+    router: "0x6c1e06C0b652A4F14bD6b4DC647C2BC94e970C47",
     pools: [
       {
         symbol: "USDC",
-        pool: "0x3c3526931e4D4F204a6418D11B173dC07e0c0bc7",
+        pool: "0x80B7399669116f62Aa69B73aA06400EB648E22d2",
         token: "0x754704Bc059F8C67012fEd69BC8A327a5aafb603",
       },
+      {
+        symbol: "USDT",
+        pool: "0x49B337e208651aFD1E8889E6B1660baD2BA7223F",
+        token: "0xe7cd86e13AC4309349F30B3435a9d337750fC82D",
+      },
+      {
+        symbol: "WMON",
+        pool: "0xE1e6D8eCd913d208197eF10623dEa3520b38C7A8",
+        token: "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A",
+      },
     ],
-    transferVerifier: "0xcDC754C538968434AfBc2f2c545A8261063Fa05E",
-    withdrawVerifier: "0xcAAb0B768993663145fc1467029Da7E7E6a1b52D",
-    depositVerifier: "0x50b78768E965Eeed19613D3B0Cd0245B1A12D351",
+    transferVerifier: "0xAB7c795191d2e64138c86a610d26698B8da3Fc69",
+    withdrawVerifier: "0x302E7a235f5BFdf2c947fDF827954607c700DB29",
+    depositVerifier: "0x15A82F907e7B57f21909DB74816f8F96C4224c99",
   },
   robinhood: {
     chainId: 4663,
-    router: "0xcDc6AdE9d348572f302690bD39BA8120F8E91db3",
+    router: "0xB3a0a715ffa799349ccc06F6e6169C96c97EfDc8",
     pools: [
       {
         symbol: "USDG",
-        pool: "0xf62E5a932a832C8EA990DedD87a05162C8905224",
+        pool: "0x481C87F6fe1f75238523DD8f5d386Fb8A8428A19",
         token: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
       },
       {
         symbol: "USDe",
-        pool: "0x038803A40130734E6aB711489060Ea55F05BB475",
+        pool: "0x1D9500A0d30246A5596fCDFF0fC85c78D15C7125",
         token: "0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34",
       },
       {
         symbol: "WETH",
-        pool: "0x27c575a0CDbBAcCFaCC6085164186B19F74b77B4",
+        pool: "0x7cEb93e04257c430522688EE87156BDbB50646E2",
         token: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
       },
     ],
-    transferVerifier: "0x8d10Ad45B21d4db2e7270E519a757c764c6501Ac",
-    withdrawVerifier: "0xD9AeE9351f7685b05a6B7BD8c1Ca509D24bE1e57",
-    depositVerifier: "0x1d42C0cD5fF14Ee71456473828996b1bC251a735",
+    transferVerifier: "0x6c1e06C0b652A4F14bD6b4DC647C2BC94e970C47",
+    withdrawVerifier: "0x80B7399669116f62Aa69B73aA06400EB648E22d2",
+    depositVerifier: "0xAB7c795191d2e64138c86a610d26698B8da3Fc69",
   },
-  /** On-chain PoolRouter.feeBps / treasury / Ownable.owner (same EOA on both chains as of July 26, 2026). */
+  /** On-chain PoolRouter.feeBps; treasury and Ownable.owner are separate EOAs (same across chains as of August 20, 2026 redeploy). */
   feeBps: 30,
-  treasuryAndOwner: "0xc696DDC31486D5D8b87254d3AA2985f6D0906b3a",
+  treasury: "0xda50E9d5E3E7413f911aF4bf2D08655FFd3007B4",
+  owner: "0xE06c8705C30c93912A83A6ECfa661b2e142dE7b6",
 } as const;
 
 function Placeholder({ children }: { children: React.ReactNode }) {
@@ -838,15 +859,15 @@ export default function TermsPage() {
               <li>
                 treasury:{" "}
                 <span className="text-foreground/90">
-                  {DEPLOYMENTS.treasuryAndOwner}
+                  {DEPLOYMENTS.treasury}
                 </span>
               </li>
               <li>
                 Ownable owner (PoolRouter + pools checked):{" "}
                 <span className="text-foreground/90">
-                  {DEPLOYMENTS.treasuryAndOwner}
+                  {DEPLOYMENTS.owner}
                 </span>{" "}
-                (EOA; same address currently holds treasury)
+                (EOA; distinct from treasury and root registrar)
               </li>
             </ul>
 
@@ -931,10 +952,15 @@ export default function TermsPage() {
                 <br />
                 Multisig / on-chain identifier:{" "}
                 <span className="font-mono text-xs text-foreground/80">
-                  {DEPLOYMENTS.treasuryAndOwner}
+                  {DEPLOYMENTS.owner}
                 </span>{" "}
-                (current Ownable owner / treasury — optional to list; confirm
-                whether this EOA should be attributed to a named Core Contributor)
+                (current Ownable owner — optional to list; confirm whether this
+                EOA should be attributed to a named Core Contributor). Protocol
+                fee recipient (treasury):{" "}
+                <span className="font-mono text-xs text-foreground/80">
+                  {DEPLOYMENTS.treasury}
+                </span>
+                .
               </li>
               <li>
                 <Placeholder>[DECISION: name or pseudonym]</Placeholder> —

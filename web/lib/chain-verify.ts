@@ -60,6 +60,22 @@ function commitmentFromLog(log: Log): string | null {
   return null;
 }
 
+/** PoolRouter.RoutedDeposit: commitment is the first word of non-indexed data. */
+function commitmentFromRoutedDepositData(log: Log): string | null {
+  const data = log.data?.toLowerCase?.() ?? "";
+  if (!/^0x[0-9a-f]{64,}$/.test(data)) return null;
+  return `0x${data.slice(2, 66)}`;
+}
+
+function poolFromRoutedDepositLog(log: Log): `0x${string}` | null {
+  // RoutedDeposit(user, token, pool, …) — pool is topic[3]
+  const topics = log.topics;
+  if (!topics || topics.length < 4 || !topics[3]) return null;
+  const topic = topics[3].toLowerCase();
+  if (!/^0x0{24}[0-9a-f]{40}$/.test(topic)) return null;
+  return `0x${topic.slice(26)}` as `0x${string}`;
+}
+
 function nullifierFromWithdrawLog(log: Log): string | null {
   const topics = log.topics;
   if (topics && topics.length >= 3 && topics[2]) return topics[2].toLowerCase();
@@ -94,7 +110,9 @@ export type ClaimVerification = {
 };
 
 /**
- * Confirm a deposit landed: receipt success + Deposit event with matching commitment.
+ * Confirm a deposit landed: receipt success + Deposit (or RoutedDeposit) with matching commitment.
+ * Resolves the actual pool from receipt logs when env/config points at a stale pool address
+ * (common after redeploy: router routes to the new pool while NEXT_PUBLIC_*_POOL_* is outdated).
  */
 export async function verifyDepositOnChain(params: {
   chainId: number;
@@ -113,7 +131,7 @@ export async function verifyDepositOnChain(params: {
   if (!commitment) throw new Error("Invalid commitment");
   if (!depositTx) throw new Error("Invalid deposit_tx");
 
-  const pool = resolvePoolAddress(config, params.poolAddress, params.tokenSymbol);
+  const expectedPool = resolvePoolAddress(config, params.poolAddress, params.tokenSymbol);
   const client = getClient(config);
 
   let receipt: TransactionReceipt;
@@ -127,48 +145,78 @@ export async function verifyDepositOnChain(params: {
     throw new Error(`Deposit tx reverted on-chain: ${depositTx}`);
   }
 
-  const poolLower = pool.toLowerCase();
+  const expectedLower = expectedPool.toLowerCase();
   const routerLower = config.router?.toLowerCase?.() ?? "";
+  const knownPools = new Set(
+    Object.values(config.pools)
+      .map((p) => p.pool.toLowerCase())
+      .filter((a) => a && a !== "0x0000000000000000000000000000000000000000"),
+  );
+  knownPools.add(expectedLower);
 
-  const matchingLogs = receipt.logs.filter((log) => {
-    const addr = log.address.toLowerCase();
-    if (addr !== poolLower && addr !== routerLower) return false;
-    const c = commitmentFromLog(log);
-    return c === commitment;
-  });
+  let resolvedPool: `0x${string}` | null = null;
 
-  // Fallback: decode via getLogs around the receipt block (in case topic layout differs).
-  if (matchingLogs.length === 0) {
+  for (const log of receipt.logs) {
+    const addr = log.address.toLowerCase() as `0x${string}`;
+
+    // ShieldedPool.Deposit — commitment is indexed topic[2]; emitter is the pool.
+    const fromDeposit = commitmentFromLog(log);
+    if (fromDeposit === commitment) {
+      if (addr === routerLower) {
+        // Shouldn't happen for Deposit, but keep searching.
+        continue;
+      }
+      resolvedPool = addr;
+      break;
+    }
+
+    // PoolRouter.RoutedDeposit — commitment in data; pool in topic[3].
+    if (addr === routerLower && commitmentFromRoutedDepositData(log) === commitment) {
+      resolvedPool = poolFromRoutedDepositLog(log) ?? expectedPool;
+      break;
+    }
+  }
+
+  // Fallback: getLogs around the receipt block on expected + known pools.
+  if (!resolvedPool) {
     const fromBlock = receipt.blockNumber > 5n ? receipt.blockNumber - 5n : 0n;
     const toBlock = receipt.blockNumber;
-    const [current, legacy] = await Promise.all([
-      client.getLogs({
-        address: pool,
-        event: depositEvent,
-        args: { commitment },
-        fromBlock,
-        toBlock,
-      }),
-      client.getLogs({
-        address: pool,
-        event: depositEventLegacy,
-        args: { commitment },
-        fromBlock,
-        toBlock,
-      }),
-    ]);
-    if (current.length === 0 && legacy.length === 0) {
-      throw new Error(
-        `Deposit tx succeeded but no Deposit event for commitment ${commitment.slice(0, 12)}…`,
-      );
+    const poolsToScan = [...knownPools];
+    for (const poolAddr of poolsToScan) {
+      const [current, legacy] = await Promise.all([
+        client.getLogs({
+          address: poolAddr as `0x${string}`,
+          event: depositEvent,
+          args: { commitment },
+          fromBlock,
+          toBlock,
+        }),
+        client.getLogs({
+          address: poolAddr as `0x${string}`,
+          event: depositEventLegacy,
+          args: { commitment },
+          fromBlock,
+          toBlock,
+        }),
+      ]);
+      if (current.length > 0 || legacy.length > 0) {
+        resolvedPool = poolAddr as `0x${string}`;
+        break;
+      }
     }
+  }
+
+  if (!resolvedPool) {
+    throw new Error(
+      `Deposit tx succeeded but no Deposit event for commitment ${commitment.slice(0, 12)}…`,
+    );
   }
 
   return {
     ok: true,
     depositTx,
     blockNumber: String(receipt.blockNumber),
-    poolAddress: pool,
+    poolAddress: resolvedPool,
   };
 }
 

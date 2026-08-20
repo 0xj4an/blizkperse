@@ -224,12 +224,12 @@ const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
     explorerUrl: "https://monadexplorer.com",
     explorerName: "Monad Explorer",
     nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
-    router: ZERO_ADDR,
+    router: "0x6c1e06C0b652A4F14bD6b4DC647C2BC94e970C47",
     contracts: {
-      pool: "0x97268f95e49bC5C7C8711111cCFe509D76C00674",
-      verifier: "0x4eE52aEb000B91853A5a6f9db9B1f969f1b0c393",
-      withdrawVerifier: "0x0D70d098085CeD93864B41cD0fF506C2CD329D94",
-      depositVerifier: ZERO_ADDR,
+      pool: "0x80B7399669116f62Aa69B73aA06400EB648E22d2",
+      verifier: "0xAB7c795191d2e64138c86a610d26698B8da3Fc69",
+      withdrawVerifier: "0x302E7a235f5BFdf2c947fDF827954607c700DB29",
+      depositVerifier: "0x15A82F907e7B57f21909DB74816f8F96C4224c99",
       stablecoin: MONAD_USDC,
     },
     poolTokenDecimals: 6,
@@ -241,7 +241,11 @@ const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
       { symbol: "USDT", name: "Tether USD", decimals: 6, address: MONAD_USDT },
       { symbol: "WMON", name: "Wrapped MON", decimals: 18, address: MONAD_WMON, wrapsNative: true },
     ],
-    deployBlock: BigInt(60_840_463),
+    poolAddresses: {
+      USDT: "0x49B337e208651aFD1E8889E6B1660baD2BA7223F",
+      WMON: "0xE1e6D8eCd913d208197eF10623dEa3520b38C7A8",
+    },
+    deployBlock: BigInt(97_520_428),
   },
   celo: {
     id: ChainId.CELO,
@@ -250,13 +254,13 @@ const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
     explorerUrl: "https://celoscan.io",
     explorerName: "CeloScan",
     nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
-    router: ZERO_ADDR,
+    router: "0x5aC1F6d71Dd91fcbEDEDeaB07cf07D5FaBCc405c",
     contracts: {
       // Default / legacy pool entry = USDT pool (not USDC).
-      pool: "0x4319216C4f9343702Bee96345da0099F3dD5a7C1",
-      verifier: "0x3D76FC7Ce515aB1d69A4e734354c6EC94c22CCb9",
-      withdrawVerifier: "0x6e4794166dE8Af43D1720f66bA39f561F2C0eD95",
-      depositVerifier: ZERO_ADDR,
+      pool: "0x228006c6Ba6F0fB7376DC5b69f40Ee570C7369CC",
+      verifier: "0xd9C9bC4f84476feF018F47621531526823E13b3C",
+      withdrawVerifier: "0xC54A859c187fFAF1C1f9d5AE4a0E90f0Ad58953F",
+      depositVerifier: "0x15A82F907e7B57f21909DB74816f8F96C4224c99",
       stablecoin: CELO_USDT,
     },
     poolTokenDecimals: 6,
@@ -270,10 +274,12 @@ const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
       { symbol: "CELO", name: "Celo", decimals: 18, address: CELO_TOKEN },
     ],
     poolAddresses: {
-      // Live COPm ShieldedPool on Celo mainnet (also set via NEXT_PUBLIC_CELO_POOL_COPM_ADDRESS).
-      COPm: "0x5862FFF8085d009354d78273DC8f8545f51dB72F",
+      // Celo mainnet pools (redeploy Aug 2026; override via NEXT_PUBLIC_CELO_POOL_*_ADDRESS).
+      COPm: "0xE0d3a7A5061E29cAF8Ffc85579162620F42A0EB4",
+      CELO: "0x1CF43c08545E9F36395DcDFFdC839F98841Eceb9",
+      USDC: "0xd4840951858413d959Ed9E448b5bF79B4c3bb475",
     },
-    deployBlock: BigInt(61_379_350),
+    deployBlock: BigInt(75_295_405),
   },
   robinhood: {
     id: ChainId.ROBINHOOD,
@@ -282,13 +288,13 @@ const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
     explorerUrl: "https://robinhoodchain.blockscout.com",
     explorerName: "Robinhood Chain Explorer",
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    router: "0xcDc6AdE9d348572f302690bD39BA8120F8E91db3",
+    router: "0xB3a0a715ffa799349ccc06F6e6169C96c97EfDc8",
     contracts: {
       // Default pool entry = USDG (stablecoin).
-      pool: "0xf62E5a932a832C8EA990DedD87a05162C8905224",
-      verifier: "0x8d10Ad45B21d4db2e7270E519a757c764c6501Ac",
-      withdrawVerifier: "0xD9AeE9351f7685b05a6B7BD8c1Ca509D24bE1e57",
-      depositVerifier: "0x1d42C0cD5fF14Ee71456473828996b1bC251a735",
+      pool: "0x481C87F6fe1f75238523DD8f5d386Fb8A8428A19",
+      verifier: "0x6c1e06C0b652A4F14bD6b4DC647C2BC94e970C47",
+      withdrawVerifier: "0x80B7399669116f62Aa69B73aA06400EB648E22d2",
+      depositVerifier: "0xAB7c795191d2e64138c86a610d26698B8da3Fc69",
       stablecoin: ROBINHOOD_USDG,
     },
     poolTokenDecimals: 6,
@@ -307,10 +313,10 @@ const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
       },
     ],
     poolAddresses: {
-      USDe: "0x038803A40130734E6aB711489060Ea55F05BB475",
-      WETH: "0x27c575a0CDbBAcCFaCC6085164186B19F74b77B4",
+      USDe: "0x1D9500A0d30246A5596fCDFF0fC85c78D15C7125",
+      WETH: "0x7cEb93e04257c430522688EE87156BDbB50646E2",
     },
-    deployBlock: BigInt(20_324_129),
+    deployBlock: BigInt(41_116_323),
   },
 };
 
