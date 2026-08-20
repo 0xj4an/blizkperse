@@ -48,7 +48,7 @@ const ASCII_ART = `
 ╚═╝     ╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝`;
 
 const STATS = [
-  { value: "2", label: "chains live" },
+  { value: "3", label: "chains live" },
   { value: "100%", label: "on-chain" },
   { value: "0", label: "gas for claims" },
   { value: "OSS", label: "open source" },
@@ -434,7 +434,7 @@ export default function LandingPage() {
                 {
                   icon: Globe,
                   title: "Multi-chain deployment",
-                  text: "Deploy on any EVM chain. Currently live on Monad and Celo, with the same shielded pool contract and proof system on every network.",
+                  text: "Deploy on any EVM chain. Currently live on Monad, Celo, and Robinhood Chain, with the same shielded pool architecture and proof system on every network.",
                 },
                 {
                   icon: Zap,
@@ -543,6 +543,7 @@ export default function LandingPage() {
               { name: "Noir", desc: "ZK circuits" },
               { name: "Monad", desc: "EVM L1" },
               { name: "Celo", desc: "EVM L1" },
+              { name: "Robinhood", desc: "EVM chain" },
             ].map((tech) => (
               <div
                 key={tech.name}
@@ -723,12 +724,38 @@ export default function LandingPage() {
                     Live on mainnet
                   </span>
                 </div>
-                <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
+                <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
                   {[
-                    { icon: Shield, label: "Private payouts", desc: "ZK-shielded on Monad & Celo" },
-                    { icon: Lock, label: "On-chain proofs", desc: "Noir circuits + Honk verifier" },
-                    { icon: Users, label: "Social login", desc: "Email or Google, instant wallet" },
-                    { icon: Zap, label: "Claim in seconds", desc: "No MetaMask, no seed phrases" },
+                    {
+                      icon: Shield,
+                      label: "Private payouts",
+                      desc: "ZK-shielded on Monad, Celo & Robinhood",
+                    },
+                    {
+                      icon: Coins,
+                      label: "Multi-token pools",
+                      desc: "COPm, USDT, USDC, USDG & more — pool per token",
+                    },
+                    {
+                      icon: CircleDollarSign,
+                      label: "Arbitrary amounts",
+                      desc: "Any note size, not fixed denominations",
+                    },
+                    {
+                      icon: Lock,
+                      label: "On-chain proofs",
+                      desc: "Noir circuits + Honk verifiers",
+                    },
+                    {
+                      icon: Users,
+                      label: "Social login",
+                      desc: "Email or Google, instant wallet",
+                    },
+                    {
+                      icon: Fuel,
+                      label: "Gasless claims",
+                      desc: "Sponsored withdrawals — recipients need no gas",
+                    },
                   ].map((item) => (
                     <div key={item.label} className="flex gap-3">
                       <item.icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400/60" />
@@ -753,19 +780,19 @@ export default function LandingPage() {
               <div className="grid gap-px overflow-hidden rounded-xl border border-border/50 sm:grid-cols-3">
                 {[
                   {
-                    icon: Coins,
-                    title: "Multi-currency",
-                    items: ["COPm on Celo", "Variable amounts", "Pool per token"],
-                  },
-                  {
                     icon: Lock,
                     title: "Hardened core",
-                    items: ["On-chain Merkle tree", "Trustless root verification", "Security audit"],
+                    items: ["Security audit", "Stronger root trust model", "Formal verification"],
                   },
                   {
                     icon: Wallet,
                     title: "Treasury access",
-                    items: ["Safe multisig", "Smart accounts", "Multi-approver flows"],
+                    items: ["Safe multisig", "Multi-approver flows", "Org spending policies"],
+                  },
+                  {
+                    icon: Key,
+                    title: "Open API",
+                    items: ["REST endpoints", "Webhooks", "Keys for agents & partners"],
                   },
                 ].map((card) => (
                   <div key={card.title} className="bg-card p-5 md:p-6">
@@ -795,12 +822,23 @@ export default function LandingPage() {
                   On the horizon
                 </span>
               </div>
-              <div className="grid gap-px overflow-hidden rounded-xl border border-border/30 sm:grid-cols-4">
+              <div className="grid gap-px overflow-hidden rounded-xl border border-border/30 sm:grid-cols-3">
                 {[
-                  { icon: Key, title: "Open API", desc: "REST endpoints, webhooks & API keys for agents and partners" },
-                  { icon: Fuel, title: "Gasless claims", desc: "Sponsored withdrawals — recipients never pay gas" },
-                  { icon: Fingerprint, title: "Identity layer", desc: "Pluggable KYC with Self Protocol & vlayer for LATAM" },
-                  { icon: CircleDollarSign, title: "FHE research", desc: "Exploring fully homomorphic encryption for enhanced confidentiality" },
+                  {
+                    icon: Fingerprint,
+                    title: "Identity layer",
+                    desc: "Pluggable KYC with Self Protocol & vlayer for LATAM",
+                  },
+                  {
+                    icon: CircleDollarSign,
+                    title: "FHE research",
+                    desc: "Exploring fully homomorphic encryption for enhanced confidentiality",
+                  },
+                  {
+                    icon: Globe,
+                    title: "More networks",
+                    desc: "Expand shielded payouts across additional EVM ecosystems",
+                  },
                 ].map((card) => (
                   <div key={card.title} className="bg-card/50 p-5">
                     <card.icon className="mb-2.5 h-4 w-4 text-foreground/20" />
