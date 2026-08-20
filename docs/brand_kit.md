@@ -21,6 +21,7 @@ The logo is a shield icon with a lock cutout, paired with the "blizkperse" wordm
 - **Neutral state**: Gray shield on first load (no chain selected).
 - **Monad**: Purple shield.
 - **Celo**: Yellow shield.
+- **Robinhood Chain**: Follow `html[data-chain="robinhood"]` tokens in `globals.css`.
 
 ### Typography
 
@@ -71,7 +72,7 @@ The app (`web/`) uses the neutral palette as default, then swaps to chain-specif
 
 The header contains a `ChainSelector` dropdown that sets `data-chain` on the `<html>` element, triggering the CSS variable swap across the entire UI.
 
-- Colored dot per chain (purple for Monad, yellow for Celo).
+- Colored dot per chain (Monad purple, Celo yellow, Robinhood per theme).
 - Chain name + chevron.
 - "Active" label on the currently selected chain.
 
@@ -94,3 +95,13 @@ Based on the [Celo Brand Kit](https://celo.org/brand-kit).
 | **Primary** | `oklch(0.95 0.19 110)` | Celo yellow `#fcff52` |
 | **Accent** | `oklch(0.82 0.18 155)` | Celo lime green `#56df7c` |
 | **Foreground** | `oklch(0.96 0.01 100)` | Warm white |
+
+### Robinhood Theme (`data-chain="robinhood"`)
+
+Green-tinted palette from `web/app/globals.css`.
+
+| Role | Value | Description |
+| :--- | :--- | :--- |
+| **Background** | `oklch(0.09 0.01 150)` | Near-black with green tint |
+| **Primary** | `oklch(0.72 0.19 145)` | Robinhood green |
+| **Accent** | `oklch(0.78 0.16 145)` | Lighter green |

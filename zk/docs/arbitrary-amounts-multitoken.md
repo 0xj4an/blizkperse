@@ -63,6 +63,20 @@ export ROOT_REGISTRAR_ADDRESS=0xYourRegistrarWallet
 forge script script/Deploy.s.sol:DeployMultiPool --rpc-url "$RPC_URL" --broadcast
 ```
 
+### Add a pool to an existing router
+
+```bash
+export POOL_ROUTER_ADDRESS=0x...
+export TOKEN_ADDRESS=0x...
+export DEPOSIT_VERIFIER_ADDRESS=0x...
+export HONK_VERIFIER_ADDRESS=0x...       # transfer verifier
+export WITHDRAW_VERIFIER_ADDRESS=0x...
+export ROOT_REGISTRAR_ADDRESS=0x...      # optional
+forge script script/AddPool.s.sol:AddPool --rpc-url "$RPC_URL" --broadcast
+```
+
+Then set the matching `NEXT_PUBLIC_*_POOL_<TOKEN>_ADDRESS` in web / Railway.
+
 Web env for the registrar service:
 
 ```bash
@@ -72,7 +86,7 @@ ROOT_REGISTRAR_API_SECRET=...      # optional; for cron Authorization: Bearer �
 
 Then set in the web env (per chain):
 
-- `NEXT_PUBLIC_MONAD_ROUTER_ADDRESS` / `NEXT_PUBLIC_CELO_ROUTER_ADDRESS`
+- `NEXT_PUBLIC_MONAD_ROUTER_ADDRESS` / `NEXT_PUBLIC_CELO_ROUTER_ADDRESS` / `NEXT_PUBLIC_ROBINHOOD_ROUTER_ADDRESS`
 - `NEXT_PUBLIC_*_POOL_USDC_ADDRESS`, `..._USDT_...`, etc.
 - `NEXT_PUBLIC_*_DEPOSIT_VERIFIER_ADDRESS`
 
@@ -84,7 +98,7 @@ Then set in the web env (per chain):
 4. Approve router for **gross** (`notes + fee`). On Monad+WMON: `msg.value = amount + fee`.
 5. `router.deposit` / `depositNative` — pool gets note `amount`, treasury gets fee.
 6. Note stored with `token_symbol` + `pool_address` → backend syncs Merkle tip (`registerRoot`).
-7. Claim builds Merkle tree **for that pool only** (on-chain deposit order), waits until root is known, generates withdraw proof, calls `router.withdraw`.
+7. Claim: destination address (default = connected wallet; one-time coachmark), Merkle tree **for that pool**, wait for registered root, withdraw proof, `router.withdraw` (optional Alchemy AA).
 
 ## Migration note
 

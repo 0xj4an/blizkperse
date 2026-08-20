@@ -1,150 +1,119 @@
-# Blizkperse Integration Guide (Frontend <-> ZK <-> Contract)
+# Blizkperse Integration Guide (Frontend ↔ ZK ↔ Contract)
 
-This guide details how to integrate the **Next.js Frontend** with the **ShieldedPool Contract** and **Noir ZK Circuits** found in the `zk/` directory.
+How the **Next.js app** talks to **PoolRouter / ShieldedPool** and **Noir** circuits.
+
+Canonical on-chain model: [`zk/docs/arbitrary-amounts-multitoken.md`](../zk/docs/arbitrary-amounts-multitoken.md).
 
 ---
 
 ## 1. Resources Checklist
 
-*   **Chain Registry**: All chain configs, contract addresses, token definitions, and network details live in [`web/lib/constants.ts`](../web/lib/constants.ts) as the `CHAINS` record. This is the single source of truth for all addresses.
-*   **Circuit Artifact**: `web/public/circuits/circuit.json` (compiled from `zk/circuits/`)
-*   **ABI**: Generate using `forge build` inside `zk/`.
+* **Chain registry**: [`web/lib/constants.ts`](../web/lib/constants.ts) — routers, per-token pools, verifiers, tokens, deploy blocks.
+* **Circuits**: deposit + withdraw artifacts under `web/public/circuits/` (built from `zk/circuits`).
+* **ABIs**: `forge build` inside `zk/`.
+* **Registrar**: server `ROOT_REGISTRAR_PRIVATE_KEY` for `POST /api/sync-pool-root`.
 
 ---
 
 ## 2. Multi-Chain Architecture
-
-All contract interaction functions in `web/lib/contracts.ts` accept a `ChainConfig` parameter. The frontend resolves the active chain via the `useChain()` hook from `web/lib/chain-context.tsx`.
 
 ```typescript
 import { useChain } from "@/lib/chain-context";
 
 function MyComponent() {
   const { chain } = useChain();
-  // chain.contracts.pool, chain.rpcUrl, chain.tokens, etc.
+  // chain.router, chain.contracts.*, getPoolConfig(chain, symbol), …
 }
 ```
 
-To add a new chain:
-1. Add an entry to `CHAINS` in `web/lib/constants.ts`.
-2. Add a CSS theme block in `web/app/globals.css` using `html[data-chain="slug"]`.
-3. Deploy the ShieldedPool + Verifier contracts to the new chain.
+To add a chain:
+
+1. Deploy deposit verifier → `DeployMultiPool` (or `AddPool` for an extra token).
+2. Add entry + tokens/pools to `CHAINS` / env `NEXT_PUBLIC_*`.
+3. Add `html[data-chain="slug"]` theme in `globals.css`.
+4. Configure Alchemy Gas Manager policy if you want gasless claims.
 
 ---
 
 ## 3. Setup ZK in Frontend
 
-We generate proofs in the browser using `@noir-lang/noir_js` and `@aztec/bb.js`.
+Dependencies: `@noir-lang/noir_js@1.0.0-beta.19`, `@aztec/bb.js@4.0.4`.
 
-### A. Dependencies
-```bash
-cd web
-npm install @noir-lang/noir_js@1.0.0-beta.19 @aztec/bb.js@4.0.4
-```
+Build with **`--webpack`** (Turbopack breaks bb.js WASM).
 
-### B. Compile Circuit (Artifact Generation)
-1.  Go to `zk/circuits`.
-2.  Run `nargo compile`.
-3.  Copy `target/with_foundry.json` to `web/public/circuits/circuit.json`.
-
-### C. Proof Generation (`web/lib/zk.ts`)
-The `generateProof()` function in `web/lib/zk.ts` handles circuit initialization and proof generation. It accepts a `ProofInput` object matching the circuit's public/private inputs.
-
-```typescript
-import { generateProof, fieldToHex, type ProofInput } from "@/lib/zk";
-
-const proofInput: ProofInput = {
-  value: fieldToHex(valueBig),
-  nullifier: fieldToHex(nullifier),
-  merkle_proof_length: String(siblings.length),
-  expected_merkle_root: fieldToHex(root),
-  recipient: recipientAddress,
-  pk_b: fieldToHex(holderPk),
-  random: fieldToHex(randomBig),
-  merkle_proof_indices: indices,
-  merkle_proof_siblings: siblings.map((s: bigint) => fieldToHex(s)),
-};
-const proofResult = await generateProof(proofInput);
-```
-
-**Note**: Proof generation takes ~10-30 seconds in the browser. The build must use `--webpack` (not Turbopack) because `@aztec/bb.js` WASM requires `worker_threads`.
+* Deposit proofs: `/api/generate-deposit-proof` (server) from `deposit.nr`.
+* Withdraw proofs: browser or `/api/generate-proof` from `withdraw.nr` via `web/lib/zk.ts`.
 
 ---
 
 ## 4. Contract Interactions
 
-All contract functions live in `web/lib/contracts.ts` and accept a `ChainConfig` param.
+Functions live in `web/lib/contracts.ts` and take `ChainConfig` (+ optional pool/token).
 
-### A. Payout (Deposit)
-**User Action**: "Payer sends funds to recipients."
+### A. Payout (deposit)
 
-1.  **Frontend**:
-    *   Generates a `secret` and `nullifier` for each recipient.
-    *   Computes `commitment = Poseidon2(Poseidon2(value, holder), Poseidon2(random, nullifier))`.
-2.  **Contract Call** (via viem):
-    ```typescript
-    import { approvePoolToken, depositToPool } from "@/lib/contracts";
+1. Create note: `createNote(amountRaw, holderPk, …)` → commitment / nullifier / randomness.
+2. `POST /api/generate-deposit-proof` with public inputs `[value, commitment]`.
+3. Approve **router** for gross (`amount + protocolFee`).
+4. Call `router.deposit` (ERC-20) or `router.depositNative` (Monad WMON only — **not** on Celo).
+5. Persist note via `POST /api/notes` (include `deposit_tx`, `pool_address`, `token_symbol`).
+6. Backend syncs Merkle tip as root registrar.
 
-    // Approve tokens
-    await approvePoolToken(walletClient, chainConfig, amount);
+```typescript
+import { approveRouterToken, depositNote } from "@/lib/contracts";
+// Prefer high-level helpers in store.ts (createPayout flow) over raw calls.
+```
 
-    // Deposit commitment
-    await depositToPool(walletClient, chainConfig, commitment);
-    ```
+### B. Claim (withdraw)
 
-### B. Claim (Withdraw)
-**User Action**: "Recipient clicks Claim."
+1. Show destination field (default = connected wallet). Coachmark: `ClaimDestinationTip`.
+2. Build Merkle tree **for the note’s pool** from on-chain deposits.
+3. Wait until `isRootKnown(pool, root)` (registrar already registered tip — **do not** call `registerRoot` from the user wallet).
+4. Generate withdraw proof with `recipient` = destination address field element.
+5. `router.withdraw` via EOA or Alchemy smart account (`claimPayment` in `store.ts`).
+6. `PATCH /api/payments/:id/claim` with `tx_hash` → verifies nullifier spent; may mark parent payout `claimed`.
 
-1.  **Frontend**:
-    *   Builds Merkle tree from on-chain Deposit events via `buildTreeFromEvents(chainConfig)`.
-    *   Gets Merkle proof for the recipient's commitment.
-    *   Generates ZK proof via `generateProof(input)`.
-    *   Optionally registers the Merkle root via `registerRoot(walletClient, chainConfig, root)`.
-2.  **Contract Call**:
-    ```typescript
-    import { withdrawFromPool } from "@/lib/contracts";
-
-    await withdrawFromPool(walletClient, chainConfig, {
-      proof: proofResult.proof,
-      publicInputs: [
-        proofResult.publicInputs.value,
-        proofResult.publicInputs.nullifier,
-        // merkleProofLength, expectedRoot, recipient are also included
-      ],
-    });
-    ```
+```typescript
+import { withdrawFromPool, withdrawFromPoolViaSmartAccount } from "@/lib/contracts";
+```
 
 ---
 
 ## 5. Merkle Tree Management
 
-The Merkle tree is built client-side from on-chain `Deposit` events.
-
 ```typescript
-import { buildTreeFromEvents, rootToHex } from "@/lib/merkle";
+import { buildTreeFromEvents } from "@/lib/merkle";
 
-const tree = await buildTreeFromEvents(chainConfig);
-const leafIndex = tree.indexOf(commitmentBigInt);
-const { siblings, indices, root } = await tree.getProof(leafIndex);
+// Scope events to the note's pool address / chain
+const tree = await buildTreeFromEvents(chainConfig, { poolAddress });
 ```
 
-The `registerRoot` function submits the computed root to the contract so it can verify proofs against it.
+Root registration is **backend-only** (`/api/sync-pool-root`). Claims poll until the tip is known.
 
 ---
 
-## 6. Deployment Pipeline
+## 6. Payout status (payer UI)
 
-1.  **Iterate Circuit**: Modify `main.nr` -> `nargo compile` -> Copy JSON to `web/public/circuits/`.
-2.  **Iterate Contract**: Modify `.sol` -> `forge build` -> Copy ABI to Web.
-3.  **Deploy contracts**: Use Foundry scripts for each target chain.
-4.  **Update registry**: Add contract addresses to `CHAINS` in `web/lib/constants.ts`.
-5.  **Deploy frontend**: Push `web/` to Railway.
+* Payments update to `claimed` on successful claim/reconcile.
+* Server promotes payout → `claimed` when all child payments are done (`payout-status-db.ts`).
+* Client derives display status with `effectivePayoutStatus` (`payout-status.ts`) — **never** import the DB module from client components (bundles `postgres` and breaks the Next build).
+
+---
+
+## 7. Deployment Pipeline
+
+1. Compile deposit + withdraw verifiers (`compile_deposit_verifier.sh`, `compile_withdraw_verifier.sh`).
+2. `DeployDepositVerifier` → `DeployMultiPool` (set `TOKEN_ADDRESSES`, `FEE_BPS`, `TREASURY_ADDRESS`, `ROOT_REGISTRAR_ADDRESS`; `WRAPPED_NATIVE` only where needed).
+3. Optional: `AddPool.s.sol` for an extra token on an existing router.
+4. Update `web/lib/constants.ts` / Railway `NEXT_PUBLIC_*` + registrar private key.
+5. Deploy `web/` to Railway (`--webpack`).
 
 ---
 
 ## Related Documentation
 
-* [Technical Spec](technical_spec.md) - Full architecture, contract interfaces, DB schema, deployment
-* [Brand Kit](brand_kit.md) - Color palette, typography, chain-adaptive theming
-* [ZK Build & Deploy](../zk/docs/build-and-deploy.md) - Verifier compilation, avoiding SumcheckFailed
-* [ZK Deposit/Withdraw Demo](../zk/docs/demo-deposit-withdraw.md) - Step-by-step CLI demo
+* [Technical Spec](technical_spec.md)
+* [Brand Kit](brand_kit.md)
+* [Arbitrary amounts + multi-token](../zk/docs/arbitrary-amounts-multitoken.md)
+* [ZK Build & Deploy](../zk/docs/build-and-deploy.md)
+* [Root README](../README.md)

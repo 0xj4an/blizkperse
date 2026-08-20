@@ -1,6 +1,6 @@
 # Build and deploy the Verifier (avoiding SumcheckFailed)
 
-**Root registration:** In the current contract, `registerRoot` is **permissionless** (anyone can call it). When claiming, the frontend attempts to register the root before the withdraw; if it is new, the same wallet that claims pays the gas. There is no need to run scripts manually or be available as owner.
+**Root registration (current multi-pool model):** `ShieldedPool.registerRoot` is **registrar-only**. The web backend (`POST /api/sync-pool-root` + `ROOT_REGISTRAR_PRIVATE_KEY`) rebuilds the Merkle tip from on-chain deposits and registers it. Claims **must not** call `registerRoot` from the user wallet. See [arbitrary-amounts-multitoken.md](arbitrary-amounts-multitoken.md).
 
 **Problem:** If the deployed WithdrawVerifier was not generated with the **same** circuit and the **same** flags that the API uses (`/api/generate-proof`), the withdraw from the frontend fails with `SumcheckFailed()`.
 
@@ -65,103 +65,30 @@
 
 ---
 
-## Deploying a new ShieldedPool (permissionless registerRoot)
+## Deploying pools (multi-token)
 
-When you have changed the contract (e.g. permissionless `registerRoot`) and want to deploy a **new** pool:
+Prefer **[arbitrary-amounts-multitoken.md](arbitrary-amounts-multitoken.md)**:
 
-### 1. Variables in `zk/.env`
+1. `DeployDepositVerifier`
+2. `DeployMultiPool` with `TOKEN_ADDRESSES`, `FEE_BPS`, `TREASURY_ADDRESS`, `ROOT_REGISTRAR_ADDRESS`
+3. Optional `AddPool.s.sol` for an extra token on an existing router
+4. Point web `NEXT_PUBLIC_*_ROUTER_ADDRESS` / `*_POOL_*_ADDRESS` / verifiers + `ROOT_REGISTRAR_PRIVATE_KEY`
 
-Make sure you have:
+Legacy `DeployPool` (single USDC, permissionless root) is obsolete for production.
 
-- `PRIVATE_KEY` -- deployer key (with MON for gas).
-- `USDC_ADDRESS` -- on Monad it is usually `0x754704Bc059F8C67012fEd69BC8A327a5aafb603`.
-- `MONAD_RPC` -- e.g. `https://rpc3.monad.xyz`.
+### Env reminders (any chain)
 
-### 2. Deploy from `zk/`
+- `PRIVATE_KEY` — deployer / owner
+- `TREASURY_ADDRESS`, `FEE_BPS`
+- `ROOT_REGISTRAR_ADDRESS` (+ web `ROOT_REGISTRAR_PRIVATE_KEY`)
+- `TOKEN_ADDRESSES` (comma-separated)
+- `WRAPPED_NATIVE` — Monad WMON only; **unset on Celo**
 
-```bash
-cd zk
-source .env   # or export PRIVATE_KEY=... USDC_ADDRESS=... MONAD_RPC=...
-forge script script/Deploy.s.sol:DeployPool --rpc-url "$MONAD_RPC" --broadcast
-```
+After deploy, record the **deploy block** for event indexing (`NEXT_PUBLIC_*_DEPLOY_BLOCK`).
 
-The script deploys three contracts: **HonkVerifier** (transfer), **WithdrawVerifier**, **ShieldedPool**. Note the **three addresses** (console or txs in the Monad explorer).
+### Celo notes
 
-### 3. Deploy block
-
-Note the **block number** of the tx that created the pool (Monad explorer). You will use it as `deployBlock` in the frontend to index events from the beginning.
-
-### 4. Update `zk/.env`
-
-Set the new pool in:
-
-```bash
-POOL_ADDRESS=0x...   # ShieldedPool address from step 2
-```
-
-This way the CLI scripts (`deposit_one.mjs`, `register_root.mjs`, etc.) use the new pool.
-
-### 5. Update the web environment
-
-Set these in `web/.env` or Railway env vars:
-
-- `NEXT_PUBLIC_MONAD_POOL_ADDRESS` → **ShieldedPool** address from step 2.
-- `NEXT_PUBLIC_MONAD_VERIFIER_ADDRESS` → **HonkVerifier** address deployed in the same run.
-- `NEXT_PUBLIC_MONAD_WITHDRAW_VERIFIER_ADDRESS` → **WithdrawVerifier** address deployed in the same run.
-- `NEXT_PUBLIC_MONAD_STABLECOIN_ADDRESS` → the USDC token used by the pool.
-- `NEXT_PUBLIC_MONAD_DEPLOY_BLOCK` → block number from step 3.
-
-All three addresses appear in the `forge script` output or in the explorer transactions.
-
-### 6. Done
-
-The new pool has permissionless `registerRoot`. Users can claim from the web; the first claim that uses a new root will register it automatically.
-
----
-
-## Deploying on Celo
-
-The same `Deploy.s.sol` script works for Celo. The pool uses **1 USDC (6 decimals)** per note; on Celo you must use **Circle's USDC** (6 decimals), not USDm (18 decimals).
-
-### 1. Variables in `zk/.env`
-
-- `PRIVATE_KEY` -- deployer (with CELO for gas).
-- `USDC_ADDRESS` -- **USDC on Celo:** `0xcebA9300f2b948710d2653dD7B07f33A8B32118C` (6 decimals).
-- `CELO_RPC` -- e.g. `https://forno.celo.org`.
-
-### 2. Deploy from `zk/`
-
-```bash
-cd zk
-source .env
-export USDC_ADDRESS=0xcebA9300f2b948710d2653dD7B07f33A8B32118C   # Celo USDC (optional if already in .env)
-forge script script/Deploy.s.sol:DeployPool --rpc-url "$CELO_RPC" --broadcast
-```
-
-Note the **three addresses** (Verifier, WithdrawVerifier, ShieldedPool) and the **block** of the first tx.
-
-### 3. Update the web environment
-
-Set these in `web/.env` or Railway env vars:
-
-- `NEXT_PUBLIC_CELO_POOL_ADDRESS` → deployed ShieldedPool address.
-- `NEXT_PUBLIC_CELO_VERIFIER_ADDRESS` → HonkVerifier address.
-- `NEXT_PUBLIC_CELO_WITHDRAW_VERIFIER_ADDRESS` → WithdrawVerifier address.
-- `NEXT_PUBLIC_CELO_STABLECOIN_ADDRESS` → the 6-decimal USDC token used by the pool.
-- `NEXT_PUBLIC_CELO_DEPLOY_BLOCK` → deploy block.
-
-### 4. CLI scripts for Celo
-
-The scripts in `circuits/scripts/` use `MONAD_RPC` and `POOL_ADDRESS` by default. To use them on Celo you would need to pass a Celo RPC and pool (e.g. variables `CELO_RPC` and `CELO_POOL_ADDRESS` and have the scripts support them, or run with `POOL_ADDRESS=<celo_pool>` and a Celo RPC). Optional: duplicate/adapt scripts or use the frontend for deposits and claims on Celo.
-
-### 5. Summary
-
-| Step | Action |
-|------|--------|
-| 1 | `.env` with `PRIVATE_KEY`, `USDC_ADDRESS=0xcebA9300f2b948710d2653dD7B07f33A8B32118C`, `CELO_RPC` |
-| 2 | `forge script script/Deploy.s.sol:DeployPool --rpc-url "$CELO_RPC" --broadcast` |
-| 3 | Note verifier, withdrawVerifier, pool, and block |
-| 4 | Update `web/.env` / Railway env vars (Celo: pool, verifier, withdrawVerifier, stablecoin, deploy block) |
+Use Celo ERC-20 token addresses (USDT, USDC, COPm, CELO GoldToken). Do **not** set `WRAPPED_NATIVE` or call `depositNative`. Defaults: [`web/lib/constants.ts`](../../web/lib/constants.ts).
 
 ---
 
@@ -171,15 +98,14 @@ The app uses a **Dockerfile** at the repo root so that proof generation works in
 
 ### What the Dockerfile does
 
-1. **Builder stage:** Installs **nargo** (Noir 1.0.0-beta.18) and **bb** (Barretenberg 0.63.1), copies `zk/circuits/`, runs `nargo compile` to produce `target/with_foundry.json`, then builds Next.js (`web/`) in standalone mode.
-2. **Runner stage:** Copies nargo + bb, the compiled circuit dir (as `/app/circuits`), and the Next.js standalone app. Sets `CIRCUITS_DIR=/app/circuits` so the API finds the circuit. Creates `circuits/proofs` for temp proof files.
+1. **Builder stage:** Installs **nargo** and **bb**, copies `zk/circuits/`, runs `nargo compile` to produce `target/with_foundry.json`, then builds Next.js (`web/`) in standalone mode (`--webpack`).
+2. **Runner stage:** Copies nargo + bb, the compiled circuit dir (as `/app/circuits`), and the Next.js standalone app. Sets `CIRCUITS_DIR=/app/circuits` so the API finds the circuit.
 
 ### Railway config
 
 - `railway.toml`: `builder = "DOCKERFILE"`, `dockerfilePath = "Dockerfile"`.
 - **Root Directory (UI): leave blank / `/`** — the Dockerfile does `COPY web/` and `COPY zk/circuits/` from the monorepo root. If Root Directory is `web`, the build fails with `"/web": not found`.
-- Dockerfile path: `Dockerfile` (repo root). Do not point the service at `web/` as the build root.
-- No extra env vars are required for proof generation; `CIRCUITS_DIR` is set in the image.
+- Set build-time `NEXT_PUBLIC_*` and runtime `ROOT_REGISTRAR_PRIVATE_KEY`, `DATABASE_URL`.
 
 ### Checklist so the flow does not fail on Railway
 
@@ -188,28 +114,26 @@ The app uses a **Dockerfile** at the repo root so that proof generation works in
 | **Root Directory empty (not `web`)** | Build context must be the repo root so `COPY web/` and `COPY zk/circuits/` resolve. |
 | **`zk/circuits/src/main.nr` is the withdraw circuit** | Docker only runs `nargo compile` (no script). If `main.nr` were another circuit, `with_foundry.json` would not match the deployed WithdrawVerifier → SumcheckFailed. |
 | **Build passes the `target/with_foundry.json` check** | The Dockerfile runs `test -f target/with_foundry.json` after compile; if it fails, the image is not built. |
-| **API timeouts** | `/api/generate-proof` has `maxDuration = 120` and `/api/deposit-events` has `maxDuration = 60` so long-running steps are not cut off. |
-| **Postgres** | If you use Railway Postgres, set `DATABASE_URL` (or whatever the app expects) in Railway env. |
-| **Memory** | Proof generation (nargo + bb) can use ~1 GB RAM; avoid the smallest plan if you see OOM. |
+| **API timeouts** | `/api/generate-proof` has `maxDuration = 120` and `/api/deposit-events` has `maxDuration = 60`. |
+| **Postgres** | Set `DATABASE_URL` in Railway env. |
+| **Memory** | Proof generation can use ~1 GB RAM. |
 
 ### If proof generation fails on Railway
 
-1. **"Circuit directory not found"** → `CIRCUITS_DIR` must be `/app/circuits` in the running container (set in Dockerfile).
-2. **"nargo: command not found"** or **"bb: command not found"** → PATH in the runner image must include `/root/.nargo/bin` and `/root/.bb` (Dockerfile copies these from builder).
-3. **Timeout / 504** → Increase `maxDuration` in the route or upgrade the plan; confirm the request is not being killed by a proxy (e.g. 60s) before the API.
-4. **SumcheckFailed** → The deployed WithdrawVerifier was built from a different circuit or flags. Compile the verifier with `zk/circuits/scripts/compile_withdraw_verifier.sh`, redeploy the contract, and ensure the API uses `bb prove ... --oracle_hash keccak`.
+1. **"Circuit directory not found"** → `CIRCUITS_DIR` must be `/app/circuits`.
+2. **"nargo: command not found"** / **"bb: command not found"** → PATH must include nargo/bb bins from the image.
+3. **Timeout / 504** → Increase `maxDuration` or plan resources.
+4. **SumcheckFailed** → Redeploy WithdrawVerifier from `compile_withdraw_verifier.sh`; API must use `bb prove ... --oracle_hash keccak`.
 
 ---
 
-## ¿Deposit y withdraw usan archivos locales?
+## Do deposit and withdraw use local files?
 
-En local y en Railway el flujo es el mismo en cuanto a **origen de datos**:
+| Step | Deposit (create payout) | Withdraw (claim) |
+|------|-------------------------|------------------|
+| **Notes / payments** | API → DB (`/api/payouts`, `/api/notes`) | API → DB (`/api/notes`) |
+| **Merkle tree** | N/A | `/api/deposit-events` + RPC `Deposit` events for **that pool** |
+| **Proof generation** | `/api/generate-deposit-proof` (deposit circuit) | `/api/generate-proof` writes temp files under `CIRCUITS_DIR`, runs `nargo` + `bb` |
+| **Blockchain** | Router `deposit` / `depositNative` | Backend `registerRoot` (registrar); user/AA `router.withdraw` |
 
-| Paso | Deposit (pagar / crear payout) | Withdraw (claim) |
-|------|-------------------------------|------------------|
-| **Datos de notas / pagos** | No usa archivos. Los pagos y la nota se crean en memoria y se persisten vía **API → base de datos** (`/api/payouts`, `/api/notes`). | No usa archivos. Los datos de la nota vienen de **API → DB** (`/api/notes?payment_id=...` o `?subscriber_id=...`). |
-| **Árbol de Merkle** | No aplica. | No usa archivos. El árbol se construye con datos que devuelve **`/api/deposit-events`**: esa ruta lee la tabla **`notes`** y la caché **`deposit_events_cache`** (DB) y, si hace falta, escanea la **RPC** (eventos `Deposit` del contrato). |
-| **Generación del proof** | No aplica. | **Sí usa el disco** solo aquí: la ruta **`/api/generate-proof`** escribe `Prover.toml` en el directorio del circuito, ejecuta **`nargo execute`** y **`bb prove`** (que leen `target/with_foundry.json` y escriben `target/*.gz`, `proofs/*.proof`) y luego lee el proof generado. Ese directorio en local es `zk/circuits` y en Railway es `CIRCUITS_DIR` (p. ej. `/app/circuits`). |
-| **Blockchain** | **RPC**: `depositToPool` (tx al pool). | **RPC**: `registerRoot` y `withdraw` (txs al pool). |
-
-Resumen: **deposit no usa archivos locales**. **Withdraw** solo usa archivos en el paso de **generar el proof** (directorio del circuito con `nargo`/`bb`); el resto usa **DB** y **RPC**.
+Summary: deposit/claim data lives in **DB + RPC**. Disk is only used for **proof generation** tooling.
