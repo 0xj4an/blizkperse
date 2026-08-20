@@ -24,7 +24,7 @@ Canonical on-chain model: [`zk/docs/arbitrary-amounts-multitoken.md`](../zk/docs
 
 Source: [`landing/`](../landing/)
 
-Static marketing site at `blizkperse.com`. Neutral grayscale only (no chain switching). Deploy via `Dockerfile.landing` with `NEXT_PUBLIC_APP_URL`.
+Static marketing site at `blizkperse.com`. Neutral grayscale only (no chain switching). Deploy via Railway with **Root Directory `landing`** (`landing/Dockerfile`).
 
 ---
 
