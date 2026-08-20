@@ -448,7 +448,7 @@ export default function ClaimPage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
       >
-        <Card className="overflow-hidden">
+        <Card className={claimed ? "overflow-hidden" : "overflow-visible"}>
           <CardHeader className="text-center pb-4">
             <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full border border-foreground/10">
               {claimed ? (
