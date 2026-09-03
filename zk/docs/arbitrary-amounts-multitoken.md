@@ -104,6 +104,10 @@ Then set in the web env (per chain):
 
 Legacy pools that only accepted **1 USDC** notes are **not migrated**. Notes created against old pools cannot be claimed on the new multi-token pools. Redeploy clean and start fresh.
 
+## Proposed privacy follow-up
+
+Exact per-note deposit amounts and public withdraw `value` limit grant/payroll privacy when amounts are published off-chain. Proposed direction (denominations + `depositBatch`, **not** a unified multi-token tree): **[private-amounts-and-batch-deposit.md](private-amounts-and-batch-deposit.md)**.
+
 ## Tests
 
 ```bash
