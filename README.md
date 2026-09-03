@@ -265,6 +265,8 @@ Open [http://localhost:3000](http://localhost:3000).
 | File | Description |
 | --- | --- |
 | [`zk/docs/arbitrary-amounts-multitoken.md`](zk/docs/arbitrary-amounts-multitoken.md) | **Current** PoolRouter / multi-token / fee / registrar model |
+| [`zk/docs/private-amounts-and-batch-deposit.md`](zk/docs/private-amounts-and-batch-deposit.md) | **Proposed** private withdraw amounts (denominations) + `depositBatch` |
+| [`zk/docs/native-burn-mint-exits.md`](zk/docs/native-burn-mint-exits.md) | **Later** claim-time USDC CCTP + USDT0 exits (asset/chain + fees) |
 | [`zk/README.md`](zk/README.md) | Noir + Foundry setup, deploy scripts, addresses |
 | [`zk/docs/build-and-deploy.md`](zk/docs/build-and-deploy.md) | Verifier compilation checklist |
 | [`zk/docs/demo-deposit-withdraw.md`](zk/docs/demo-deposit-withdraw.md) | CLI demo (may describe legacy single-pool flow) |
