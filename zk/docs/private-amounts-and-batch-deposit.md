@@ -18,7 +18,7 @@ Design note for improving grant/payroll privacy **without** unifying multi-token
 | Deposit proofs (v1) | **N existing `deposit.nr` proofs** inside one `depositBatch` tx |
 | Withdraw | Note `value` **private**; public **`denomination_id`**; ERC-20 transfer still shows bucket size (anonymity by repetition) |
 | UI | **Same Create Payout flow**; mode toggle **Standard** vs **Private buckets** (not a new tab) |
-| Stables (6 decimals) bucket set | **Finer:** 50, 100, 250, 500, 1 000, 2 500, 5 000, 10 000, 25 000, 50 000 |
+| Stables (6 decimals) bucket set | **Finer:** 50…50 000 **plus id 10 = 10**; CELO/WMON also allow **10**; **COPm = thousands only** (no 10 COPm) |
 
 ---
 
@@ -66,27 +66,49 @@ Amounts below are **human units** of the token (not USD necessarily). On-chain s
 | 7 | 10_000 | 10_000_000_000 |
 | 8 | 25_000 | 25_000_000_000 |
 | 9 | 50_000 | 50_000_000_000 |
+| 10 | 10 | 10_000_000 |
 
-Same id table can be shared across 6-decimal stables unless product wants per-token overrides later.
+Same id table can be shared across 6-decimal stables unless product wants per-token overrides later.  
+**id 10 = 10** (human) is the small tip bucket for stables.
 
-### 3.2 Native / 18-decimal tokens (draft — confirm before ship)
+### 3.2 Native / 18-decimal — CELO, WMON, WETH (draft)
 
-Use a **parallel ladder** in token units (not USD), so anonymity sets form within that pool:
+Parallel ladder in **token units**. **id 10 = 10** aligns with stables (10 USDC / 10 CELO / 10 MON):
 
 | id | Human amount | Example tokens |
 |----|--------------|----------------|
-| 0 | 0.1 | CELO, WMON, WETH, COPm* |
+| 0 | 0.1 | CELO, WMON, WETH |
 | 1 | 0.5 | |
 | 2 | 1 | |
 | 3 | 5 | |
-| 4 | 10 | |
-| 5 | 25 | |
-| 6 | 50 | |
-| 7 | 100 | |
-| 8 | 250 | |
-| 9 | 500 | |
+| 4 | 25 | |
+| 5 | 50 | |
+| 6 | 100 | |
+| 7 | 250 | |
+| 8 | 500 | |
+| 9 | 1_000 | |
+| 10 | 10 | tip / small payout bucket |
 
-\*COPm is COP-denominated; product may prefer a COP-sized ladder (e.g. 50k / 100k / 500k COP) instead of “0.1 COPm”. **Open:** finalize COPm / CELO / WMON / WETH tables separately from stables.
+### 3.2b COPm — thousands only (not the CELO/MON ladder)
+
+COPm is COP-denominated. **Do not** offer **10 COPm**. Always pack in **thousands** of COPm, e.g.:
+
+| id | Human (COPm) |
+|----|--------------|
+| 0 | 10_000 |
+| 1 | 25_000 |
+| 2 | 50_000 |
+| 3 | 100_000 |
+| 4 | 250_000 |
+| 5 | 500_000 |
+| 6 | 1_000_000 |
+| 7 | 2_500_000 |
+| 8 | 5_000_000 |
+| 9 | 10_000_000 |
+
+No bucket of **10** COPm. A “10 000 COPm” grant uses id 0, not a “10” id.
+
+**Open:** exact COPm sizes before ship; raw = human × `10^18` if 18 decimals.
 
 ### 3.3 Splitter algorithm (deterministic)
 
@@ -141,16 +163,36 @@ Keep current per-note `deposit` with arbitrary amounts for organizers who do not
 
 ### Circuit sketch
 
-Today: public `value, nullifier, merkle_proof_length, expected_merkle_root, recipient`.
+Today (`withdraw.nr`): public `value, nullifier, merkle_proof_length, expected_merkle_root, recipient`.
 
-Target: private `value`; public `nullifier, merkle_proof_length, expected_merkle_root, recipient, denomination_id`.  
-Proof asserts `value == denominations[denomination_id]` (id checked on-chain or bound in circuit).
+Target (`withdraw_denom.nr`): private `value`; public `denomination_id, nullifier, merkle_proof_length, expected_merkle_root, recipient`.  
+Proof asserts `value == stables_denomination_amount(denomination_id)` (ladder hardcoded in circuit; same table on-chain + web packer).
 
 Contract transfers exactly `denominations[id]`. Explorer still sees that ERC-20 amount — privacy = **many identical bucket exits**.
+
+**Keep** `withdraw.nr` + `WithdrawVerifier` for **Standard** (arbitrary amounts). Private mode uses `WithdrawDenomVerifier` (separate artifact; do not overwrite Standard verifier).
 
 ### Events
 
 `Withdraw(recipient, nullifier, denominationId)` preferred over raw amount in event data.
+
+### Split-circuit reference (not used in v1)
+
+Historical **1→4 split** (spend one note, insert four commitments, `Σ value_out == value_in`) is useful context only:
+
+| Pattern from split | Useful for buckets v1? |
+|--------------------|------------------------|
+| Same `compute_entry` / `poseidon2([random, pk])` / Merkle membership | **Yes** — already shared with deposit/withdraw/pay; keep Poseidon **v0.1.1** + `binary-merkle-root-v0.0.1` |
+| Distinct output nullifiers | Only if we add on-pool split later |
+| Balance `Σ outputs == input` | **No for deposit path** — packing is **off-chain** before `deposit` / `depositBatch`; conservation is app + Σ denomination amounts on-chain |
+| Fixed fan-out of 4 | **No** — packer emits variable N notes (cap e.g. 20/recipient) |
+| Post-deposit split tx | **Out of scope v1** — organizer never deposits a fat note then splits on-pool |
+
+Do **not** reshape the product around on-pool split. Optional later: join-split for reshield; Phase 3 optional single batch-deposit circuit is different.
+
+### Dependency freeze
+
+Changing `poseidon` / `binary_merkle_root` tags in `circuits/Nargo.toml` invalidates JS witnesses (`web/lib` poseidon-lite) and all deployed verifiers. Pin comment is in `Nargo.toml`. Regenerate **all** verifiers if you ever bump them intentionally.
 
 ---
 
@@ -189,17 +231,18 @@ Not solved: unique vault reuse; timing; offramp heuristics; fully hidden ERC-20 
 
 - [x] Choose buckets model + finer stable ladder  
 - [x] UI = toggle on Create Payout  
-- [ ] Confirm 18-decimal / COPm ladders  
+- [x] Confirm 18-decimal / COPm ladders — CELO/WMON/WETH include **10** (id 10); COPm thousands-only (no 10) 
 - [ ] Lock splitter exact-vs-round policy  
 - [ ] Gas estimate → max notes per batch  
 
 ### Phase 1 — Lib + contracts + circuits
 
+- [x] On-chain denomination allowlist (`setDenominations`) + `withdrawDenom` + router forward  
+- [x] `depositBatch` / `depositBatchFromRouter` + router `depositBatch` / `depositBatchNative`  
+- [x] Withdraw denom circuit (`withdraw_denom.nr`) + `WithdrawDenomProver.toml` + compile script + `WithdrawDenomVerifier.sol`  
+- [x] Foundry tests: bad id, nullifier replay, id 10 = 10, allowlist, batch Σ/fee/mismatch/duplicate  
+- [ ] Keep `deposit.nr` as-is for v1 (N proofs inside batch); do not bump Poseidon deps  
 - [ ] `web/lib/denominations.ts` — tables, packer, preview helpers  
-- [ ] On-chain denomination allowlist (`setDenominations`)  
-- [ ] `depositBatch`  
-- [ ] Withdraw circuit + verifier with `denomination_id`  
-- [ ] Foundry tests: wrong id, Σ mismatch, inflate value, nullifier replay  
 
 ### Phase 2 — App
 
@@ -222,7 +265,7 @@ Not solved: unique vault reuse; timing; offramp heuristics; fully hidden ERC-20 
 
 ## 9. Remaining open questions
 
-1. COPm / CELO / WMON / WETH exact ladders?  
+1. Exact COPm ladder sizes (draft starts at 10 000)? WETH same as CELO/WMON?  
 2. Exact-only grants vs auto-round helper default?  
 3. Max notes per batch after gas bench?  
 4. Claim all vs one-by-one as default?  

@@ -18,9 +18,21 @@ interface IWETH {
 /// @notice Facade that routes deposits/withdrawals to the ShieldedPool for a given token.
 ///         Does not merge Merkle trees or liquidity across tokens.
 ///         Optional protocol fee (default 30 bps = 0.3%) charged on top of the note amount:
-///         payer sends `amount + fee`, pool receives `amount` (note value), treasury receives `fee`.
+///         payer `transferFrom`s gross to router; router sends fee to treasury and amount to pool.
+///         (Two user `transferFrom`s would cost more than one pull + two `transfer`s.)
 contract PoolRouter is ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
+
+    error ZeroAddress();
+    error ZeroAmount();
+    error UnknownToken();
+    error FeeTooHigh();
+    error BadMsgValue();
+    error UnwrapRecipient();
+    error NativeTransferFailed();
+    error FeeTransferFailed();
+    error WrappedUnset();
+    error WrongPublicInputs();
 
     uint256 public constant FEE_BPS_DENOM = 10_000;
     uint256 public constant MAX_FEE_BPS = 1_000; // 10% hard cap
@@ -45,6 +57,14 @@ contract PoolRouter is ReentrancyGuard, Ownable {
         uint256 amount,
         uint256 fee
     );
+    event RoutedBatchDeposit(
+        address indexed user,
+        address indexed token,
+        address indexed pool,
+        uint256 totalAmount,
+        uint256 fee,
+        uint256 count
+    );
     event RoutedWithdraw(address indexed user, address indexed token, address indexed pool);
 
     constructor(address _wrappedNative, uint256 _feeBps, address _treasury) Ownable(msg.sender) {
@@ -58,7 +78,7 @@ contract PoolRouter is ReentrancyGuard, Ownable {
     receive() external payable {}
 
     function setPool(address token, address pool) external onlyOwner {
-        require(token != address(0) && pool != address(0), "zero addr");
+        if (token == address(0) || pool == address(0)) revert ZeroAddress();
         poolOf[token] = pool;
         emit PoolRegistered(token, pool);
     }
@@ -91,18 +111,11 @@ contract PoolRouter is ReentrancyGuard, Ownable {
         bytes32[] calldata publicInputs
     ) external nonReentrant {
         address pool = poolOf[token];
-        require(pool != address(0), "unknown token");
-        require(amount > 0, "amount=0");
+        if (pool == address(0)) revert UnknownToken();
+        if (amount == 0) revert ZeroAmount();
 
         uint256 fee = quoteFee(amount);
-        uint256 gross = amount + fee;
-
-        IERC20(token).safeTransferFrom(msg.sender, address(this), gross);
-        if (fee > 0) {
-            IERC20(token).safeTransfer(treasury, fee);
-            emit ProtocolFeeTaken(token, msg.sender, fee);
-        }
-        IERC20(token).safeTransfer(pool, amount);
+        _pullGrossAndFund(token, pool, amount, fee);
         ShieldedPool(pool).depositFromRouter(msg.sender, commitment, amount, proof, publicInputs);
 
         emit RoutedDeposit(msg.sender, token, pool, commitment, amount, fee);
@@ -117,23 +130,79 @@ contract PoolRouter is ReentrancyGuard, Ownable {
         bytes32[] calldata publicInputs
     ) external payable nonReentrant {
         address wtoken = wrappedNative;
-        require(wtoken != address(0), "wrapped native unset");
+        if (wtoken == address(0)) revert WrappedUnset();
         address pool = poolOf[wtoken];
-        require(pool != address(0), "unknown token");
-        require(amount > 0, "amount=0");
+        if (pool == address(0)) revert UnknownToken();
+        if (amount == 0) revert ZeroAmount();
 
         uint256 fee = quoteFee(amount);
-        require(msg.value == amount + fee, "bad msg.value");
+        if (msg.value != amount + fee) revert BadMsgValue();
 
         IWETH(wtoken).deposit{value: msg.value}();
-        if (fee > 0) {
-            require(IWETH(wtoken).transfer(treasury, fee), "fee transfer failed");
-            emit ProtocolFeeTaken(wtoken, msg.sender, fee);
-        }
-        require(IWETH(wtoken).transfer(pool, amount), "wtransfer failed");
+        _splitWrapped(wtoken, pool, amount, fee);
         ShieldedPool(pool).depositFromRouter(msg.sender, commitment, amount, proof, publicInputs);
 
         emit RoutedDeposit(msg.sender, wtoken, pool, commitment, amount, fee);
+    }
+
+    /// @notice Private-mode batch deposit: one transferFrom of Σ+fee; pool gets Σ, treasury gets fee.
+    function depositBatch(
+        address token,
+        bytes32[] calldata commitments,
+        uint256[] calldata denominationIds,
+        bytes[] calldata proofs,
+        bytes32[][] calldata publicInputs
+    ) external nonReentrant {
+        address pool = poolOf[token];
+        if (pool == address(0)) revert UnknownToken();
+
+        uint256 n = commitments.length;
+        uint256 total = ShieldedPool(pool).quoteBatch(denominationIds);
+        uint256 fee = quoteFee(total);
+        _pullGrossAndFund(token, pool, total, fee);
+        ShieldedPool(pool).depositBatchFromRouter(msg.sender, commitments, denominationIds, proofs, publicInputs);
+        emit RoutedBatchDeposit(msg.sender, token, pool, total, fee, n);
+    }
+
+    /// @notice Native Private batch into wrapped-native pool. `msg.value` must be `Σ + fee`.
+    function depositBatchNative(
+        bytes32[] calldata commitments,
+        uint256[] calldata denominationIds,
+        bytes[] calldata proofs,
+        bytes32[][] calldata publicInputs
+    ) external payable nonReentrant {
+        address wtoken = wrappedNative;
+        if (wtoken == address(0)) revert WrappedUnset();
+        address pool = poolOf[wtoken];
+        if (pool == address(0)) revert UnknownToken();
+
+        uint256 n = commitments.length;
+        uint256 total = ShieldedPool(pool).quoteBatch(denominationIds);
+        uint256 fee = quoteFee(total);
+        if (msg.value != total + fee) revert BadMsgValue();
+
+        IWETH(wtoken).deposit{value: msg.value}();
+        _splitWrapped(wtoken, pool, total, fee);
+        ShieldedPool(pool).depositBatchFromRouter(msg.sender, commitments, denominationIds, proofs, publicInputs);
+        emit RoutedBatchDeposit(msg.sender, wtoken, pool, total, fee, n);
+    }
+
+    /// @dev One transferFrom(user→router, amount+fee), then transfer fee→treasury and amount→pool.
+    function _pullGrossAndFund(address token, address pool, uint256 amount, uint256 fee) internal {
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount + fee);
+        if (fee > 0) {
+            IERC20(token).safeTransfer(treasury, fee);
+            emit ProtocolFeeTaken(token, msg.sender, fee);
+        }
+        IERC20(token).safeTransfer(pool, amount);
+    }
+
+    function _splitWrapped(address wtoken, address pool, uint256 amount, uint256 fee) internal {
+        if (fee > 0) {
+            if (!IWETH(wtoken).transfer(treasury, fee)) revert FeeTransferFailed();
+            emit ProtocolFeeTaken(wtoken, msg.sender, fee);
+        }
+        if (!IWETH(wtoken).transfer(pool, amount)) revert FeeTransferFailed();
     }
 
     /// @notice Forward withdraw to the token pool.
@@ -146,7 +215,7 @@ contract PoolRouter is ReentrancyGuard, Ownable {
         bool unwrap
     ) external nonReentrant {
         address pool = poolOf[token];
-        require(pool != address(0), "unknown token");
+        if (pool == address(0)) revert UnknownToken();
 
         if (!unwrap || token != wrappedNative) {
             ShieldedPool(pool).withdraw(proof, publicInputs);
@@ -154,24 +223,52 @@ contract PoolRouter is ReentrancyGuard, Ownable {
             return;
         }
 
-        require(publicInputs.length == 5, "bad public inputs");
+        if (publicInputs.length != 5) revert WrongPublicInputs();
         uint256 amount = uint256(publicInputs[0]);
         address proofRecipient = address(uint160(uint256(publicInputs[4]) & type(uint160).max));
-        require(proofRecipient == address(this), "unwrap recipient must be router");
+        if (proofRecipient != address(this)) revert UnwrapRecipient();
 
         ShieldedPool(pool).withdraw(proof, publicInputs);
         IWETH(token).withdraw(amount);
         (bool ok,) = msg.sender.call{value: amount}("");
-        require(ok, "native transfer failed");
+        if (!ok) revert NativeTransferFailed();
+
+        emit RoutedWithdraw(msg.sender, token, pool);
+    }
+
+    /// @notice Forward Private-mode denomination withdraw. Public inputs[0] is denomination_id (not amount).
+    function withdrawDenom(
+        address token,
+        bytes calldata proof,
+        bytes32[] calldata publicInputs,
+        bool unwrap
+    ) external nonReentrant {
+        address pool = poolOf[token];
+        if (pool == address(0)) revert UnknownToken();
+
+        if (!unwrap || token != wrappedNative) {
+            ShieldedPool(pool).withdrawDenom(proof, publicInputs);
+            emit RoutedWithdraw(msg.sender, token, pool);
+            return;
+        }
+
+        if (publicInputs.length != 5) revert WrongPublicInputs();
+        uint256 denominationId = uint256(publicInputs[0]);
+        uint256 amount = ShieldedPool(pool).denominations(denominationId);
+        address proofRecipient = address(uint160(uint256(publicInputs[4]) & type(uint160).max));
+        if (proofRecipient != address(this)) revert UnwrapRecipient();
+
+        ShieldedPool(pool).withdrawDenom(proof, publicInputs);
+        IWETH(token).withdraw(amount);
+        (bool ok,) = msg.sender.call{value: amount}("");
+        if (!ok) revert NativeTransferFailed();
 
         emit RoutedWithdraw(msg.sender, token, pool);
     }
 
     function _setFeeConfig(uint256 _feeBps, address _treasury) internal {
-        require(_feeBps <= MAX_FEE_BPS, "fee too high");
-        if (_feeBps > 0) {
-            require(_treasury != address(0), "treasury=0");
-        }
+        if (_feeBps > MAX_FEE_BPS) revert FeeTooHigh();
+        if (_feeBps > 0 && _treasury == address(0)) revert ZeroAddress();
         feeBps = _feeBps;
         treasury = _treasury;
         emit FeeConfigUpdated(_feeBps, _treasury);
