@@ -109,6 +109,8 @@ Legacy single-pool USDC addresses remain for Monad testnet (10143) and Celo test
 | [arbitrary-amounts-multitoken.md](docs/arbitrary-amounts-multitoken.md) | Router, fees, registrar, deposit circuit |
 | [private-amounts-and-batch-deposit.md](docs/private-amounts-and-batch-deposit.md) | Proposed: denomination withdraw + batch deposit |
 | [native-burn-mint-exits.md](docs/native-burn-mint-exits.md) | Later: claim-time USDC/USDT exit + fees |
+| Circuits: `src/withdraw.nr` | Standard arbitrary-amount withdraw |
+| Circuits: `src/withdraw_denom.nr` | Private buckets withdraw (`denomination_id`) |
 | [build-and-deploy.md](docs/build-and-deploy.md) | Verifier fingerprints, SumcheckFailed |
 | [demo-deposit-withdraw.md](docs/demo-deposit-withdraw.md) | CLI demo (may include legacy notes) |
 | [test-deposit-withdraw.md](docs/test-deposit-withdraw.md) | Testing notes |
