@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 120;
-import { generateWithdrawProof } from "../../lib/withdrawProver";
+import { generateWithdrawProofViaWorker } from "../../lib/proveWorkerClient";
 
 // Simple in-memory lock to prevent concurrent proof generation
 // (since we use the same Prover.toml file)
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       merkle_proof_siblings: siblings.map((s: string) => String(s).trim()),
     };
 
-    const { proofHex } = await generateWithdrawProof(normalizedInputs);
+    const { proofHex } = await generateWithdrawProofViaWorker(normalizedInputs);
 
     return NextResponse.json({
       proof: proofHex,
