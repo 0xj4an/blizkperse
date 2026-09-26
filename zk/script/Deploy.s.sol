@@ -5,14 +5,16 @@ pragma solidity ^0.8.19;
 //   1) forge script script/DeployDepositVerifier.s.sol:DeployDepositVerifier --rpc-url "$RPC_URL" --broadcast
 //   2) export DEPOSIT_VERIFIER_ADDRESS=0x...
 //   3) source .env && forge script script/Deploy.s.sol:DeployMultiPool --rpc-url "$RPC_URL" --broadcast
+//   4) Optional Private buckets: script/SetDenominations.s.sol (DENOM_KIND=stables6)
 // Env:
 //   PRIVATE_KEY
-//   TOKEN_ADDRESSES=0xUSDC,0xUSDT,...   (comma-separated ERC-20s)
-//   WRAPPED_NATIVE=0xWMON               (optional; address(0) on Celo — CELO is already ERC-20)
+//   TOKEN_ADDRESSES=0xUSDC,0xEURC,...   (comma-separated ERC-20s)
+//   WRAPPED_NATIVE=0x0                  (address(0) when no WETH-style wrap — e.g. Arc / Celo)
 //   DEPOSIT_VERIFIER_ADDRESS            (required — deploy via DeployDepositVerifier first)
 //   FEE_BPS=30                          (optional; default 30 = 0.3%)
 //   TREASURY_ADDRESS=0x...              (required if FEE_BPS > 0)
 //   ROOT_REGISTRAR_ADDRESS=0x...        (backend wallet that may call registerRoot)
+//   DENOM_KIND=stables6                 (optional; setDenominations on every new pool)
 
 import "forge-std/Script.sol";
 import "forge-std/console2.sol";
@@ -45,6 +47,7 @@ contract DeployMultiPool is Script {
             require(cfg.treasury != address(0), "TREASURY_ADDRESS required when FEE_BPS>0");
         }
         string memory tokensCsv = vm.envString("TOKEN_ADDRESSES");
+        string memory denomKind = vm.envOr("DENOM_KIND", string(""));
 
         vm.startBroadcast(pk);
 
@@ -54,7 +57,7 @@ contract DeployMultiPool is Script {
 
         string[] memory parts = _splitCsv(tokensCsv);
         for (uint256 i = 0; i < parts.length; i++) {
-            _deployPool(
+            address pool = _deployPool(
                 vm.parseAddress(parts[i]),
                 transferVerifier,
                 withdrawVerifier,
@@ -62,6 +65,12 @@ contract DeployMultiPool is Script {
                 address(router),
                 cfg.rootRegistrar
             );
+            if (bytes(denomKind).length > 0) {
+                ShieldedPool(pool).setDenominations(_stables6());
+                // Only stables6 inlined here to avoid stack-too-deep; other kinds use SetDenominations.s.sol
+                require(keccak256(bytes(denomKind)) == keccak256("stables6"), "DeployMultiPool: use SetDenominations for non-stables6");
+                console2.log("denomKind stables6 on", pool);
+            }
         }
 
         vm.stopBroadcast();
@@ -84,7 +93,7 @@ contract DeployMultiPool is Script {
         address depositVerifier,
         address router,
         address rootRegistrar
-    ) internal {
+    ) internal returns (address poolAddr) {
         ShieldedPool pool = new ShieldedPool(
             token,
             transferVerifier,
@@ -99,6 +108,22 @@ contract DeployMultiPool is Script {
         PoolRouter(payable(router)).setPool(token, address(pool));
         console2.log("token", token);
         console2.log("pool", address(pool));
+        return address(pool);
+    }
+
+    function _stables6() internal pure returns (uint256[] memory d) {
+        d = new uint256[](11);
+        d[0] = 50e6;
+        d[1] = 100e6;
+        d[2] = 250e6;
+        d[3] = 500e6;
+        d[4] = 1_000e6;
+        d[5] = 2_500e6;
+        d[6] = 5_000e6;
+        d[7] = 10_000e6;
+        d[8] = 25_000e6;
+        d[9] = 50_000e6;
+        d[10] = 10e6;
     }
 
     function _splitCsv(string memory csv) internal pure returns (string[] memory) {

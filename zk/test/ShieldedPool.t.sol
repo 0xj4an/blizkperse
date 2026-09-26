@@ -543,4 +543,54 @@ contract ShieldedPoolTest is Test {
         assertEq(weth.balanceOf(address(poolWeth)), total);
         assertEq(weth.balanceOf(treasury), fee);
     }
+
+    function test_PauseBlocksDepositAndWithdraw() public {
+        uint256 amount = 50e6;
+        depositV.setDepositExpectation(bytes32(amount), COMMIT_A);
+        poolUsdc.pause();
+
+        vm.startPrank(alice);
+        usdc.approve(address(poolUsdc), amount);
+        vm.expectRevert();
+        poolUsdc.deposit(COMMIT_A, amount, hex"00", _depositInputs(amount, COMMIT_A));
+        vm.stopPrank();
+
+        poolUsdc.unpause();
+        vm.startPrank(alice);
+        poolUsdc.deposit(COMMIT_A, amount, hex"00", _depositInputs(amount, COMMIT_A));
+        vm.stopPrank();
+        assertTrue(poolUsdc.usedCommitments(COMMIT_A));
+
+        poolUsdc.pause();
+        bytes32[] memory wpi = _withdrawInputs(amount, bytes32(uint256(0xabc)), bob);
+        vm.expectRevert();
+        poolUsdc.withdraw(hex"00", wpi);
+    }
+
+    function test_PrivateDepositAllowlistGatesBatch() public {
+        poolUsdc.setDenominations(_stablesDenoms());
+        poolUsdc.setPrivateDepositAllowlistEnabled(true);
+
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = 10;
+        bytes32[] memory commits = new bytes32[](1);
+        commits[0] = COMMIT_A;
+        bytes[] memory proofs = new bytes[](1);
+        proofs[0] = hex"00";
+        bytes32[][] memory pis = new bytes32[][](1);
+        pis[0] = _depositInputs(10e6, COMMIT_A);
+
+        vm.startPrank(alice);
+        usdc.approve(address(poolUsdc), 10e6);
+        vm.expectRevert(ShieldedPool.PrivateDepositNotAllowed.selector);
+        poolUsdc.depositBatch(commits, ids, proofs, pis);
+        vm.stopPrank();
+
+        poolUsdc.setPrivateDepositAllowed(alice, true);
+
+        vm.startPrank(alice);
+        poolUsdc.depositBatch(commits, ids, proofs, pis);
+        vm.stopPrank();
+        assertTrue(poolUsdc.usedCommitments(COMMIT_A));
+    }
 }

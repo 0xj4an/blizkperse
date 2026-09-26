@@ -4,13 +4,14 @@ pragma solidity ^0.8.19;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IVerifier} from "./Verifier.sol";
 
 /// @notice Shielded pool for a single ERC-20 token with arbitrary note amounts.
 ///         Deposit requires a ZK proof binding commitment to `value == amount`.
 ///         Optional Private-buckets mode: denomination allowlist + withdrawDenom verifier.
-contract ShieldedPool is ReentrancyGuard, Ownable {
+contract ShieldedPool is ReentrancyGuard, Pausable, Ownable {
     using SafeERC20 for IERC20;
 
     error ZeroAddress();
@@ -33,6 +34,7 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
     error NullifierUsed();
     error DenomVerifierUnset();
     error RecipientZero();
+    error PrivateDepositNotAllowed();
 
     uint256 public constant MAX_DENOMINATIONS = 64;
     uint256 public constant MAX_BATCH_NOTES = 64;
@@ -54,6 +56,10 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
     /// @notice Fixed note amounts for Private mode (index = denomination_id). Empty = unset.
     uint256[] private _denominations;
 
+    /// @notice When true, only `privateDepositAllowed` addresses may call Private batch paths.
+    bool public privateDepositAllowlistEnabled;
+    mapping(address => bool) public privateDepositAllowed;
+
     mapping(bytes32 => bool) public isKnownRoot;
     mapping(bytes32 => bool) public nullifiers;
     mapping(bytes32 => bool) public usedCommitments;
@@ -71,6 +77,8 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
     event RootRegistrarUpdated(address indexed registrar);
     event WithdrawDenomVerifierUpdated(address indexed verifier);
     event DenominationsUpdated(uint256 count);
+    event PrivateDepositAllowlistEnabled(bool enabled);
+    event PrivateDepositAllowedUpdated(address indexed account, bool allowed);
 
     constructor(
         address _token,
@@ -91,6 +99,14 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
         emit RootRegistered(_genesisRoot);
     }
 
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
     function setRouter(address _router) external onlyOwner {
         router = _router;
         emit RouterUpdated(_router);
@@ -104,6 +120,17 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
     function setWithdrawDenomVerifier(address _verifier) external onlyOwner {
         withdrawDenomVerifier = IVerifier(_verifier);
         emit WithdrawDenomVerifierUpdated(_verifier);
+    }
+
+    function setPrivateDepositAllowlistEnabled(bool enabled) external onlyOwner {
+        privateDepositAllowlistEnabled = enabled;
+        emit PrivateDepositAllowlistEnabled(enabled);
+    }
+
+    function setPrivateDepositAllowed(address account, bool allowed) external onlyOwner {
+        if (account == address(0)) revert ZeroAddress();
+        privateDepositAllowed[account] = allowed;
+        emit PrivateDepositAllowedUpdated(account, allowed);
     }
 
     /// @notice Replace the Private-mode denomination table (amount at index `id`).
@@ -175,7 +202,7 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
         uint256 amount,
         bytes calldata proof,
         bytes32[] calldata publicInputs
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         _deposit(msg.sender, msg.sender, commitment, amount, proof, publicInputs);
     }
 
@@ -187,7 +214,7 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
         uint256 amount,
         bytes calldata proof,
         bytes32[] calldata publicInputs
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         if (msg.sender != router) revert OnlyRouter();
         if (depositor == address(0)) revert ZeroAddress();
         _deposit(depositor, depositor, commitment, amount, proof, publicInputs);
@@ -200,7 +227,7 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
         uint256 amount,
         bytes calldata proof,
         bytes32[] calldata publicInputs
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         if (msg.sender != router) revert OnlyRouter();
         if (depositor == address(0)) revert ZeroAddress();
         _deposit(depositor, address(0), commitment, amount, proof, publicInputs);
@@ -213,7 +240,8 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
         uint256[] calldata denominationIds,
         bytes[] calldata proofs,
         bytes32[][] calldata publicInputs
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
+        _requirePrivateDepositor(msg.sender);
         uint256 total = _processDenomBatch(msg.sender, commitments, denominationIds, proofs, publicInputs, true);
         emit BatchDeposit(msg.sender, total, commitments.length);
     }
@@ -225,11 +253,18 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
         uint256[] calldata denominationIds,
         bytes[] calldata proofs,
         bytes32[][] calldata publicInputs
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         if (msg.sender != router) revert OnlyRouter();
         if (depositor == address(0)) revert ZeroAddress();
+        _requirePrivateDepositor(depositor);
         uint256 total = _processDenomBatch(depositor, commitments, denominationIds, proofs, publicInputs, false);
         emit BatchDeposit(depositor, total, commitments.length);
+    }
+
+    function _requirePrivateDepositor(address account) internal view {
+        if (privateDepositAllowlistEnabled && !privateDepositAllowed[account]) {
+            revert PrivateDepositNotAllowed();
+        }
     }
 
     /// @dev Single pass: verify proof, bind denomination, mark commitment (duplicates hit CommitmentUsed).
@@ -306,7 +341,7 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
         uint32 merkleProofLength,
         bytes32 newCommitment,
         bytes calldata proof
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         if (!isKnownRoot[expectedRoot]) revert UnknownRoot();
         if (nullifiers[nullifierIn]) revert NullifierUsed();
 
@@ -323,7 +358,7 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
 
     /// @notice Withdraw arbitrary amount to the recipient in the proof (Standard mode).
     /// Public inputs: [value, nullifier, merkle_proof_length, expected_merkle_root, recipient].
-    function withdraw(bytes calldata proof, bytes32[] calldata publicInputs) external nonReentrant {
+    function withdraw(bytes calldata proof, bytes32[] calldata publicInputs) external nonReentrant whenNotPaused {
         if (publicInputs.length != 5) revert WrongPublicInputs();
 
         uint256 amount = uint256(publicInputs[0]);
@@ -346,7 +381,11 @@ contract ShieldedPool is ReentrancyGuard, Ownable {
 
     /// @notice Withdraw a Private-mode note; amount comes from the denomination allowlist.
     /// Public inputs: [denomination_id, nullifier, merkle_proof_length, expected_merkle_root, recipient].
-    function withdrawDenom(bytes calldata proof, bytes32[] calldata publicInputs) external nonReentrant {
+    function withdrawDenom(bytes calldata proof, bytes32[] calldata publicInputs)
+        external
+        nonReentrant
+        whenNotPaused
+    {
         if (address(withdrawDenomVerifier) == address(0)) revert DenomVerifierUnset();
         if (publicInputs.length != 5) revert WrongPublicInputs();
 
