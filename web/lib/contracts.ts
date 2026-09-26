@@ -41,7 +41,10 @@ export function buildViemChain(config: ChainConfig): Chain {
 const ROUTER_ABI = parseAbi([
   "function deposit(address token, bytes32 commitment, uint256 amount, bytes proof, bytes32[] publicInputs) external",
   "function depositNative(bytes32 commitment, uint256 amount, bytes proof, bytes32[] publicInputs) payable",
+  "function depositBatch(address token, bytes32[] commitments, uint256[] denominationIds, bytes[] proofs, bytes32[][] publicInputs) external",
+  "function depositBatchNative(bytes32[] commitments, uint256[] denominationIds, bytes[] proofs, bytes32[][] publicInputs) payable",
   "function withdraw(address token, bytes proof, bytes32[] publicInputs, bool unwrap) external",
+  "function withdrawDenom(address token, bytes proof, bytes32[] publicInputs, bool unwrap) external",
   "function poolOf(address token) view returns (address)",
   "function wrappedNative() view returns (address)",
   "function feeBps() view returns (uint256)",
@@ -55,13 +58,24 @@ const ROUTER_ABI = parseAbi([
 
 const POOL_ABI = parseAbi([
   "function deposit(bytes32 commitment, uint256 amount, bytes proof, bytes32[] publicInputs) external",
+  "function depositBatch(bytes32[] commitments, uint256[] denominationIds, bytes[] proofs, bytes32[][] publicInputs) external",
+  "function denominationCount() view returns (uint256)",
+  "function denominations(uint256 id) view returns (uint256)",
+  "function paused() view returns (bool)",
+  "function pause() external",
+  "function unpause() external",
+  "function privateDepositAllowlistEnabled() view returns (bool)",
+  "function privateDepositAllowed(address account) view returns (bool)",
   "function registerRoot(bytes32 root) external",
   "function rootRegistrar() view returns (address)",
   "function withdraw(bytes proof, bytes32[] publicInputs) external",
+  "function withdrawDenom(bytes proof, bytes32[] publicInputs) external",
   "function isKnownRoot(bytes32) view returns (bool)",
   "function nullifiers(bytes32) view returns (bool)",
   "event Deposit(address indexed depositor, bytes32 indexed commitment, uint256 amount)",
+  "event BatchDeposit(address indexed depositor, uint256 totalAmount, uint256 count)",
   "event Withdraw(address indexed recipient, bytes32 indexed nullifier, uint256 amount)",
+  "event WithdrawDenom(address indexed recipient, bytes32 indexed nullifier, uint256 indexed denominationId, uint256 amount)",
   "error ProofLengthWrong()",
   "error ProofLengthWrongWithLogN(uint256 logN, uint256 actualLength, uint256 expectedLength)",
   "error PublicInputsLengthWrong()",
@@ -245,6 +259,130 @@ export async function depositNote(
   );
 }
 
+const DEPOSIT_BATCH_MAX = 64;
+
+/** Fixed-denomination batch deposit (Private mode). Chunks at 64 notes. */
+export async function depositBatchNotes(
+  walletClient: WalletClient,
+  config: ChainConfig,
+  params: {
+    tokenSymbol: string;
+    commitments: Hex[];
+    denominationIds: bigint[];
+    proofs: Hex[];
+    publicInputs: Hex[][];
+    /** Sum of note raw amounts (for fee + approve / msg.value). */
+    totalNoteRaw: bigint;
+    useNative?: boolean;
+  },
+): Promise<Hash[]> {
+  const n = params.commitments.length;
+  if (
+    n === 0 ||
+    n !== params.denominationIds.length ||
+    n !== params.proofs.length ||
+    n !== params.publicInputs.length
+  ) {
+    throw new Error("depositBatchNotes: mismatched array lengths");
+  }
+
+  const poolCfg = getPoolConfig(config, params.tokenSymbol);
+  const account = getWalletAccount(walletClient);
+  const chain = buildViemChain(config);
+  const useNative = params.useNative || poolCfg.token.wrapsNative;
+  const hashes: Hash[] = [];
+
+  for (let offset = 0; offset < n; offset += DEPOSIT_BATCH_MAX) {
+    const end = Math.min(offset + DEPOSIT_BATCH_MAX, n);
+    const commitments = params.commitments.slice(offset, end);
+    const denominationIds = params.denominationIds.slice(offset, end);
+    const proofs = params.proofs.slice(offset, end);
+    const publicInputs = params.publicInputs.slice(offset, end);
+
+    // Router charges quoteFee(Σ) per chunk; amount is publicInputs[0] per note.
+    let chunkSum = 0n;
+    for (const pi of publicInputs) {
+      if (pi[0]) chunkSum += BigInt(pi[0]);
+    }
+    if (chunkSum === 0n) {
+      chunkSum =
+        offset === 0 && end === n
+          ? params.totalNoteRaw
+          : (params.totalNoteRaw * BigInt(end - offset)) / BigInt(n);
+    }
+
+    if (hasRouter(config)) {
+      const fee = quoteProtocolFee(chunkSum);
+      if (useNative) {
+        hashes.push(
+          await walletClient.writeContract({
+            account,
+            address: routerAddress(config),
+            abi: ROUTER_ABI,
+            functionName: "depositBatchNative",
+            args: [commitments, denominationIds, proofs, publicInputs],
+            value: chunkSum + fee,
+            chain,
+          }),
+        );
+      } else {
+        hashes.push(
+          await walletClient.writeContract({
+            account,
+            address: routerAddress(config),
+            abi: ROUTER_ABI,
+            functionName: "depositBatch",
+            args: [
+              poolCfg.token.address,
+              commitments,
+              denominationIds,
+              proofs,
+              publicInputs,
+            ],
+            chain,
+          }),
+        );
+      }
+    } else {
+      if (useNative) {
+        throw new Error(
+          `Native batch deposits require PoolRouter on ${config.name}. Set NEXT_PUBLIC_*_ROUTER_ADDRESS.`,
+        );
+      }
+      hashes.push(
+        await walletClient.writeContract({
+          account,
+          address: poolCfg.pool,
+          abi: POOL_ABI,
+          functionName: "depositBatch",
+          args: [commitments, denominationIds, proofs, publicInputs],
+          chain,
+        }),
+      );
+    }
+  }
+
+  return hashes;
+}
+
+export async function poolDenominationCount(
+  publicClient: PublicClient,
+  config: ChainConfig,
+  tokenSymbol: string,
+): Promise<number> {
+  const poolCfg = getPoolConfig(config, tokenSymbol);
+  try {
+    const count = await publicClient.readContract({
+      address: poolCfg.pool,
+      abi: POOL_ABI,
+      functionName: "denominationCount",
+    });
+    return Number(count);
+  } catch {
+    return 0;
+  }
+}
+
 export async function getDepositRevertReason(
   config: ChainConfig,
   account: Hex,
@@ -369,14 +507,16 @@ export async function withdrawViaRouter(
     publicInputs: Hex[];
     unwrap?: boolean;
     nonce?: number;
+    mode?: "standard" | "private";
   },
 ): Promise<Hash> {
   const poolCfg = getPoolConfig(config, params.tokenSymbol);
+  const mode = params.mode ?? "standard";
   return walletClient.writeContract({
     account: getWalletAccount(walletClient),
     address: routerAddress(config),
     abi: ROUTER_ABI,
-    functionName: "withdraw",
+    functionName: mode === "private" ? "withdrawDenom" : "withdraw",
     args: [poolCfg.token.address, params.proof, params.publicInputs, Boolean(params.unwrap)],
     chain: buildViemChain(config),
     ...(params.nonce !== undefined && { nonce: params.nonce }),
@@ -390,15 +530,17 @@ export function encodeWithdrawCalldata(
     proof: Hex;
     publicInputs: Hex[];
     tokenSymbol?: string;
+    mode?: "standard" | "private";
   },
 ): { to: Hex; data: Hex } {
+  const mode = params.mode ?? "standard";
   if (params.tokenSymbol && hasRouter(config)) {
     const poolCfg = getPoolConfig(config, params.tokenSymbol);
     return {
       to: routerAddress(config),
       data: encodeFunctionData({
         abi: ROUTER_ABI,
-        functionName: "withdraw",
+        functionName: mode === "private" ? "withdrawDenom" : "withdraw",
         args: [poolCfg.token.address, params.proof, params.publicInputs, false],
       }),
     };
@@ -410,7 +552,7 @@ export function encodeWithdrawCalldata(
     to: pool,
     data: encodeFunctionData({
       abi: POOL_ABI,
-      functionName: "withdraw",
+      functionName: mode === "private" ? "withdrawDenom" : "withdraw",
       args: [params.proof, params.publicInputs],
     }),
   };
@@ -582,6 +724,7 @@ export async function withdrawFromPoolViaSmartAccount(
     proof: Hex;
     publicInputs: Hex[];
     tokenSymbol?: string;
+    mode?: "standard" | "private";
   },
 ): Promise<Hash> {
   const { to, data } = encodeWithdrawCalldata(config, params);
@@ -636,8 +779,10 @@ export async function withdrawFromPool(
     publicInputs: Hex[];
     nonce?: number;
     tokenSymbol?: string;
+    mode?: "standard" | "private";
   },
 ): Promise<Hash> {
+  const mode = params.mode ?? "standard";
   if (params.tokenSymbol && config.router && config.router !== "0x0000000000000000000000000000000000000000") {
     return withdrawViaRouter(walletClient, config, {
       tokenSymbol: params.tokenSymbol,
@@ -645,6 +790,7 @@ export async function withdrawFromPool(
       publicInputs: params.publicInputs,
       unwrap: false,
       nonce: params.nonce,
+      mode,
     });
   }
   const pool = params.tokenSymbol
@@ -654,7 +800,7 @@ export async function withdrawFromPool(
     account: getWalletAccount(walletClient),
     address: pool,
     abi: POOL_ABI,
-    functionName: "withdraw",
+    functionName: mode === "private" ? "withdrawDenom" : "withdraw",
     args: [params.proof, params.publicInputs],
     chain: buildViemChain(config),
     ...(params.nonce !== undefined && { nonce: params.nonce }),

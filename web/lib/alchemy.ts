@@ -23,7 +23,8 @@ import { ChainId, type ChainConfig } from "./constants";
  * Gas Manager checklist (avoids `Policy ID(s) not found`):
  * 1. `NEXT_PUBLIC_ALCHEMY_API_KEY` and `NEXT_PUBLIC_ALCHEMY_GAS_POLICY_ID` belong to the **same** Alchemy app.
  * 2. Policy status is **Active**.
- * 3. Policy networks include the claim chain (e.g. **Celo 42220**, **Robinhood 4663**).
+ * 3. Policy networks include the claim chain (e.g. **Celo 42220**, **Monad 143**,
+ *    **Monad testnet 10143**, **Robinhood 4663**, **Arc Testnet 5042002**).
  * 4. Policy allows EntryPoint v0.6 for Modular Account sponsorship.
  */
 
@@ -67,6 +68,27 @@ const robinhoodTestnet = defineAlchemyChain({
   rpcBaseUrl: "https://robinhood-testnet.g.alchemy.com/v2",
 });
 
+/** Arc Testnet — USDC gas; Alchemy subdomain `arc-testnet`. */
+const arcTestnet = defineAlchemyChain({
+  chain: defineChain({
+    id: 5042002,
+    name: "Arc Testnet",
+    nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+    rpcUrls: {
+      default: { http: ["https://arc-testnet.g.alchemy.com/v2"] },
+      public: { http: ["https://rpc.testnet.arc.io"] },
+    },
+    blockExplorers: {
+      default: {
+        name: "ArcScan",
+        url: "https://testnet.arcscan.app",
+      },
+    },
+    testnet: true,
+  }),
+  rpcBaseUrl: "https://arc-testnet.g.alchemy.com/v2",
+});
+
 
 export const ALCHEMY_API_KEY =
   process.env.NEXT_PUBLIC_ALCHEMY_API_KEY?.trim() || "";
@@ -90,6 +112,7 @@ const ALCHEMY_CHAIN_BY_ID: Record<number, Chain> = {
   [ChainId.MONAD_TESTNET]: monadTestnet,
   [ChainId.ROBINHOOD]: robinhoodMainnet,
   [ChainId.ROBINHOOD_TESTNET]: robinhoodTestnet,
+  [ChainId.ARC_TESTNET]: arcTestnet,
 };
 
 /** Map app ChainConfig → Alchemy Account Kit chain (required by `@getpara/aa-alchemy`). */

@@ -8,10 +8,21 @@ export async function POST(req: NextRequest) {
   const auth = await requireWalletAuth(req);
   if ("error" in auth) return auth.error;
 
-  const { organizer_id, total_amount, token, tx_hash, recipients, status } = await req.json();
+  const {
+    organizer_id,
+    total_amount,
+    token,
+    tx_hash,
+    recipients,
+    status,
+    privacy_mode,
+  } = await req.json();
+
+  const privacyMode =
+    privacy_mode === "private" ? "private" : "standard";
 
   const [organizer] = await sql`
-    SELECT owner_address FROM organizers WHERE id = ${organizer_id}
+    SELECT owner_address, private_enabled FROM organizers WHERE id = ${organizer_id}
   `;
   if (!organizer) {
     return NextResponse.json({ error: "Organizer not found" }, { status: 404 });
@@ -19,11 +30,26 @@ export async function POST(req: NextRequest) {
   if (String(organizer.owner_address).toLowerCase() !== auth.address) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  if (privacyMode === "private" && !organizer.private_enabled) {
+    return NextResponse.json(
+      {
+        error:
+          "Private mode is not enabled for this organization. Enable it in the payer dashboard first.",
+      },
+      { status: 403 },
+    );
+  }
 
-  // insert payout
   const [payout] = await sql`
-    INSERT INTO payouts (organizer_id, total_amount, token, status, tx_hash)
-    VALUES (${organizer_id}, ${total_amount}, ${token ?? 'USDC'}, ${status ?? 'pending'}, ${tx_hash ?? null})
+    INSERT INTO payouts (organizer_id, total_amount, token, status, tx_hash, privacy_mode)
+    VALUES (
+      ${organizer_id},
+      ${total_amount},
+      ${token ?? "USDC"},
+      ${status ?? "pending"},
+      ${tx_hash ?? null},
+      ${privacyMode}
+    )
     RETURNING *
   `;
 

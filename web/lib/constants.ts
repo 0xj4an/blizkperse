@@ -15,7 +15,7 @@ export interface PoolConfig {
   deployBlock: bigint;
 }
 
-export type ChainSlug = "monad" | "celo" | "robinhood";
+export type ChainSlug = "monad" | "celo" | "robinhood" | "arc";
 
 export enum ChainId {
   MONAD = 143,
@@ -24,6 +24,8 @@ export enum ChainId {
   CELO_TESTNET = 11142220,
   ROBINHOOD = 4663,
   ROBINHOOD_TESTNET = 46630,
+  /** Circle Arc Testnet (USDC gas). Mainnet not published yet. */
+  ARC_TESTNET = 5042002,
 }
 
 export type SupportedChainId = ChainId;
@@ -168,6 +170,27 @@ const PUBLIC_ENV: Record<string, string | undefined> = {
   NEXT_PUBLIC_ROBINHOOD_POOL_DENOMINATION: process.env.NEXT_PUBLIC_ROBINHOOD_POOL_DENOMINATION,
   NEXT_PUBLIC_ROBINHOOD_DEPLOY_BLOCK: process.env.NEXT_PUBLIC_ROBINHOOD_DEPLOY_BLOCK,
   NEXT_PUBLIC_ROBINHOOD_PLACEHOLDER: process.env.NEXT_PUBLIC_ROBINHOOD_PLACEHOLDER,
+
+  NEXT_PUBLIC_ARC_CHAIN_ID: process.env.NEXT_PUBLIC_ARC_CHAIN_ID,
+  NEXT_PUBLIC_ARC_RPC_URL: process.env.NEXT_PUBLIC_ARC_RPC_URL,
+  NEXT_PUBLIC_ARC_EXPLORER_URL: process.env.NEXT_PUBLIC_ARC_EXPLORER_URL,
+  NEXT_PUBLIC_ARC_ROUTER_ADDRESS: process.env.NEXT_PUBLIC_ARC_ROUTER_ADDRESS,
+  NEXT_PUBLIC_ARC_POOL_ADDRESS: process.env.NEXT_PUBLIC_ARC_POOL_ADDRESS,
+  NEXT_PUBLIC_ARC_POOL_USDC_ADDRESS: process.env.NEXT_PUBLIC_ARC_POOL_USDC_ADDRESS,
+  NEXT_PUBLIC_ARC_POOL_EURC_ADDRESS: process.env.NEXT_PUBLIC_ARC_POOL_EURC_ADDRESS,
+  NEXT_PUBLIC_ARC_TOKEN_USDC_ADDRESS: process.env.NEXT_PUBLIC_ARC_TOKEN_USDC_ADDRESS,
+  NEXT_PUBLIC_ARC_TOKEN_EURC_ADDRESS: process.env.NEXT_PUBLIC_ARC_TOKEN_EURC_ADDRESS,
+  NEXT_PUBLIC_ARC_VERIFIER_ADDRESS: process.env.NEXT_PUBLIC_ARC_VERIFIER_ADDRESS,
+  NEXT_PUBLIC_ARC_WITHDRAW_VERIFIER_ADDRESS:
+    process.env.NEXT_PUBLIC_ARC_WITHDRAW_VERIFIER_ADDRESS,
+  NEXT_PUBLIC_ARC_DEPOSIT_VERIFIER_ADDRESS:
+    process.env.NEXT_PUBLIC_ARC_DEPOSIT_VERIFIER_ADDRESS,
+  NEXT_PUBLIC_ARC_STABLECOIN_ADDRESS: process.env.NEXT_PUBLIC_ARC_STABLECOIN_ADDRESS,
+  NEXT_PUBLIC_ARC_STABLECOIN_SYMBOL: process.env.NEXT_PUBLIC_ARC_STABLECOIN_SYMBOL,
+  NEXT_PUBLIC_ARC_POOL_TOKEN_DECIMALS: process.env.NEXT_PUBLIC_ARC_POOL_TOKEN_DECIMALS,
+  NEXT_PUBLIC_ARC_POOL_DENOMINATION: process.env.NEXT_PUBLIC_ARC_POOL_DENOMINATION,
+  NEXT_PUBLIC_ARC_DEPLOY_BLOCK: process.env.NEXT_PUBLIC_ARC_DEPLOY_BLOCK,
+  NEXT_PUBLIC_ARC_PLACEHOLDER: process.env.NEXT_PUBLIC_ARC_PLACEHOLDER,
 };
 
 const DEPLOY_ENV: DeployEnv =
@@ -184,6 +207,7 @@ const ROBINHOOD_CHAIN_IDS = new Set<SupportedChainId>([
   ChainId.ROBINHOOD,
   ChainId.ROBINHOOD_TESTNET,
 ]);
+const ARC_CHAIN_IDS = new Set<SupportedChainId>([ChainId.ARC_TESTNET]);
 const ALL_CHAIN_IDS = new Set<SupportedChainId>([
   ChainId.MONAD,
   ChainId.MONAD_TESTNET,
@@ -191,11 +215,13 @@ const ALL_CHAIN_IDS = new Set<SupportedChainId>([
   ChainId.CELO_TESTNET,
   ChainId.ROBINHOOD,
   ChainId.ROBINHOOD_TESTNET,
+  ChainId.ARC_TESTNET,
 ]);
 const CHAIN_IDS_BY_SLUG: Record<ChainSlug, Set<SupportedChainId>> = {
   monad: MONAD_CHAIN_IDS,
   celo: CELO_CHAIN_IDS,
   robinhood: ROBINHOOD_CHAIN_IDS,
+  arc: ARC_CHAIN_IDS,
 };
 
 const MONAD_USDC = "0x754704Bc059F8C67012fEd69BC8A327a5aafb603" as const;
@@ -215,6 +241,16 @@ const ROBINHOOD_USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168" as const;
 const ROBINHOOD_USDE = "0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34" as const;
 /** Wrapped ETH on Robinhood — WETH-style wrap/unwrap (Monad WMON pattern). */
 const ROBINHOOD_WETH = "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73" as const;
+
+/** Arc Testnet: native gas USDC (18dp) + ERC-20 USDC (6dp) at same address; EURC separate. */
+const ARC_USDC = "0x3600000000000000000000000000000000000000" as const;
+const ARC_EURC = "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a" as const;
+const ARC_ROUTER = "0x844D108fBb29bB2f414A68FEDaf6f4fab321e396" as const;
+const ARC_POOL_USDC = "0x49B337e208651aFD1E8889E6B1660baD2BA7223F" as const;
+const ARC_POOL_EURC = "0xDF5d061B04886c5b0c681e7841d5f8d88E87841E" as const;
+const ARC_HONK = "0xB3a0a715ffa799349ccc06F6e6169C96c97EfDc8" as const;
+const ARC_WITHDRAW = "0x481C87F6fe1f75238523DD8f5d386Fb8A8428A19" as const;
+const ARC_DEPOSIT = "0x6c1e06C0b652A4F14bD6b4DC647C2BC94e970C47" as const;
 
 const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
   monad: {
@@ -318,6 +354,36 @@ const PROD_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
     },
     deployBlock: BigInt(41_116_323),
   },
+  /** Arc mainnet not live yet — defaults match Arc Testnet greenfield deploy. */
+  arc: {
+    id: ChainId.ARC_TESTNET,
+    name: "Arc Testnet",
+    rpcUrl: "https://rpc.testnet.arc.io",
+    explorerUrl: "https://testnet.arcscan.app",
+    explorerName: "ArcScan",
+    /** Native gas is USDC at 18 decimals; pool ERC-20 USDC uses 6. */
+    nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+    router: ARC_ROUTER,
+    contracts: {
+      pool: ARC_POOL_USDC,
+      verifier: ARC_HONK,
+      withdrawVerifier: ARC_WITHDRAW,
+      depositVerifier: ARC_DEPOSIT,
+      stablecoin: ARC_USDC,
+    },
+    poolTokenDecimals: 6,
+    poolDenomination: BigInt(1_000_000),
+    stablecoinSymbol: "USDC",
+    stablecoinName: "USD Coin",
+    poolTokens: [
+      { symbol: "USDC", name: "USD Coin", decimals: 6, address: ARC_USDC },
+      { symbol: "EURC", name: "Euro Coin", decimals: 6, address: ARC_EURC },
+    ],
+    poolAddresses: {
+      EURC: ARC_POOL_EURC,
+    },
+    deployBlock: BigInt(64_165_590),
+  },
 };
 
 const DEV_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
@@ -411,6 +477,34 @@ const DEV_DEFAULTS: Record<ChainSlug, ChainDefaults> = {
       },
     ],
     deployBlock: BigInt(0),
+  },
+  arc: {
+    id: ChainId.ARC_TESTNET,
+    name: "Arc Testnet",
+    rpcUrl: "https://rpc.testnet.arc.io",
+    explorerUrl: "https://testnet.arcscan.app",
+    explorerName: "ArcScan",
+    nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+    router: ARC_ROUTER,
+    contracts: {
+      pool: ARC_POOL_USDC,
+      verifier: ARC_HONK,
+      withdrawVerifier: ARC_WITHDRAW,
+      depositVerifier: ARC_DEPOSIT,
+      stablecoin: ARC_USDC,
+    },
+    poolTokenDecimals: 6,
+    poolDenomination: BigInt(1_000_000),
+    stablecoinSymbol: "USDC",
+    stablecoinName: "USD Coin",
+    poolTokens: [
+      { symbol: "USDC", name: "USD Coin", decimals: 6, address: ARC_USDC },
+      { symbol: "EURC", name: "Euro Coin", decimals: 6, address: ARC_EURC },
+    ],
+    poolAddresses: {
+      EURC: ARC_POOL_EURC,
+    },
+    deployBlock: BigInt(64_165_590),
   },
 };
 
@@ -609,6 +703,7 @@ function buildChainConfig(slug: ChainSlug): ChainConfig {
 const monadChain = buildChainConfig("monad");
 const celoChain = buildChainConfig("celo");
 const robinhoodChain = buildChainConfig("robinhood");
+const arcChain = buildChainConfig("arc");
 
 if (monadChain.id === celoChain.id) {
   throw new Error("Monad and Celo chain IDs must be different");
@@ -619,17 +714,26 @@ if (
 ) {
   throw new Error("Robinhood chain ID must differ from Monad and Celo");
 }
+if (
+  arcChain.id === monadChain.id ||
+  arcChain.id === celoChain.id ||
+  arcChain.id === robinhoodChain.id
+) {
+  throw new Error("Arc chain ID must differ from Monad, Celo, and Robinhood");
+}
 
 export const CHAINS: Record<number, ChainConfig> = Object.freeze({
   [celoChain.id]: celoChain,
   [monadChain.id]: monadChain,
   [robinhoodChain.id]: robinhoodChain,
+  [arcChain.id]: arcChain,
 });
 
 export const CHAIN_IDS = Object.freeze([
   celoChain.id,
   monadChain.id,
   robinhoodChain.id,
+  arcChain.id,
 ]);
 
 const defaultChainSlug = getEnv("NEXT_PUBLIC_DEFAULT_CHAIN") as ChainSlug | undefined;
@@ -639,9 +743,11 @@ export const DEFAULT_CHAIN_ID =
     ? monadChain.id
     : defaultChainSlug === "robinhood"
       ? robinhoodChain.id
-      : defaultChainSlug === "celo"
-        ? celoChain.id
-        : celoChain.id;
+      : defaultChainSlug === "arc"
+        ? arcChain.id
+        : defaultChainSlug === "celo"
+          ? celoChain.id
+          : celoChain.id;
 
 export function isSupportedChainId(value: unknown): value is SupportedChainId {
   return (

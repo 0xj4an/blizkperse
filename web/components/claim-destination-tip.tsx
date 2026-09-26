@@ -89,10 +89,9 @@ export function ClaimDestinationTip({
               id="claim-destination-tip-title"
               className="text-sm leading-relaxed text-foreground"
             >
-              You can receive your funds in a different address — just paste it
-              here. By default you receive them in the connected wallet. You
-              don&apos;t need gas to claim, but you still need gas token to move
-              your funds afterward.
+              You can receive funds at a fresh vault address — paste it here.
+              By default they go to the connected wallet. Claim gas can be
+              sponsored; you still need gas later to move funds from the vault.
             </p>
             <Button className="mt-3 w-full sm:w-auto" onClick={dismiss}>
               I understand

@@ -14,7 +14,7 @@ export interface NoteData {
 }
 
 export interface ProofInput {
-  // Public inputs (must match withdraw circuit order)
+  // Public inputs (must match withdraw / withdraw_denom circuit order)
   value: string;
   nullifier: string;
   merkle_proof_length: string;
@@ -25,18 +25,25 @@ export interface ProofInput {
   random: string;
   merkle_proof_indices: number[];
   merkle_proof_siblings: string[];
+  /** When set, prove with withdraw_denom (Private buckets). */
+  denomination_id?: number;
+  mode?: "standard" | "private";
 }
 
 export interface ProofResult {
   proof: Hex;
+  mode: "standard" | "private";
   publicInputs: {
+    /** Standard: note value. Private: denomination_id (as bytes32). */
     value: Hex;
     nullifier: Hex;
     merkleProofLength: number;
     expectedRoot: Hex;
     recipient: Hex;
+    denominationId?: number;
   };
 }
+
 
 // ── Poseidon hash (matches circuit's poseidon::poseidon::bn254::hash_2) ──
 // Vendored via @/lib/poseidon2-hash (in-repo), not the npm package async chunk.
@@ -119,11 +126,36 @@ export function generateRandomField(): bigint {
 export async function generateProof(
   input: ProofInput
 ): Promise<ProofResult> {
-  // Call server-side proof generation API
+  const mode: "standard" | "private" =
+    input.mode === "private" || input.denomination_id !== undefined
+      ? "private"
+      : "standard";
+
+  const body =
+    mode === "private"
+      ? {
+          mode: "private",
+          denomination_id: input.denomination_id,
+          value: input.value,
+          nullifier: input.nullifier,
+          merkle_proof_length: input.merkle_proof_length,
+          expected_merkle_root: input.expected_merkle_root,
+          recipient: input.recipient,
+          pk_b: input.pk_b,
+          random: input.random,
+          merkle_proof_indices: input.merkle_proof_indices,
+          merkle_proof_siblings: input.merkle_proof_siblings,
+        }
+      : input;
+
+  if (mode === "private" && input.denomination_id === undefined) {
+    throw new Error("Private withdraw proof requires denomination_id");
+  }
+
   const response = await fetch("/api/generate-proof", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -132,15 +164,21 @@ export async function generateProof(
   }
 
   const { proof } = await response.json();
+  const firstPublic =
+    mode === "private"
+      ? bigintToBytes32(BigInt(input.denomination_id!))
+      : bigintToBytes32(BigInt(input.value));
 
   return {
     proof: proof as Hex,
+    mode,
     publicInputs: {
-      value: bigintToBytes32(BigInt(input.value)),
+      value: firstPublic,
       nullifier: bigintToBytes32(BigInt(input.nullifier)),
       merkleProofLength: Number(input.merkle_proof_length),
       expectedRoot: bigintToBytes32(BigInt(input.expected_merkle_root)),
       recipient: bigintToBytes32(BigInt(input.recipient)),
+      ...(mode === "private" ? { denominationId: input.denomination_id } : {}),
     },
   };
 }

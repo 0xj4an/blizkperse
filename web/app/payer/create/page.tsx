@@ -52,13 +52,23 @@ import {
   formatTokenRawAmount,
   formatInsufficientDepositBalanceMessage,
 } from "@/lib/constants";
-import { hasRouter, getTokenBalance } from "@/lib/contracts";
+import { hasRouter, getTokenBalance, poolDenominationCount, getPublicClient } from "@/lib/contracts";
 import { formatInsufficientGasError } from "@/lib/alchemy";
 import { useApiAuth } from "@/lib/api-auth";
 import { useModal } from "@getpara/react-sdk";
 import type { Hex } from "viem";
+import {
+  packHumanAmount,
+  suggestPayable,
+  formatPackPreview,
+  ladderForToken,
+  MAX_NOTES_PER_RECIPIENT,
+  MAX_NOTES_PER_BATCH,
+  type PackResult,
+} from "@/lib/denominations";
 
 type Step = "select" | "amounts" | "review";
+type PrivacyMode = "standard" | "private";
 
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
 
@@ -117,9 +127,17 @@ export default function CreatePayoutPage() {
   const [selectedToken, setSelectedToken] = useState<TokenConfig>(
     () => selectableTokens.find((t) => t.symbol === chain.defaultToken.symbol) ?? selectableTokens[0] ?? chain.defaultToken,
   );
+  const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("standard");
+  const [privatePoolReady, setPrivatePoolReady] = useState<boolean | null>(null);
   const { walletClient, address, isReady } = useParaWalletClient();
   const apiAuth = useApiAuth();
   const { openModal } = useModal();
+
+  useEffect(() => {
+    if (org && !org.privateEnabled && privacyMode === "private") {
+      setPrivacyMode("standard");
+    }
+  }, [org, privacyMode]);
 
   useEffect(() => {
     if (orgFromStore) setCachedOrg(orgFromStore);
@@ -137,6 +155,30 @@ export default function CreatePayoutPage() {
       return live.find((t) => t.symbol === chain.defaultToken.symbol) ?? live[0] ?? chain.defaultToken;
     });
   }, [chain]);
+
+  useEffect(() => {
+    if (privacyMode !== "private" || chain.placeholder) {
+      setPrivatePoolReady(null);
+      return;
+    }
+    let cancelled = false;
+    setPrivatePoolReady(null);
+    (async () => {
+      try {
+        const count = await poolDenominationCount(
+          getPublicClient(chain),
+          chain,
+          selectedToken.symbol,
+        );
+        if (!cancelled) setPrivatePoolReady(count > 0);
+      } catch {
+        if (!cancelled) setPrivatePoolReady(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [privacyMode, chain, selectedToken.symbol]);
 
   useEffect(() => {
     if (!address || chain.placeholder) {
@@ -157,6 +199,39 @@ export default function CreatePayoutPage() {
       cancelled = true;
     };
   }, [address, chain, selectedToken]);
+
+  const ladder = ladderForToken(selectedToken.symbol, selectedToken.decimals);
+
+  const packByRecipient = (() => {
+    const map = new Map<string, PackResult>();
+    if (privacyMode !== "private") return map;
+    for (const id of selected) {
+      const human = amounts[id] || 0;
+      if (human <= 0) continue;
+      map.set(id, packHumanAmount(human, ladder));
+    }
+    return map;
+  })();
+
+  const privatePackStats = (() => {
+    if (privacyMode !== "private") {
+      return { ok: true, noteCount: 0, invalidIds: [] as string[] };
+    }
+    let noteCount = 0;
+    const invalidIds: string[] = [];
+    for (const id of selected) {
+      const human = amounts[id] || 0;
+      if (human <= 0) continue;
+      const pack = packByRecipient.get(id);
+      if (!pack || !pack.ok) invalidIds.push(id);
+      else noteCount += pack.notes.length;
+    }
+    return {
+      ok: invalidIds.length === 0 && noteCount > 0,
+      noteCount,
+      invalidIds,
+    };
+  })();
 
   const filtered = availableSubscribers.filter(
     (s) =>
@@ -181,9 +256,33 @@ export default function CreatePayoutPage() {
       rawAmounts.push(toTokenRawAmount(human, decimals));
     }
     const netRaw = rawAmounts.reduce((a, b) => a + b, 0n);
-    const feeRaw = applyFee
-      ? rawAmounts.reduce((a, raw) => a + quoteProtocolFee(raw, feeBps), 0n)
-      : 0n;
+    // Private depositBatch: fee on Σ per ≤64-note chunk (approximate with recipient raws when pack ok).
+    const feeRaw = (() => {
+      if (!applyFee) return 0n;
+      if (privacyMode === "private") {
+        // Prefer packed note raws when exact; else fall back to requested amounts.
+        const noteRaws: bigint[] = [];
+        for (const id of ids) {
+          const pack = packByRecipient.get(id);
+          if (pack?.ok) {
+            for (const n of pack.notes) noteRaws.push(n.raw);
+          } else {
+            const human = amounts[id] || 0;
+            if (human > 0) noteRaws.push(toTokenRawAmount(human, decimals));
+          }
+        }
+        let fee = 0n;
+        for (let i = 0; i < noteRaws.length; i += MAX_NOTES_PER_BATCH) {
+          const chunk = noteRaws.slice(i, i + MAX_NOTES_PER_BATCH);
+          fee += quoteProtocolFee(
+            chunk.reduce((a, b) => a + b, 0n),
+            feeBps,
+          );
+        }
+        return fee;
+      }
+      return rawAmounts.reduce((a, raw) => a + quoteProtocolFee(raw, feeBps), 0n);
+    })();
     const grossRaw = netRaw + feeRaw;
     return {
       ids,
@@ -277,6 +376,28 @@ export default function CreatePayoutPage() {
       rawBack = uiParts.map((h) => toTokenRawAmount(h, decimals));
     }
 
+    if (privacyMode === "private") {
+      const next: Record<string, number> = {};
+      let adjusted = 0;
+      ids.forEach((id, idx) => {
+        const raw = toTokenRawAmount(uiParts[idx]!, decimals);
+        const sug = suggestPayable(raw, ladder);
+        if (sug.floor) {
+          next[id] = fromTokenRawAmountUi(sug.floor.totalRaw, decimals);
+          if (sug.floor.totalRaw !== raw) adjusted += 1;
+        } else {
+          next[id] = uiParts[idx]!;
+        }
+      });
+      setAmounts(next);
+      toast.success(
+        adjusted > 0
+          ? `Split then floored ${adjusted} amount(s) to exact Private buckets.`
+          : `Evenly split into Private-packable amounts.`,
+      );
+      return;
+    }
+
     const next: Record<string, number> = {};
     ids.forEach((id, idx) => {
       next[id] = uiParts[idx]!;
@@ -296,10 +417,36 @@ export default function CreatePayoutPage() {
   const handleOneEach = () => {
     if (selected.size === 0) return;
     const next: Record<string, number> = {};
-    selected.forEach((id) => {
-      next[id] = 1;
-    });
+    if (privacyMode === "private") {
+      const smallest = ladder.descending[ladder.descending.length - 1];
+      const human =
+        typeof smallest?.human === "number"
+          ? smallest.human
+          : Number(smallest?.human ?? 1);
+      selected.forEach((id) => {
+        next[id] = human;
+      });
+    } else {
+      selected.forEach((id) => {
+        next[id] = 1;
+      });
+    }
     setAmounts(next);
+  };
+
+  const applyPackSuggestion = (id: string, kind: "floor" | "ceil") => {
+    const human = amounts[id] || 0;
+    if (human <= 0) return;
+    const sug = suggestPayable(toTokenRawAmount(human, selectedToken.decimals), ladder);
+    const pack = kind === "floor" ? sug.floor : sug.ceil;
+    if (!pack) {
+      toast.error(`No ${kind} bucket pack found for that amount.`);
+      return;
+    }
+    setAmounts({
+      ...amounts,
+      [id]: fromTokenRawAmountUi(pack.totalRaw, selectedToken.decimals),
+    });
   };
 
   const handleAdjustToMax = () => {
@@ -336,6 +483,24 @@ export default function CreatePayoutPage() {
   };
 
   const handleDeposit = async () => {
+    if (privacyMode === "private") {
+      if (privatePoolReady === false) {
+        toast.error(
+          `Private buckets are not configured on the ${selectedToken.symbol} pool yet.`,
+        );
+        return;
+      }
+      if (!privatePackStats.ok) {
+        toast.error(
+          "Every Private amount must pack into exact denomination buckets (use Floor / Ceil).",
+        );
+        return;
+      }
+      if (privatePackStats.noteCount > MAX_NOTES_PER_BATCH * 8) {
+        toast.error("Too many bucket notes for one payout. Split into smaller payouts.");
+        return;
+      }
+    }
     if (balanceCheck && !balanceCheck.ok) {
       const msg = feeShortfallMessage({
         symbol: selectedToken.symbol,
@@ -351,7 +516,11 @@ export default function CreatePayoutPage() {
       return;
     }
     setTxState("pending");
-    setProgressMsg("Generating ZK proof...");
+    setProgressMsg(
+      privacyMode === "private"
+        ? "Generating ZK proofs for bucket notes..."
+        : "Generating ZK proof...",
+    );
     try {
       const result = await createPayout({
         organizerId: orgId,
@@ -360,6 +529,7 @@ export default function CreatePayoutPage() {
           amount: amounts[id] || 0,
         })),
         token: selectedToken.symbol,
+        privacyMode,
         walletClient: walletClient ?? undefined,
         auth: { ...apiAuth, walletClient, address },
         chainConfig: chain,
@@ -369,7 +539,9 @@ export default function CreatePayoutPage() {
             step === "Proving deposit"
               ? "Generating ZK proof"
               : step === "Depositing note"
-                ? "Submitting deposit"
+                ? privacyMode === "private"
+                  ? "Submitting depositBatch"
+                  : "Submitting deposit"
                 : step === "Preparing payout"
                   ? "Preparing payout"
                   : step;
@@ -544,8 +716,8 @@ export default function CreatePayoutPage() {
               highlightSymbol={selectedToken.symbol}
             />
 
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <label className="text-sm text-muted-foreground">Token</label>
                 <Select
                   value={selectedToken.symbol}
@@ -565,6 +737,45 @@ export default function CreatePayoutPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                <div className="flex rounded-md border border-border p-0.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={privacyMode === "standard" ? "default" : "ghost"}
+                    className="h-8 px-3"
+                    onClick={() => setPrivacyMode("standard")}
+                  >
+                    Standard
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={privacyMode === "private" ? "default" : "ghost"}
+                    className="h-8 px-3"
+                    disabled={!org?.privateEnabled}
+                    title={
+                      org?.privateEnabled
+                        ? "Fixed denomination buckets + depositBatch"
+                        : "Enable Private for this organization in the payer dashboard"
+                    }
+                    onClick={() => {
+                      if (!org?.privateEnabled) {
+                        toast.error(
+                          "Enable Private for this organization in the payer dashboard first.",
+                        );
+                        return;
+                      }
+                      setPrivacyMode("private");
+                    }}
+                  >
+                    Private
+                  </Button>
+                </div>
+                {!org?.privateEnabled && (
+                  <span className="text-xs text-muted-foreground">
+                    Private is gated per org — enable it on the payer dashboard.
+                  </span>
+                )}
                 {selectableTokens.length < 2 && (
                   <span className="text-xs text-muted-foreground">
                     Only tokens with a live pool on {chain.name} are listed.
@@ -581,44 +792,112 @@ export default function CreatePayoutPage() {
                   Equal Split
                 </Button>
                 <Button variant="outline" size="sm" onClick={handleOneEach}>
-                  1 each
+                  {privacyMode === "private" ? "Min each" : "1 each"}
                 </Button>
               </div>
             </div>
+
+            {privacyMode === "private" && (
+              <div className="space-y-1 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                <p>
+                  Private mode packs each amount into fixed denomination buckets (max{" "}
+                  {MAX_NOTES_PER_RECIPIENT} notes / recipient) and deposits them in one{" "}
+                  <span className="font-medium text-foreground">depositBatch</span>.
+                </p>
+                {privatePoolReady === false && (
+                  <p className="text-destructive">
+                    This pool has no on-chain denominations yet — Private deposits will fail until
+                    the deployer calls setDenominations.
+                  </p>
+                )}
+                {privatePoolReady === true && privatePackStats.noteCount > 0 && (
+                  <p>
+                    Batch preview:{" "}
+                    <span className="font-medium text-foreground">
+                      {privatePackStats.noteCount} note
+                      {privatePackStats.noteCount === 1 ? "" : "s"}
+                    </span>
+                    {privatePackStats.ok ? "" : " — fix inexact amounts before continuing"}
+                  </p>
+                )}
+              </div>
+            )}
 
             <Card>
               <CardContent className="divide-y divide-border p-0">
                 {Array.from(selected).map((id) => {
                   const s = getSubscriberById(id);
                   if (!s) return null;
+                  const pack = packByRecipient.get(id);
+                  const human = amounts[id] || 0;
                   return (
-                    <div key={id} className="flex items-center gap-4 px-4 py-3">
-                      <div className="flex-1">
-                        <p className="font-medium">{s.name}</p>
-                        <p className="font-mono text-xs text-muted-foreground">
-                          {s.address.slice(0, 6)}...{s.address.slice(-4)}
-                        </p>
+                    <div key={id} className="space-y-2 px-4 py-3">
+                      <div className="flex items-center gap-4">
+                        <div className="flex-1">
+                          <p className="font-medium">{s.name}</p>
+                          <p className="font-mono text-xs text-muted-foreground">
+                            {s.address.slice(0, 6)}...{s.address.slice(-4)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            min={0}
+                            step="any"
+                            placeholder="0"
+                            value={amounts[id] || ""}
+                            onChange={(e) => {
+                              const n = Number(e.target.value);
+                              setAmounts({
+                                ...amounts,
+                                [id]: Number.isFinite(n) && n > 0 ? n : 0,
+                              });
+                            }}
+                            className="w-28 text-right"
+                          />
+                          <span className="w-10 text-xs font-medium text-muted-foreground">
+                            {selectedToken.symbol}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="number"
-                          min={0}
-                          step="any"
-                          placeholder="0"
-                          value={amounts[id] || ""}
-                          onChange={(e) => {
-                            const n = Number(e.target.value);
-                            setAmounts({
-                              ...amounts,
-                              [id]: Number.isFinite(n) && n > 0 ? n : 0,
-                            });
-                          }}
-                          className="w-28 text-right"
-                        />
-                        <span className="text-xs font-medium text-muted-foreground w-10">
-                          {selectedToken.symbol}
-                        </span>
-                      </div>
+                      {privacyMode === "private" && human > 0 && pack && (
+                        <div className="flex flex-wrap items-center gap-2 pl-0 text-xs sm:pl-1">
+                          {pack.ok ? (
+                            <span className="text-muted-foreground">
+                              Pack:{" "}
+                              <span className="font-medium text-foreground">
+                                {formatPackPreview(pack.notes)}
+                              </span>{" "}
+                              ({pack.notes.length} note
+                              {pack.notes.length === 1 ? "" : "s"})
+                            </span>
+                          ) : (
+                            <>
+                              <span className="text-destructive">
+                                Cannot pack exactly ({pack.reason.replace(/_/g, " ")})
+                              </span>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2"
+                                onClick={() => applyPackSuggestion(id, "floor")}
+                              >
+                                Floor
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2"
+                                onClick={() => applyPackSuggestion(id, "ceil")}
+                              >
+                                Ceil
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -670,7 +949,9 @@ export default function CreatePayoutPage() {
               </div>
             )}
             <p className="text-xs text-muted-foreground">
-              Amounts use token decimals (e.g. 1.5 USDT or 5500 COPm). One payout uses a single token for all recipients — for mixed tokens, create separate payouts.
+              {privacyMode === "private"
+                ? "Private amounts must match exact denomination buckets. Floor / Ceil adjust to the nearest packable total."
+                : "Amounts use token decimals (e.g. 1.5 USDT or 5500 COPm). One payout uses a single token for all recipients — for mixed tokens, create separate payouts."}
             </p>
 
             <div className="flex justify-between">
@@ -678,7 +959,15 @@ export default function CreatePayoutPage() {
                 <ArrowLeft className="h-4 w-4" />
                 Back
               </Button>
-              <Button onClick={() => setStep("review")} disabled={totalAmount === 0} className="gap-2">
+              <Button
+                onClick={() => setStep("review")}
+                disabled={
+                  totalAmount === 0 ||
+                  (privacyMode === "private" &&
+                    (!privatePackStats.ok || privatePoolReady === false))
+                }
+                className="gap-2"
+              >
                 Review
                 <ArrowRight className="h-4 w-4" />
               </Button>
@@ -708,12 +997,21 @@ export default function CreatePayoutPage() {
                       {Array.from(selected).map((id) => {
                         const s = getSubscriberById(id);
                         if (!s) return null;
+                        const pack = packByRecipient.get(id);
                         return (
-                          <div key={id} className="flex items-center justify-between text-sm">
-                            <span>{s.name}</span>
-                            <span className="font-medium">
-                              {(amounts[id] || 0).toLocaleString()} {selectedToken.symbol}
-                            </span>
+                          <div key={id} className="space-y-0.5">
+                            <div className="flex items-center justify-between text-sm">
+                              <span>{s.name}</span>
+                              <span className="font-medium">
+                                {(amounts[id] || 0).toLocaleString()} {selectedToken.symbol}
+                              </span>
+                            </div>
+                            {privacyMode === "private" && pack?.ok && (
+                              <p className="text-xs text-muted-foreground">
+                                {formatPackPreview(pack.notes)} · {pack.notes.length} note
+                                {pack.notes.length === 1 ? "" : "s"}
+                              </p>
+                            )}
                           </div>
                         );
                       })}
@@ -721,9 +1019,23 @@ export default function CreatePayoutPage() {
                     <Separator />
                     <div className="space-y-2 text-sm">
                       <div className="flex items-center justify-between text-muted-foreground">
-                        <span>Recipients total (notes)</span>
-                        <span>{formatTokenAmount(feePreview.net, selectedToken.symbol)}</span>
+                        <span>
+                          {privacyMode === "private" ? "Mode" : "Recipients total (notes)"}
+                        </span>
+                        {privacyMode === "private" ? (
+                          <Badge variant="secondary">
+                            Private · {privatePackStats.noteCount} bucket notes
+                          </Badge>
+                        ) : (
+                          <span>{formatTokenAmount(feePreview.net, selectedToken.symbol)}</span>
+                        )}
                       </div>
+                      {privacyMode === "private" && (
+                        <div className="flex items-center justify-between text-muted-foreground">
+                          <span>Recipients total (notes)</span>
+                          <span>{formatTokenAmount(feePreview.net, selectedToken.symbol)}</span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between text-muted-foreground">
                         <span>Protocol fee ({feePreview.pct}%)</span>
                         <span>{formatTokenAmount(feePreview.fee, selectedToken.symbol)}</span>

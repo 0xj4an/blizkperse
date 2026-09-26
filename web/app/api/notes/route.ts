@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
     token_symbol,
     pool_address,
     deposit_tx,
+    denomination_id,
   } = await req.json();
 
   if (!payment_id) {
@@ -158,15 +159,29 @@ export async function POST(req: NextRequest) {
     console.error("post-deposit cache insert failed:", err);
   }
 
+  const denomId =
+    denomination_id === null || denomination_id === undefined
+      ? null
+      : Number(denomination_id);
+  if (
+    denomId !== null &&
+    (!Number.isInteger(denomId) || denomId < 0 || denomId > 63)
+  ) {
+    return NextResponse.json(
+      { error: "denomination_id must be an integer 0..63 or null" },
+      { status: 400 },
+    );
+  }
+
   const [row] = await sql`
     INSERT INTO notes (
       payment_id, subscriber_id, chain_id, commitment, value, holder_pk,
-      randomness, nullifier, token_symbol, pool_address, deposit_tx
+      randomness, nullifier, token_symbol, pool_address, deposit_tx, denomination_id
     )
     VALUES (
       ${payment.id}, ${payment.subscriber_id}, ${normalizedChainId}, ${commitment},
       ${value}, ${holder_pk}, ${randomness}, ${nullifier},
-      ${token_symbol ?? null}, ${verified.poolAddress}, ${deposit_tx}
+      ${token_symbol ?? null}, ${verified.poolAddress}, ${deposit_tx}, ${denomId}
     )
     ON CONFLICT (payment_id) DO UPDATE SET
       subscriber_id = EXCLUDED.subscriber_id,
@@ -178,7 +193,8 @@ export async function POST(req: NextRequest) {
       nullifier = EXCLUDED.nullifier,
       token_symbol = EXCLUDED.token_symbol,
       pool_address = EXCLUDED.pool_address,
-      deposit_tx = EXCLUDED.deposit_tx
+      deposit_tx = EXCLUDED.deposit_tx,
+      denomination_id = EXCLUDED.denomination_id
     RETURNING *
   `;
 
