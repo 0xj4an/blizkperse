@@ -53,6 +53,7 @@ export async function GET(
       n.token_symbol,
       n.pool_address,
       n.deposit_tx,
+      n.denomination_id,
       n.created_at AS note_created_at
     FROM payments pay
     LEFT JOIN subscribers s ON s.id = pay.subscriber_id
@@ -91,6 +92,10 @@ export async function GET(
       commitment: r.commitment,
       nullifier: r.nullifier,
       note_value: r.note_value,
+      denomination_id:
+        r.denomination_id === null || r.denomination_id === undefined
+          ? null
+          : Number(r.denomination_id),
       token_symbol: r.token_symbol,
       pool_address: r.pool_address,
       deposit_tx: r.deposit_tx,
