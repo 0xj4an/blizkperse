@@ -831,8 +831,19 @@ export default function PayerDashboard() {
                       {formatTokenAmount(payout.totalAmount, payout.token || "USDC")}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={payout.privacyMode === "private" ? "default" : "outline"}>
-                        {payout.privacyMode === "private" ? "Private" : "Standard"}
+                      <Badge
+                        variant={
+                          payout.privacyMode === "private" ||
+                          payout.privacyMode === "auto"
+                            ? "default"
+                            : "outline"
+                        }
+                      >
+                        {payout.privacyMode === "private"
+                          ? "Private"
+                          : payout.privacyMode === "auto"
+                            ? "Auto Mix"
+                            : "Standard"}
                       </Badge>
                     </TableCell>
                     <TableCell>

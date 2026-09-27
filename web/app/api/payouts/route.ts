@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import sql, { ensureSchema } from "@/lib/db";
 import { requireWalletAuth } from "@/lib/server-auth";
 
+function parsePrivacyMode(raw: unknown): "standard" | "private" | "auto" {
+  if (raw === "private") return "private";
+  if (raw === "auto") return "auto";
+  return "standard";
+}
+
 export async function POST(req: NextRequest) {
   await ensureSchema();
 
@@ -18,8 +24,7 @@ export async function POST(req: NextRequest) {
     privacy_mode,
   } = await req.json();
 
-  const privacyMode =
-    privacy_mode === "private" ? "private" : "standard";
+  const privacyMode = parsePrivacyMode(privacy_mode);
 
   const [organizer] = await sql`
     SELECT owner_address, private_enabled FROM organizers WHERE id = ${organizer_id}
@@ -30,11 +35,14 @@ export async function POST(req: NextRequest) {
   if (String(organizer.owner_address).toLowerCase() !== auth.address) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  if (privacyMode === "private" && !organizer.private_enabled) {
+  if (
+    (privacyMode === "private" || privacyMode === "auto") &&
+    !organizer.private_enabled
+  ) {
     return NextResponse.json(
       {
         error:
-          "Private mode is not enabled for this organization. Enable it in the payer dashboard first.",
+          "Private / Auto Mix is not enabled for this organization. Enable Private in the payer dashboard first.",
       },
       { status: 403 },
     );

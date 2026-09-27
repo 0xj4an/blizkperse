@@ -59,16 +59,22 @@ import { useModal } from "@getpara/react-sdk";
 import type { Hex } from "viem";
 import {
   packHumanAmount,
+  splitAutoMix,
   suggestPayable,
   formatPackPreview,
   ladderForToken,
   MAX_NOTES_PER_RECIPIENT,
   MAX_NOTES_PER_BATCH,
   type PackResult,
+  type AutoMixSplit,
 } from "@/lib/denominations";
 
 type Step = "select" | "amounts" | "review";
-type PrivacyMode = "standard" | "private";
+type PrivacyMode = "standard" | "private" | "auto";
+
+function usesBuckets(mode: PrivacyMode): boolean {
+  return mode === "private" || mode === "auto";
+}
 
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
 
@@ -134,7 +140,7 @@ export default function CreatePayoutPage() {
   const { openModal } = useModal();
 
   useEffect(() => {
-    if (org && !org.privateEnabled && privacyMode === "private") {
+    if (org && !org.privateEnabled && usesBuckets(privacyMode)) {
       setPrivacyMode("standard");
     }
   }, [org, privacyMode]);
@@ -157,7 +163,7 @@ export default function CreatePayoutPage() {
   }, [chain]);
 
   useEffect(() => {
-    if (privacyMode !== "private" || chain.placeholder) {
+    if (!usesBuckets(privacyMode) || chain.placeholder) {
       setPrivatePoolReady(null);
       return;
     }
@@ -213,6 +219,18 @@ export default function CreatePayoutPage() {
     return map;
   })();
 
+  const autoMixByRecipient = (() => {
+    const map = new Map<string, AutoMixSplit>();
+    if (privacyMode !== "auto") return map;
+    for (const id of selected) {
+      const human = amounts[id] || 0;
+      if (human <= 0) continue;
+      const raw = toTokenRawAmount(human, selectedToken.decimals);
+      map.set(id, splitAutoMix(raw, ladder));
+    }
+    return map;
+  })();
+
   const privatePackStats = (() => {
     if (privacyMode !== "private") {
       return { ok: true, noteCount: 0, invalidIds: [] as string[] };
@@ -230,6 +248,25 @@ export default function CreatePayoutPage() {
       ok: invalidIds.length === 0 && noteCount > 0,
       noteCount,
       invalidIds,
+    };
+  })();
+
+  const autoMixStats = (() => {
+    if (privacyMode !== "auto") {
+      return { noteCount: 0, privateNotes: 0, standardNotes: 0 };
+    }
+    let privateNotes = 0;
+    let standardNotes = 0;
+    for (const id of selected) {
+      const split = autoMixByRecipient.get(id);
+      if (!split) continue;
+      privateNotes += split.privateNotes.length;
+      if (split.standardRaw > 0n) standardNotes += 1;
+    }
+    return {
+      noteCount: privateNotes + standardNotes,
+      privateNotes,
+      standardNotes,
     };
   })();
 
@@ -256,11 +293,9 @@ export default function CreatePayoutPage() {
       rawAmounts.push(toTokenRawAmount(human, decimals));
     }
     const netRaw = rawAmounts.reduce((a, b) => a + b, 0n);
-    // Private depositBatch: fee on Σ per ≤64-note chunk (approximate with recipient raws when pack ok).
     const feeRaw = (() => {
       if (!applyFee) return 0n;
       if (privacyMode === "private") {
-        // Prefer packed note raws when exact; else fall back to requested amounts.
         const noteRaws: bigint[] = [];
         for (const id of ids) {
           const pack = packByRecipient.get(id);
@@ -278,6 +313,28 @@ export default function CreatePayoutPage() {
             chunk.reduce((a, b) => a + b, 0n),
             feeBps,
           );
+        }
+        return fee;
+      }
+      if (privacyMode === "auto") {
+        const privateRaws: bigint[] = [];
+        const standardRaws: bigint[] = [];
+        for (const id of ids) {
+          const split = autoMixByRecipient.get(id);
+          if (!split) continue;
+          for (const n of split.privateNotes) privateRaws.push(n.raw);
+          if (split.standardRaw > 0n) standardRaws.push(split.standardRaw);
+        }
+        let fee = 0n;
+        for (let i = 0; i < privateRaws.length; i += MAX_NOTES_PER_BATCH) {
+          const chunk = privateRaws.slice(i, i + MAX_NOTES_PER_BATCH);
+          fee += quoteProtocolFee(
+            chunk.reduce((a, b) => a + b, 0n),
+            feeBps,
+          );
+        }
+        for (const raw of standardRaws) {
+          fee += quoteProtocolFee(raw, feeBps);
         }
         return fee;
       }
@@ -417,7 +474,7 @@ export default function CreatePayoutPage() {
   const handleOneEach = () => {
     if (selected.size === 0) return;
     const next: Record<string, number> = {};
-    if (privacyMode === "private") {
+    if (usesBuckets(privacyMode)) {
       const smallest = ladder.descending[ladder.descending.length - 1];
       const human =
         typeof smallest?.human === "number"
@@ -492,12 +549,22 @@ export default function CreatePayoutPage() {
       }
       if (!privatePackStats.ok) {
         toast.error(
-          "Every Private amount must pack into exact denomination buckets (use Floor / Ceil).",
+          "Every Private amount must pack into exact denomination buckets (use Floor / Ceil), or switch to Auto Mix.",
         );
         return;
       }
       if (privatePackStats.noteCount > MAX_NOTES_PER_BATCH * 8) {
         toast.error("Too many bucket notes for one payout. Split into smaller payouts.");
+        return;
+      }
+    }
+    if (privacyMode === "auto") {
+      if (autoMixStats.noteCount === 0) {
+        toast.error("Enter positive amounts to deposit.");
+        return;
+      }
+      if (autoMixStats.noteCount > MAX_NOTES_PER_BATCH * 8) {
+        toast.error("Too many notes for one payout. Split into smaller payouts.");
         return;
       }
     }
@@ -519,7 +586,9 @@ export default function CreatePayoutPage() {
     setProgressMsg(
       privacyMode === "private"
         ? "Generating ZK proofs for bucket notes..."
-        : "Generating ZK proof...",
+        : privacyMode === "auto"
+          ? "Auto Mix: Private batch + Standard remainder..."
+          : "Generating ZK proof...",
     );
     try {
       const result = await createPayout({
@@ -539,8 +608,8 @@ export default function CreatePayoutPage() {
             step === "Proving deposit"
               ? "Generating ZK proof"
               : step === "Depositing note"
-                ? privacyMode === "private"
-                  ? "Submitting depositBatch"
+                ? privacyMode === "private" || privacyMode === "auto"
+                  ? "Submitting deposits"
                   : "Submitting deposit"
                 : step === "Preparing payout"
                   ? "Preparing payout"
@@ -755,7 +824,7 @@ export default function CreatePayoutPage() {
                     disabled={!org?.privateEnabled}
                     title={
                       org?.privateEnabled
-                        ? "Fixed denomination buckets + depositBatch"
+                        ? "Fixed denomination buckets + depositBatch (exact amounts only)"
                         : "Enable Private for this organization in the payer dashboard"
                     }
                     onClick={() => {
@@ -770,10 +839,33 @@ export default function CreatePayoutPage() {
                   >
                     Private
                   </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={privacyMode === "auto" ? "default" : "ghost"}
+                    className="h-8 px-3"
+                    disabled={!org?.privateEnabled}
+                    title={
+                      org?.privateEnabled
+                        ? "Pack into Private buckets; leftover goes to Standard automatically"
+                        : "Enable Private for this organization in the payer dashboard"
+                    }
+                    onClick={() => {
+                      if (!org?.privateEnabled) {
+                        toast.error(
+                          "Enable Private for this organization in the payer dashboard first.",
+                        );
+                        return;
+                      }
+                      setPrivacyMode("auto");
+                    }}
+                  >
+                    Auto Mix
+                  </Button>
                 </div>
                 {!org?.privateEnabled && (
                   <span className="text-xs text-muted-foreground">
-                    Private is gated per org — enable it on the payer dashboard.
+                    Private / Auto Mix is gated per org — enable it on the payer dashboard.
                   </span>
                 )}
                 {selectableTokens.length < 2 && (
@@ -792,7 +884,9 @@ export default function CreatePayoutPage() {
                   Equal Split
                 </Button>
                 <Button variant="outline" size="sm" onClick={handleOneEach}>
-                  {privacyMode === "private" ? "Min each" : "1 each"}
+                  {privacyMode === "private" || privacyMode === "auto"
+                    ? "Min each"
+                    : "1 each"}
                 </Button>
               </div>
             </div>
@@ -803,6 +897,8 @@ export default function CreatePayoutPage() {
                   Private mode packs each amount into fixed denomination buckets (max{" "}
                   {MAX_NOTES_PER_RECIPIENT} notes / recipient) and deposits them in one{" "}
                   <span className="font-medium text-foreground">depositBatch</span>.
+                  Amounts must pack exactly — use Floor / Ceil, or switch to{" "}
+                  <span className="font-medium text-foreground">Auto Mix</span>.
                 </p>
                 {privatePoolReady === false && (
                   <p className="text-destructive">
@@ -817,7 +913,40 @@ export default function CreatePayoutPage() {
                       {privatePackStats.noteCount} note
                       {privatePackStats.noteCount === 1 ? "" : "s"}
                     </span>
-                    {privatePackStats.ok ? "" : " — fix inexact amounts before continuing"}
+                    {!privatePackStats.ok && (
+                      <span className="text-destructive"> — some amounts do not pack</span>
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {privacyMode === "auto" && (
+              <div className="space-y-1 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                <p>
+                  <span className="font-medium text-foreground">Auto Mix</span> packs as much as
+                  possible into Private buckets, then deposits any leftover as a Standard free-amount
+                  note — no prompt. Recipients claim each note separately.
+                </p>
+                {privatePoolReady === false && (
+                  <p>
+                    No on-chain denominations — this payout will deposit{" "}
+                    <span className="font-medium text-foreground">all as Standard</span>.
+                  </p>
+                )}
+                {autoMixStats.noteCount > 0 && (
+                  <p>
+                    Preview:{" "}
+                    <span className="font-medium text-foreground">
+                      {autoMixStats.privateNotes} Private
+                    </span>
+                    {" + "}
+                    <span className="font-medium text-foreground">
+                      {autoMixStats.standardNotes} Standard
+                    </span>
+                    {" = "}
+                    {autoMixStats.noteCount} note
+                    {autoMixStats.noteCount === 1 ? "" : "s"}
                   </p>
                 )}
               </div>
@@ -894,10 +1023,53 @@ export default function CreatePayoutPage() {
                               >
                                 Ceil
                               </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2"
+                                onClick={() => setPrivacyMode("auto")}
+                              >
+                                Use Auto Mix
+                              </Button>
                             </>
                           )}
                         </div>
                       )}
+                      {privacyMode === "auto" && human > 0 && (() => {
+                        const split = autoMixByRecipient.get(id);
+                        if (!split) return null;
+                        const stdHuman = fromTokenRawAmountUi(
+                          split.standardRaw,
+                          selectedToken.decimals,
+                        );
+                        return (
+                          <div className="pl-0 text-xs text-muted-foreground sm:pl-1">
+                            {split.privateNotes.length > 0 && (
+                              <span>
+                                Private:{" "}
+                                <span className="font-medium text-foreground">
+                                  {formatPackPreview(split.privateNotes)}
+                                </span>
+                                {" · "}
+                              </span>
+                            )}
+                            {split.standardRaw > 0n ? (
+                              <span>
+                                Standard remainder:{" "}
+                                <span className="font-medium text-foreground">
+                                  {stdHuman.toLocaleString(undefined, {
+                                    maximumFractionDigits: 8,
+                                  })}{" "}
+                                  {selectedToken.symbol}
+                                </span>
+                              </span>
+                            ) : (
+                              <span>Fully Private (exact pack)</span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
@@ -950,8 +1122,10 @@ export default function CreatePayoutPage() {
             )}
             <p className="text-xs text-muted-foreground">
               {privacyMode === "private"
-                ? "Private amounts must match exact denomination buckets. Floor / Ceil adjust to the nearest packable total."
-                : "Amounts use token decimals (e.g. 1.5 USDT or 5500 COPm). One payout uses a single token for all recipients — for mixed tokens, create separate payouts."}
+                ? "Private amounts must match exact denomination buckets. Floor / Ceil adjust to the nearest packable total, or use Auto Mix."
+                : privacyMode === "auto"
+                  ? "Auto Mix packs into Private buckets automatically; any leftover deposits as a Standard note — no adjustment needed."
+                  : "Amounts use token decimals (e.g. 1.5 USDT or 5500 COPm). One payout uses a single token for all recipients — for mixed tokens, create separate payouts."}
             </p>
 
             <div className="flex justify-between">
@@ -1012,6 +1186,26 @@ export default function CreatePayoutPage() {
                                 {pack.notes.length === 1 ? "" : "s"}
                               </p>
                             )}
+                            {privacyMode === "auto" && (() => {
+                              const split = autoMixByRecipient.get(id);
+                              if (!split) return null;
+                              const parts: string[] = [];
+                              if (split.privateNotes.length > 0) {
+                                parts.push(
+                                  `Private ${formatPackPreview(split.privateNotes)}`,
+                                );
+                              }
+                              if (split.standardRaw > 0n) {
+                                parts.push(
+                                  `Standard ${fromTokenRawAmountUi(split.standardRaw, selectedToken.decimals).toLocaleString(undefined, { maximumFractionDigits: 8 })}`,
+                                );
+                              }
+                              return (
+                                <p className="text-xs text-muted-foreground">
+                                  {parts.join(" + ")}
+                                </p>
+                              );
+                            })()}
                           </div>
                         );
                       })}
@@ -1020,17 +1214,24 @@ export default function CreatePayoutPage() {
                     <div className="space-y-2 text-sm">
                       <div className="flex items-center justify-between text-muted-foreground">
                         <span>
-                          {privacyMode === "private" ? "Mode" : "Recipients total (notes)"}
+                          {privacyMode === "standard"
+                            ? "Recipients total (notes)"
+                            : "Mode"}
                         </span>
                         {privacyMode === "private" ? (
                           <Badge variant="secondary">
                             Private · {privatePackStats.noteCount} bucket notes
                           </Badge>
+                        ) : privacyMode === "auto" ? (
+                          <Badge variant="secondary">
+                            Auto Mix · {autoMixStats.privateNotes}P +{" "}
+                            {autoMixStats.standardNotes}S
+                          </Badge>
                         ) : (
                           <span>{formatTokenAmount(feePreview.net, selectedToken.symbol)}</span>
                         )}
                       </div>
-                      {privacyMode === "private" && (
+                      {(privacyMode === "private" || privacyMode === "auto") && (
                         <div className="flex items-center justify-between text-muted-foreground">
                           <span>Recipients total (notes)</span>
                           <span>{formatTokenAmount(feePreview.net, selectedToken.symbol)}</span>

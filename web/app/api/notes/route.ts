@@ -4,6 +4,28 @@ import { requireWalletAuth } from "@/lib/server-auth";
 import { CHAINS, DEFAULT_CHAIN_ID, type SupportedChainId } from "@/lib/constants";
 import { verifyDepositOnChain } from "@/lib/chain-verify";
 
+function enrichNoteRow(row: Record<string, unknown>) {
+  const denom =
+    row.denomination_id === null || row.denomination_id === undefined
+      ? null
+      : Number(row.denomination_id);
+  // Note-level mode: denomination_id is source of truth (Auto Mix has both kinds).
+  const notePrivacy =
+    denom !== null && Number.isInteger(denom) ? "private" : "standard";
+  const payoutPrivacy =
+    row.privacy_mode === "private"
+      ? "private"
+      : row.privacy_mode === "auto"
+        ? "auto"
+        : "standard";
+  return {
+    ...row,
+    denomination_id: denom,
+    privacy_mode: notePrivacy,
+    payout_privacy_mode: payoutPrivacy,
+  };
+}
+
 export async function GET(req: NextRequest) {
   await ensureSchema();
 
@@ -47,17 +69,28 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Join payout so claim can see privacy_mode even when denomination_id is null
+  // (surface a clear error instead of silently using Standard withdraw).
   const notes = paymentId
-    ? await sql`SELECT * FROM notes WHERE payment_id = ${paymentId}`
+    ? await sql`
+        SELECT n.*, COALESCE(po.privacy_mode, 'standard') AS privacy_mode
+        FROM notes n
+        JOIN payments pay ON pay.id = n.payment_id
+        LEFT JOIN payouts po ON po.id = pay.payout_id
+        WHERE n.payment_id = ${paymentId}
+      `
     : subscriberId
       ? await sql`
-          SELECT * FROM notes
-          WHERE subscriber_id = ${subscriberId}
-          ORDER BY created_at ASC
+          SELECT n.*, COALESCE(po.privacy_mode, 'standard') AS privacy_mode
+          FROM notes n
+          JOIN payments pay ON pay.id = n.payment_id
+          LEFT JOIN payouts po ON po.id = pay.payout_id
+          WHERE n.subscriber_id = ${subscriberId}
+          ORDER BY n.created_at ASC
         `
-      : await sql`SELECT * FROM notes`;
+      : await sql`SELECT n.*, 'standard'::text AS privacy_mode FROM notes n`;
 
-  return NextResponse.json(notes);
+  return NextResponse.json(notes.map((n) => enrichNoteRow(n as Record<string, unknown>)));
 }
 
 export async function POST(req: NextRequest) {
@@ -103,9 +136,14 @@ export async function POST(req: NextRequest) {
   }
 
   const [payment] = await sql`
-    SELECT p.id, p.subscriber_id, o.owner_address
+    SELECT
+      p.id,
+      p.subscriber_id,
+      o.owner_address,
+      COALESCE(po.privacy_mode, 'standard') AS privacy_mode
     FROM payments p
     JOIN organizers o ON o.id = p.organizer_id
+    LEFT JOIN payouts po ON po.id = p.payout_id
     WHERE p.id = ${payment_id}
   `;
   if (!payment) {
@@ -121,6 +159,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const privacyModeRaw = String(payment.privacy_mode ?? "standard");
+  const privacyMode =
+    privacyModeRaw === "private"
+      ? "private"
+      : privacyModeRaw === "auto"
+        ? "auto"
+        : "standard";
+
   const poolForSync =
     (typeof pool_address === "string" && pool_address.startsWith("0x")
       ? (pool_address as `0x${string}`)
@@ -128,7 +174,7 @@ export async function POST(req: NextRequest) {
     (token_symbol ? CHAINS[normalizedChainId]?.pools[token_symbol]?.pool : null) ??
     CHAINS[normalizedChainId]?.contracts.pool;
 
-  // Refuse to register claimable notes until the Deposit is confirmed on-chain.
+  // Refuse to register claimable notes until the Deposit / CommitmentInserted is confirmed.
   let verified: Awaited<ReturnType<typeof verifyDepositOnChain>>;
   try {
     verified = await verifyDepositOnChain({
@@ -159,16 +205,42 @@ export async function POST(req: NextRequest) {
     console.error("post-deposit cache insert failed:", err);
   }
 
-  const denomId =
+  let denomId =
     denomination_id === null || denomination_id === undefined
       ? null
       : Number(denomination_id);
+
+  // Recover denomination_id from CommitmentInserted when localStorage flush omitted it.
+  if (
+    denomId === null &&
+    verified.denominationId !== undefined &&
+    Number.isInteger(verified.denominationId)
+  ) {
+    denomId = verified.denominationId;
+  }
+
+  // Pure Standard payouts must not carry a bucket id.
+  if (privacyMode === "standard") {
+    denomId = null;
+  }
+
   if (
     denomId !== null &&
     (!Number.isInteger(denomId) || denomId < 0 || denomId > 63)
   ) {
     return NextResponse.json(
       { error: "denomination_id must be an integer 0..63 or null" },
+      { status: 400 },
+    );
+  }
+
+  // Pure Private requires denomination_id. Auto Mix allows null (Standard remainder notes).
+  if (privacyMode === "private" && denomId === null) {
+    return NextResponse.json(
+      {
+        error:
+          "Private payout notes require denomination_id (or a CommitmentInserted event on deposit_tx). Re-flush pending secrets after a Private depositBatch.",
+      },
       { status: 400 },
     );
   }
@@ -267,5 +339,8 @@ export async function POST(req: NextRequest) {
       });
   }
 
-  return NextResponse.json(row, { status: 201 });
+  return NextResponse.json(
+    enrichNoteRow({ ...row, privacy_mode: privacyMode } as Record<string, unknown>),
+    { status: 201 },
+  );
 }

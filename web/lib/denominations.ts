@@ -195,6 +195,47 @@ export function denominationIdForRaw(
   return null;
 }
 
+export type AutoMixSplit = {
+  /** Notes that fit Private denomination buckets (may be empty). */
+  privateNotes: PackedNote[];
+  privateRaw: bigint;
+  /** Remainder that cannot pack into Private — deposit as one Standard note. */
+  standardRaw: bigint;
+};
+
+/**
+ * Auto Mix: pack as much as possible into Private buckets; send leftover to Standard.
+ * Never asks the user — inexact / too_many_notes → private floor + standard remainder.
+ */
+export function splitAutoMix(
+  amountRaw: bigint,
+  ladder: DenominationLadder,
+  maxNotes: number = MAX_NOTES_PER_RECIPIENT,
+): AutoMixSplit {
+  if (amountRaw <= 0n) {
+    return { privateNotes: [], privateRaw: 0n, standardRaw: 0n };
+  }
+  if (ladder.descending.length === 0) {
+    return { privateNotes: [], privateRaw: 0n, standardRaw: amountRaw };
+  }
+
+  const attempted = packAmount(amountRaw, ladder, maxNotes);
+  if (attempted.ok) {
+    return {
+      privateNotes: attempted.notes,
+      privateRaw: attempted.totalRaw,
+      standardRaw: 0n,
+    };
+  }
+
+  // Partial pack (inexact or hit max notes): keep packed buckets private; rest Standard.
+  return {
+    privateNotes: attempted.notes,
+    privateRaw: attempted.totalRaw,
+    standardRaw: attempted.remainderRaw,
+  };
+}
+
 
 /**
  * Greedy pack (largest bucket ≤ remaining). v1 privacy UX requires exact coverage

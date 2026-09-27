@@ -180,6 +180,7 @@ export default function ClaimPage() {
         token_symbol?: string;
         pool_address?: string;
         denomination_id?: number | null;
+        privacy_mode?: "standard" | "private";
       } | null = null;
 
       // Chain we'll use for this claim (needed before fallback so we pick a note for this chain)
@@ -301,12 +302,26 @@ export default function ClaimPage() {
         noteData.denomination_id === undefined
           ? null
           : Number(noteData.denomination_id);
+      const notePrivacy =
+        noteData.privacy_mode === "private" ||
+        (denominationId !== null &&
+          Number.isInteger(denominationId) &&
+          denominationId >= 0)
+          ? "private"
+          : "standard";
       // Only notes that stored denomination_id (Private depositBatch) use withdrawDenom.
       // Do not infer from amount — Standard can deposit the same raw sizes.
+      // Auto Mix payouts mix both; denomination_id is source of truth per note.
       const isPrivate =
         denominationId !== null &&
         Number.isInteger(denominationId) &&
         denominationId >= 0;
+
+      if (notePrivacy === "private" && !isPrivate) {
+        throw new Error(
+          "This Private payment is missing denomination_id on the stored note. Ask the payer to flush pending note secrets (localStorage) after depositBatch, then retry claim.",
+        );
+      }
 
       const proofInput: ProofInput = {
         value: fieldToHex(valueBig),

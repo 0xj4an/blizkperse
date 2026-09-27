@@ -127,7 +127,7 @@ export function ensureSchema() {
     await sql`
       ALTER TABLE payouts
       ADD CONSTRAINT payouts_privacy_mode_check
-      CHECK (privacy_mode IN ('standard', 'private'))
+      CHECK (privacy_mode IN ('standard', 'private', 'auto'))
     `;
     await sql`
       CREATE TABLE IF NOT EXISTS payments (
