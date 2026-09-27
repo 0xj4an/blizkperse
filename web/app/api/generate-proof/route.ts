@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const maxDuration = 120;
 import { generateWithdrawProof } from "../../lib/withdrawProver";
 import { generateWithdrawDenomProof } from "../../lib/withdrawDenomProver";
+import { requireWalletAuth } from "@/lib/server-auth";
 
 // Simple in-memory lock to prevent concurrent proof generation
 let isGenerating = false;
@@ -63,6 +64,9 @@ function validateMerkle(input: Record<string, unknown>): {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireWalletAuth(req);
+  if ("error" in auth) return auth.error;
+
   await acquireLock();
   try {
     const input = await req.json();
@@ -155,8 +159,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ proof: proofHex, mode: "standard" });
   } catch (error) {
-    console.error("Proof generation error:", error);
     const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("Proof generation error:", message);
     return NextResponse.json(
       { error: `Proof generation failed: ${message}` },
       { status: 500 },

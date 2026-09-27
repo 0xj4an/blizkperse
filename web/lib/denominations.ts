@@ -147,15 +147,15 @@ function buildLadder(
   return { kind, decimals, byId, descending };
 }
 
-export function stablesLadder(decimals = 6): DenominationLadder {
+function stablesLadder(decimals = 6): DenominationLadder {
   return buildLadder("stables", decimals, STABLES_HUMAN);
 }
 
-export function nativeLadder(decimals = 18): DenominationLadder {
+function nativeLadder(decimals = 18): DenominationLadder {
   return buildLadder("native", decimals, NATIVE_HUMAN);
 }
 
-export function copmLadder(decimals = 18): DenominationLadder {
+function copmLadder(decimals = 18): DenominationLadder {
   return buildLadder("copm", decimals, COPM_HUMAN);
 }
 
@@ -172,27 +172,8 @@ export function ladderForToken(symbol: string, decimals: number): DenominationLa
   return stablesLadder(decimals);
 }
 
-/** Amounts array for `setDenominations` (index = denomination_id). */
-export function onChainDenominationAmounts(ladder: DenominationLadder): bigint[] {
-  return ladder.byId.map((d) => {
-    if (!d) throw new Error("sparse denomination id in ladder");
-    return d.raw;
-  });
-}
-
 function toPacked(d: Denomination): PackedNote {
   return { denominationId: d.id, human: d.human, raw: d.raw };
-}
-
-/** Resolve denomination_id from a note's raw value, or null if not an exact bucket. */
-export function denominationIdForRaw(
-  amountRaw: bigint,
-  ladder: DenominationLadder,
-): number | null {
-  for (const d of ladder.byId) {
-    if (d && d.raw === amountRaw) return d.id;
-  }
-  return null;
 }
 
 export type AutoMixSplit = {
@@ -378,20 +359,4 @@ export function formatPackPreview(notes: PackedNote[]): string {
       return count === 1 ? label : `${label} × ${count}`;
     })
     .join(" + ");
-}
-
-export function sumNotesRaw(notes: PackedNote[]): bigint {
-  return notes.reduce((s, n) => s + n.raw, 0n);
-}
-
-/** Flatten many recipients' notes and enforce batch cap. */
-export function flattenBatchNotes(
-  perRecipient: PackedNote[][],
-  maxBatch: number = MAX_NOTES_PER_BATCH
-): { ok: true; notes: PackedNote[] } | { ok: false; noteCount: number; reason: "too_many_notes" } {
-  const notes = perRecipient.flat();
-  if (notes.length > maxBatch) {
-    return { ok: false, noteCount: notes.length, reason: "too_many_notes" };
-  }
-  return { ok: true, notes };
 }

@@ -48,3 +48,6 @@ tasks/
 .vscode/
 *.swp
 *.swo
+
+# Local ZK experiment clones (huge)
+zk/__tmp__*/

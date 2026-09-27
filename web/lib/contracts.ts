@@ -119,7 +119,7 @@ export function hasRouter(config: ChainConfig): boolean {
 }
 
 /** Spender for ERC-20 approve: router when configured, otherwise the token pool. */
-export function depositSpender(config: ChainConfig, tokenSymbol?: string): `0x${string}` {
+function depositSpender(config: ChainConfig, tokenSymbol?: string): `0x${string}` {
   if (hasRouter(config)) return config.router;
   if (tokenSymbol) return getPoolConfig(config, tokenSymbol).pool;
   return config.contracts.pool;
@@ -147,15 +147,6 @@ export async function approveRouterToken(
     args: [depositSpender(config, token.symbol), amount],
     chain: buildViemChain(config),
   });
-}
-
-/** @deprecated Prefer approveRouterToken */
-export async function approvePoolToken(
-  walletClient: WalletClient,
-  config: ChainConfig,
-  amount: bigint = config.poolDenomination,
-): Promise<Hash> {
-  return approveRouterToken(walletClient, config, config.defaultToken, amount);
 }
 
 export async function depositViaRouter(
@@ -479,25 +470,6 @@ function getRevertDataHex(err: unknown): string | null {
   return null;
 }
 
-export async function registerRoot(
-  walletClient: WalletClient,
-  config: ChainConfig,
-  root: Hex,
-  tokenSymbol?: string,
-): Promise<Hash> {
-  const pool = tokenSymbol
-    ? getPoolConfig(config, tokenSymbol).pool
-    : config.contracts.pool;
-  return walletClient.writeContract({
-    account: getWalletAccount(walletClient),
-    address: pool,
-    abi: POOL_ABI,
-    functionName: "registerRoot",
-    args: [root],
-    chain: buildViemChain(config),
-  });
-}
-
 export async function withdrawViaRouter(
   walletClient: WalletClient,
   config: ChainConfig,
@@ -573,7 +545,7 @@ function errorToMessage(err: unknown): string {
 }
 
 /** True when the AA client likely submitted a UserOp but receipt wait / RPC fetch failed. */
-export function isLikelyReceiptFetchFailure(err: unknown): boolean {
+function isLikelyReceiptFetchFailure(err: unknown): boolean {
   const lower = errorToMessage(err).toLowerCase();
   return (
     lower.includes("failed to fetch") ||
@@ -631,7 +603,7 @@ export async function isNullifierUsed(
  * Poll chain RPC (app `config.rpcUrl`, e.g. forno) for a receipt.
  * Prefer this over Alchemy AA transport when receipt wait fails with Failed to fetch.
  */
-export async function pollTransactionReceipt(
+async function pollTransactionReceipt(
   config: ChainConfig,
   hash: Hash,
   opts?: { attempts?: number; delayMs?: number; initialDelayMs?: number },
@@ -876,68 +848,4 @@ export async function getAllBalances(
     }),
   );
   return Object.fromEntries(results);
-}
-
-const DEPOSIT_EVENT = {
-  type: "event" as const,
-  name: "Deposit" as const,
-  inputs: [
-    { type: "address" as const, indexed: true, name: "depositor" as const },
-    { type: "bytes32" as const, indexed: true, name: "commitment" as const },
-    { type: "uint256" as const, indexed: false, name: "amount" as const },
-  ],
-};
-
-/** Legacy Deposit(sender, commitment) without amount */
-const DEPOSIT_EVENT_LEGACY = {
-  type: "event" as const,
-  name: "Deposit" as const,
-  inputs: [
-    { type: "address" as const, indexed: true, name: "sender" as const },
-    { type: "bytes32" as const, indexed: true, name: "commitment" as const },
-  ],
-};
-
-const MAX_BLOCK_RANGE = BigInt(99);
-
-export async function getDepositEvents(
-  config: ChainConfig,
-  fromBlock?: bigint,
-  poolAddress?: `0x${string}`,
-) {
-  const client = getPublicClient(config);
-  const start = fromBlock ?? config.deployBlock;
-  const latest = await client.getBlockNumber();
-  const address = poolAddress ?? config.contracts.pool;
-
-  async function fetchRange(from: bigint, to: bigint) {
-    try {
-      return await client.getLogs({
-        address,
-        event: DEPOSIT_EVENT,
-        fromBlock: from,
-        toBlock: to,
-      });
-    } catch {
-      return client.getLogs({
-        address,
-        event: DEPOSIT_EVENT_LEGACY,
-        fromBlock: from,
-        toBlock: to,
-      });
-    }
-  }
-
-  if (latest - start <= MAX_BLOCK_RANGE) {
-    return fetchRange(start, latest);
-  }
-
-  const allLogs: Awaited<ReturnType<typeof fetchRange>>[] = [];
-  let cursor = start;
-  while (cursor <= latest) {
-    const end = cursor + MAX_BLOCK_RANGE > latest ? latest : cursor + MAX_BLOCK_RANGE;
-    allLogs.push(await fetchRange(cursor, end));
-    cursor = end + 1n;
-  }
-  return allLogs.flat();
 }

@@ -1,6 +1,11 @@
 "use client";
 
 import { poseidon2, bigintToBytes32 } from "./zk";
+import {
+  clearWalletAuthCache,
+  getSessionWalletAuth,
+  getWalletAuthHeaders,
+} from "./api-auth";
 import type { ChainConfig } from "./constants";
 import type { Hex } from "viem";
 
@@ -119,7 +124,21 @@ export async function buildTreeFromEvents(
   if (opts?.poolAddress) params.set("pool_address", opts.poolAddress);
   if (opts?.tokenSymbol) params.set("token_symbol", opts.tokenSymbol);
 
-  const res = await fetch(`/api/deposit-events?${params.toString()}`);
+  const session = getSessionWalletAuth();
+  if (!session?.address) {
+    throw new Error("Wallet authentication is required to load deposit events");
+  }
+  let authHeaders: Record<string, string>;
+  try {
+    authHeaders = await getWalletAuthHeaders(session);
+  } catch (err) {
+    clearWalletAuthCache();
+    throw err;
+  }
+
+  const res = await fetch(`/api/deposit-events?${params.toString()}`, {
+    headers: authHeaders,
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: "Unknown error" }));
     throw new Error(err.error ?? `Failed to fetch deposit events (${res.status})`);

@@ -53,6 +53,18 @@ export function clearWalletAuthCache() {
   cachedAuth = null;
 }
 
+/** Auth used for store hydrate + ZK API routes while the wallet session is active. */
+let sessionWalletAuth: WalletAuth | null = null;
+
+export function setSessionWalletAuth(auth: WalletAuth | null) {
+  sessionWalletAuth = auth;
+  if (!auth) clearWalletAuthCache();
+}
+
+export function getSessionWalletAuth(): WalletAuth | null {
+  return sessionWalletAuth;
+}
+
 function normalizeParaSignature(rawSignature: string): `0x${string}` {
   const sigHex = rawSignature.startsWith("0x")
     ? (rawSignature as `0x${string}`)

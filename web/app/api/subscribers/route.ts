@@ -5,9 +5,15 @@ import { requireWalletAuth } from "@/lib/server-auth";
 export async function GET(req: NextRequest) {
   await ensureSchema();
 
+  const auth = await requireWalletAuth(req);
+  if ("error" in auth) return auth.error;
+
   const address = req.nextUrl.searchParams.get("address");
   if (!address) {
     return NextResponse.json({ error: "address required" }, { status: 400 });
+  }
+  if (address.toLowerCase() !== auth.address) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const [row] = await sql`

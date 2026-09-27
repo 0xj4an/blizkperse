@@ -1,6 +1,13 @@
 "use client";
 
+import {
+  getWalletAuthHeaders,
+  getSessionWalletAuth,
+  clearWalletAuthCache,
+  type WalletAuth,
+} from "./api-auth";
 import type { Hex } from "viem";
+
 import { poseidon2 as poseidonHash } from "@/lib/poseidon2-hash";
 
 // ── Types ───────────────────────────────────────────────
@@ -119,12 +126,26 @@ export function generateRandomField(): bigint {
   return result;
 }
 
+async function zkAuthHeaders(auth?: WalletAuth | null): Promise<Record<string, string>> {
+  const session = auth ?? getSessionWalletAuth();
+  if (!session?.address) {
+    throw new Error("Wallet authentication is required for proof generation");
+  }
+  try {
+    return await getWalletAuthHeaders(session);
+  } catch (err) {
+    clearWalletAuthCache();
+    throw err;
+  }
+}
+
 // ── Proof generation ────────────────────────────────────
 // This is SLOW (~10-30 seconds). Always show a loading state.
 // Uses server-side nargo prove for compatibility with deployed verifier.
 
 export async function generateProof(
-  input: ProofInput
+  input: ProofInput,
+  auth?: WalletAuth | null,
 ): Promise<ProofResult> {
   const mode: "standard" | "private" =
     input.mode === "private" || input.denomination_id !== undefined
@@ -152,9 +173,10 @@ export async function generateProof(
     throw new Error("Private withdraw proof requires denomination_id");
   }
 
+  const authHeaders = await zkAuthHeaders(auth);
   const response = await fetch("/api/generate-proof", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders },
     body: JSON.stringify(body),
   });
 
@@ -194,17 +216,21 @@ export type DepositProofInput = {
 /** Client timeout for /api/generate-deposit-proof (WASM prove is ~1–2s once warm). */
 const DEPOSIT_PROOF_TIMEOUT_MS = 90_000;
 
-export async function generateDepositProof(input: DepositProofInput): Promise<{
+export async function generateDepositProof(
+  input: DepositProofInput,
+  auth?: WalletAuth | null,
+): Promise<{
   proof: Hex;
   publicInputs: Hex[];
 }> {
+  const authHeaders = await zkAuthHeaders(auth);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DEPOSIT_PROOF_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch("/api/generate-deposit-proof", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify(input),
       signal: controller.signal,
     });

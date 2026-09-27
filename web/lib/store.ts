@@ -48,6 +48,8 @@ import {
 import {
   clearWalletAuthCache,
   getWalletAuthHeaders,
+  getSessionWalletAuth,
+  setSessionWalletAuth,
   type WalletAuth,
 } from "./api-auth";
 import {
@@ -297,11 +299,11 @@ function mockTxHash() {
 
 // ── API helper ───────────────────────────────────────────
 
-async function api<T>(path: string, opts?: RequestInit): Promise<T | null> {
+/** Unauthenticated JSON GET for public endpoints (e.g. invite preview). */
+async function publicApi<T>(path: string): Promise<T | null> {
   try {
     const res = await fetch(path, {
       headers: { "Content-Type": "application/json" },
-      ...opts,
     });
     if (!res.ok) return null;
     return res.json();
@@ -536,18 +538,25 @@ export function invalidateAndRefetchStore() {
 
 export function hydrateStore() {
   if (hydratePromise) return hydratePromise;
-  const run = (async () => {
+  let run!: Promise<void>;
+  run = (async () => {
     state.hydrating = true;
     emitChange();
 
     try {
-      const data = await api<{
+      const auth = getSessionWalletAuth();
+      if (!auth?.address) {
+        // Wait until AuthGuard registers the wallet session — never hit open /api/data.
+        return;
+      }
+
+      const data = await authedApi<{
         organizers: Array<Record<string, unknown>>;
         subscribers: Array<Record<string, unknown>>;
         subscriptions: Array<Record<string, unknown>>;
         payouts: Array<Record<string, unknown>>;
         payments: Array<Record<string, unknown>>;
-      }>("/api/data");
+      }>("/api/data", auth);
 
       // Superseded by a newer invalidate/refetch that cleared hydratePromise.
       if (hydratePromise !== run) return;
@@ -666,8 +675,9 @@ export async function ensureSubscriber(
   const existing = getSubscriberByAddress(address);
   if (existing) return existing;
 
-  const existingRemote = await api<Record<string, unknown>>(
+  const existingRemote = await authedApi<Record<string, unknown>>(
     `/api/subscribers?address=${encodeURIComponent(address)}`,
+    { ...auth, address },
   );
   if (existingRemote) {
     const sub: Subscriber = {
@@ -853,7 +863,7 @@ export async function fetchInvite(code: string): Promise<{
   expired: boolean;
   valid: boolean;
 } | null> {
-  const data = await api<{
+  const data = await publicApi<{
     code: string;
     organizer_id: string;
     organizer_name: string;
@@ -935,18 +945,8 @@ export async function joinWithInvite(
   return subData;
 }
 
-/** @deprecated Open join is closed — use joinWithInvite. Kept for type compatibility. */
-export async function joinOrganizer(
-  _organizerId: string,
-  subscriberId: string,
-  auth: WalletAuth,
-  inviteCode?: string,
-): Promise<Subscription> {
-  if (!inviteCode) {
-    throw new Error("An invite code is required to join an organization");
-  }
-  return joinWithInvite(inviteCode, subscriberId, auth);
-}
+/** Re-export so AuthGuard can register the wallet session for store hydrate. */
+export { setSessionWalletAuth, getSessionWalletAuth } from "./api-auth";
 
 export async function createPayout(params: {
   organizerId: string;
@@ -1282,13 +1282,16 @@ export async function createPayout(params: {
         };
         upsertPendingNoteSecret(pendingSecret);
 
-        const depositProof = await generateDepositProof({
-          value: bigintToBytes32(note.value),
-          commitment,
-          pk_b: bigintToBytes32(note.holder),
-          random: bigintToBytes32(note.random),
-          nullifier: bigintToBytes32(note.nullifier),
-        });
+        const depositProof = await generateDepositProof(
+          {
+            value: bigintToBytes32(note.value),
+            commitment,
+            pk_b: bigintToBytes32(note.holder),
+            random: bigintToBytes32(note.random),
+            nullifier: bigintToBytes32(note.nullifier),
+          },
+          authOpts,
+        );
 
         prepared.push({
           payment,
@@ -1399,13 +1402,16 @@ export async function createPayout(params: {
       // DB until deposit_tx is set after a successful receipt — see flushPendingNoteSecrets.
       upsertPendingNoteSecret(pendingSecret);
 
-      const depositProof = await generateDepositProof({
-        value: bigintToBytes32(note.value),
-        commitment,
-        pk_b: bigintToBytes32(note.holder),
-        random: bigintToBytes32(note.random),
-        nullifier: bigintToBytes32(note.nullifier),
-      });
+      const depositProof = await generateDepositProof(
+        {
+          value: bigintToBytes32(note.value),
+          commitment,
+          pk_b: bigintToBytes32(note.holder),
+          random: bigintToBytes32(note.random),
+          nullifier: bigintToBytes32(note.nullifier),
+        },
+        authOpts,
+      );
 
       params.onProgress?.("Depositing note", noteIndex, totalNotes);
 

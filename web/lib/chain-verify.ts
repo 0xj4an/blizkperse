@@ -9,6 +9,10 @@ import {
   type TransactionReceipt,
 } from "viem";
 import { CHAINS, type SupportedChainId, type ChainConfig } from "@/lib/constants";
+import {
+  isKnownPoolAddress,
+  resolveAllowlistedPool,
+} from "@/lib/pool-allowlist";
 
 const depositEvent = parseAbiItem(
   "event Deposit(address indexed depositor, bytes32 indexed commitment, uint256 amount)",
@@ -101,13 +105,26 @@ function resolvePoolAddress(
   poolAddress?: string | null,
   tokenSymbol?: string | null,
 ): `0x${string}` {
-  if (poolAddress && /^0x[0-9a-fA-F]{40}$/.test(poolAddress)) {
-    return poolAddress as `0x${string}`;
+  const pool = resolveAllowlistedPool(config, poolAddress, tokenSymbol);
+  if (!pool) {
+    throw new Error(
+      `pool_address must be a configured Blizkperse pool on ${config.name}`,
+    );
   }
-  if (tokenSymbol && config.pools[tokenSymbol]?.pool) {
-    return config.pools[tokenSymbol].pool;
+  return pool;
+}
+
+function knownPoolSet(config: ChainConfig): Set<string> {
+  const pools = new Set<string>();
+  if (isKnownPoolAddress(config, config.contracts.pool)) {
+    pools.add(config.contracts.pool.toLowerCase());
   }
-  return config.contracts.pool;
+  for (const p of Object.values(config.pools)) {
+    if (isKnownPoolAddress(config, p.pool)) {
+      pools.add(p.pool.toLowerCase());
+    }
+  }
+  return pools;
 }
 
 export type DepositVerification = {
@@ -162,14 +179,10 @@ export async function verifyDepositOnChain(params: {
     throw new Error(`Deposit tx reverted on-chain: ${depositTx}`);
   }
 
-  const expectedLower = expectedPool.toLowerCase();
   const routerLower = config.router?.toLowerCase?.() ?? "";
-  const knownPools = new Set(
-    Object.values(config.pools)
-      .map((p) => p.pool.toLowerCase())
-      .filter((a) => a && a !== "0x0000000000000000000000000000000000000000"),
-  );
-  knownPools.add(expectedLower);
+  // Only configured pools — never trust a client-supplied address as allowlist seed.
+  const knownPools = knownPoolSet(config);
+  knownPools.add(expectedPool.toLowerCase());
 
   let resolvedPool: `0x${string}` | null = null;
   let denominationId: number | undefined;
@@ -259,6 +272,13 @@ export async function verifyDepositOnChain(params: {
   if (!resolvedPool) {
     throw new Error(
       `Deposit tx succeeded but no Deposit/CommitmentInserted event for commitment ${commitment.slice(0, 12)}…`,
+    );
+  }
+
+  // Reject deposits from non-allowlisted emitters (prevents fake self-deployed pools).
+  if (!knownPools.has(resolvedPool.toLowerCase())) {
+    throw new Error(
+      `Deposit pool ${resolvedPool} is not a configured Blizkperse pool on ${config.name}`,
     );
   }
 

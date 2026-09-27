@@ -3,6 +3,7 @@ import sql, { ensureSchema } from "@/lib/db";
 import { requireWalletAuth } from "@/lib/server-auth";
 import { CHAINS, DEFAULT_CHAIN_ID, type SupportedChainId } from "@/lib/constants";
 import { verifyDepositOnChain } from "@/lib/chain-verify";
+import { resolveAllowlistedPool } from "@/lib/pool-allowlist";
 
 function enrichNoteRow(row: Record<string, unknown>) {
   const denom =
@@ -167,12 +168,18 @@ export async function POST(req: NextRequest) {
         ? "auto"
         : "standard";
 
-  const poolForSync =
-    (typeof pool_address === "string" && pool_address.startsWith("0x")
-      ? (pool_address as `0x${string}`)
-      : null) ??
-    (token_symbol ? CHAINS[normalizedChainId]?.pools[token_symbol]?.pool : null) ??
-    CHAINS[normalizedChainId]?.contracts.pool;
+  const chainConfig = CHAINS[normalizedChainId];
+  const poolForSync = resolveAllowlistedPool(
+    chainConfig,
+    typeof pool_address === "string" ? pool_address : null,
+    typeof token_symbol === "string" ? token_symbol : null,
+  );
+  if (!poolForSync) {
+    return NextResponse.json(
+      { error: "pool_address must be a configured pool for this chain" },
+      { status: 400 },
+    );
+  }
 
   // Refuse to register claimable notes until the Deposit / CommitmentInserted is confirmed.
   let verified: Awaited<ReturnType<typeof verifyDepositOnChain>>;
@@ -326,12 +333,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (poolForSync && poolForSync !== "0x0000000000000000000000000000000000000000") {
+  if (verified.poolAddress) {
     void import("../../lib/rootRegistrar")
       .then(({ syncPoolRoot }) =>
         syncPoolRoot({
           chainId: normalizedChainId,
-          poolAddress: poolForSync as `0x${string}`,
+          poolAddress: verified.poolAddress,
         }),
       )
       .catch((err) => {
