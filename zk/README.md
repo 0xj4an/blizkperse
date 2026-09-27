@@ -5,6 +5,10 @@ Noir ZK circuits and Foundry smart contracts for the Blizkperse shielded pools.
 > **Withdraw verifier + frontend:** Compile with `circuits/scripts/compile_withdraw_verifier.sh` and prove with `--oracle_hash keccak`. See **[docs/build-and-deploy.md](docs/build-and-deploy.md)** to avoid SumcheckFailed.
 
 > **Current model (arbitrary amounts + multi-token):** **[docs/arbitrary-amounts-multitoken.md](docs/arbitrary-amounts-multitoken.md)** — one pool per token, `PoolRouter`, deposit circuit, protocol fee, registrar-only `registerRoot`. Legacy 1 USDC pools are not migrated.
+>
+> **Proposed privacy (denominations + batch deposit):** **[docs/private-amounts-and-batch-deposit.md](docs/private-amounts-and-batch-deposit.md)** — private withdraw amounts via buckets; `depositBatch`; no unified multi-token tree.
+>
+> **Later (after circuits):** **[docs/native-burn-mint-exits.md](docs/native-burn-mint-exits.md)** — claim-time USDC CCTP + USDT0 exits (asset/chain + bridge + platform fees).
 
 ## Prerequisites
 
@@ -103,6 +107,10 @@ Legacy single-pool USDC addresses remain for Monad testnet (10143) and Celo test
 | Doc | Description |
 | --- | --- |
 | [arbitrary-amounts-multitoken.md](docs/arbitrary-amounts-multitoken.md) | Router, fees, registrar, deposit circuit |
+| [private-amounts-and-batch-deposit.md](docs/private-amounts-and-batch-deposit.md) | Proposed: denomination withdraw + batch deposit |
+| [native-burn-mint-exits.md](docs/native-burn-mint-exits.md) | Later: claim-time USDC/USDT exit + fees |
+| Circuits: `src/withdraw.nr` | Standard arbitrary-amount withdraw |
+| Circuits: `src/withdraw_denom.nr` | Private buckets withdraw (`denomination_id`) |
 | [build-and-deploy.md](docs/build-and-deploy.md) | Verifier fingerprints, SumcheckFailed |
 | [demo-deposit-withdraw.md](docs/demo-deposit-withdraw.md) | CLI demo (may include legacy notes) |
 | [test-deposit-withdraw.md](docs/test-deposit-withdraw.md) | Testing notes |

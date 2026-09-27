@@ -133,14 +133,18 @@ RUN mkdir -p ./zk/circuits/proofs ./circuits/proofs
 COPY --from=builder /app/web/.next/standalone ./
 COPY --from=builder /app/web/.next/static ./.next/static
 COPY --from=builder /app/web/public ./public
+# Honk worker (child process). Not always inside standalone file tracing.
+COPY --from=builder /app/web/scripts/prove-worker.mjs ./scripts/prove-worker.mjs
 
 # Fail the image build if circuits vanished (e.g. bad COPY order / empty standalone zk/)
 RUN test -f /app/zk/circuits/Nargo.toml && \
   test -f /app/zk/circuits/target/deposit_circuit.json && \
-  test -f /app/zk/circuits/target/with_foundry.json
+  test -f /app/zk/circuits/target/with_foundry.json && \
+  test -f /app/scripts/prove-worker.mjs
 
 WORKDIR /app
 ENV CIRCUITS_DIR=/app/zk/circuits
+ENV PROVE_WORKER_IDLE_MS=45000
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 EXPOSE 3000
