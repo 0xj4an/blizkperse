@@ -17,10 +17,12 @@ const nextConfig: NextConfig = {
     "/api/generate-proof": [
       "./node_modules/@aztec/bb.js/**/*",
       "./node_modules/@noir-lang/noir_js/**/*",
+      "./scripts/prove-worker.mjs",
     ],
     "/api/generate-deposit-proof": [
       "./node_modules/@aztec/bb.js/**/*",
       "./node_modules/@noir-lang/noir_js/**/*",
+      "./scripts/prove-worker.mjs",
     ],
   },
 
