@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 120;
-import { generateWithdrawProof } from "../../lib/withdrawProver";
+import { generateWithdrawProofViaWorker } from "../../lib/proveWorkerClient";
 import { generateWithdrawDenomProof } from "../../lib/withdrawDenomProver";
 import { requireWalletAuth } from "@/lib/server-auth";
 
@@ -112,6 +112,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      // Denom circuit is not in prove-worker yet — prove in-process.
       const { proofHex } = await generateWithdrawDenomProof({
         denomination_id: denominationId,
         nullifier: String(input.nullifier),
@@ -145,7 +146,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { proofHex } = await generateWithdrawProof({
+    const { proofHex } = await generateWithdrawProofViaWorker({
       value: String(input.value),
       nullifier: String(input.nullifier),
       merkle_proof_length: merkle.merkleProofLength,

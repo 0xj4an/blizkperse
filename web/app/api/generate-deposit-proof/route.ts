@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateDepositProof } from "../../lib/depositProver";
+import { generateDepositProofViaWorker } from "../../lib/proveWorkerClient";
 import { requireWalletAuth } from "@/lib/server-auth";
 
 export const maxDuration = 120;
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       nullifier: String(input.nullifier),
     };
 
-    const { proofHex, publicInputs } = await generateDepositProof(normalized);
+    const { proofHex, publicInputs } = await generateDepositProofViaWorker(normalized);
     const proofByteLen = (proofHex.length - 2) / 2;
     console.info(
       `[generate-deposit-proof] proofBytes=${proofByteLen} publicInputs=${publicInputs.length}`,
