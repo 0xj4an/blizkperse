@@ -9,6 +9,10 @@ import {
   type TransactionReceipt,
 } from "viem";
 import { CHAINS, type SupportedChainId, type ChainConfig } from "@/lib/constants";
+import {
+  isKnownPoolAddress,
+  resolveAllowlistedPool,
+} from "@/lib/pool-allowlist";
 
 const depositEvent = parseAbiItem(
   "event Deposit(address indexed depositor, bytes32 indexed commitment, uint256 amount)",
@@ -16,8 +20,15 @@ const depositEvent = parseAbiItem(
 const depositEventLegacy = parseAbiItem(
   "event Deposit(address indexed sender, bytes32 indexed commitment)",
 );
+/** Private depositBatch leaves — commitment is topic[1], not topic[2]. */
+const commitmentInsertedEvent = parseAbiItem(
+  "event CommitmentInserted(bytes32 indexed commitment, uint256 indexed denominationId)",
+);
 const withdrawEvent = parseAbiItem(
   "event Withdraw(address indexed recipient, bytes32 indexed nullifier, uint256 amount)",
+);
+const withdrawDenomEvent = parseAbiItem(
+  "event WithdrawDenom(address indexed recipient, bytes32 indexed nullifier, uint256 indexed denominationId, uint256 amount)",
 );
 
 const nullifiersAbi = [
@@ -60,6 +71,13 @@ function commitmentFromLog(log: Log): string | null {
   return null;
 }
 
+/** ShieldedPool.CommitmentInserted — commitment is topic[1]. */
+function commitmentFromInsertedLog(log: Log): string | null {
+  const topics = log.topics;
+  if (topics && topics.length >= 2 && topics[1]) return topics[1].toLowerCase();
+  return null;
+}
+
 /** PoolRouter.RoutedDeposit: commitment is the first word of non-indexed data. */
 function commitmentFromRoutedDepositData(log: Log): string | null {
   const data = log.data?.toLowerCase?.() ?? "";
@@ -87,13 +105,26 @@ function resolvePoolAddress(
   poolAddress?: string | null,
   tokenSymbol?: string | null,
 ): `0x${string}` {
-  if (poolAddress && /^0x[0-9a-fA-F]{40}$/.test(poolAddress)) {
-    return poolAddress as `0x${string}`;
+  const pool = resolveAllowlistedPool(config, poolAddress, tokenSymbol);
+  if (!pool) {
+    throw new Error(
+      `pool_address must be a configured Blizkperse pool on ${config.name}`,
+    );
   }
-  if (tokenSymbol && config.pools[tokenSymbol]?.pool) {
-    return config.pools[tokenSymbol].pool;
+  return pool;
+}
+
+function knownPoolSet(config: ChainConfig): Set<string> {
+  const pools = new Set<string>();
+  if (isKnownPoolAddress(config, config.contracts.pool)) {
+    pools.add(config.contracts.pool.toLowerCase());
   }
-  return config.contracts.pool;
+  for (const p of Object.values(config.pools)) {
+    if (isKnownPoolAddress(config, p.pool)) {
+      pools.add(p.pool.toLowerCase());
+    }
+  }
+  return pools;
 }
 
 export type DepositVerification = {
@@ -101,6 +132,8 @@ export type DepositVerification = {
   depositTx: Hash;
   blockNumber: string;
   poolAddress: `0x${string}`;
+  /** Set when the matching log was CommitmentInserted (Private depositBatch). */
+  denominationId?: number;
 };
 
 export type ClaimVerification = {
@@ -110,7 +143,8 @@ export type ClaimVerification = {
 };
 
 /**
- * Confirm a deposit landed: receipt success + Deposit (or RoutedDeposit) with matching commitment.
+ * Confirm a deposit landed: receipt success + Deposit, CommitmentInserted (Private batch),
+ * or RoutedDeposit with matching commitment.
  * Resolves the actual pool from receipt logs when env/config points at a stale pool address
  * (common after redeploy: router routes to the new pool while NEXT_PUBLIC_*_POOL_* is outdated).
  */
@@ -145,16 +179,13 @@ export async function verifyDepositOnChain(params: {
     throw new Error(`Deposit tx reverted on-chain: ${depositTx}`);
   }
 
-  const expectedLower = expectedPool.toLowerCase();
   const routerLower = config.router?.toLowerCase?.() ?? "";
-  const knownPools = new Set(
-    Object.values(config.pools)
-      .map((p) => p.pool.toLowerCase())
-      .filter((a) => a && a !== "0x0000000000000000000000000000000000000000"),
-  );
-  knownPools.add(expectedLower);
+  // Only configured pools — never trust a client-supplied address as allowlist seed.
+  const knownPools = knownPoolSet(config);
+  knownPools.add(expectedPool.toLowerCase());
 
   let resolvedPool: `0x${string}` | null = null;
+  let denominationId: number | undefined;
 
   for (const log of receipt.logs) {
     const addr = log.address.toLowerCase() as `0x${string}`;
@@ -163,10 +194,24 @@ export async function verifyDepositOnChain(params: {
     const fromDeposit = commitmentFromLog(log);
     if (fromDeposit === commitment) {
       if (addr === routerLower) {
-        // Shouldn't happen for Deposit, but keep searching.
         continue;
       }
       resolvedPool = addr;
+      break;
+    }
+
+    // ShieldedPool.CommitmentInserted (Private depositBatch) — commitment topic[1],
+    // denominationId topic[2].
+    const fromInserted = commitmentFromInsertedLog(log);
+    if (fromInserted === commitment && addr !== routerLower) {
+      resolvedPool = addr;
+      const denomTopic = log.topics?.[2];
+      if (denomTopic) {
+        const parsed = Number(BigInt(denomTopic));
+        if (Number.isInteger(parsed) && parsed >= 0 && parsed <= 63) {
+          denominationId = parsed;
+        }
+      }
       break;
     }
 
@@ -183,7 +228,7 @@ export async function verifyDepositOnChain(params: {
     const toBlock = receipt.blockNumber;
     const poolsToScan = [...knownPools];
     for (const poolAddr of poolsToScan) {
-      const [current, legacy] = await Promise.all([
+      const [current, legacy, inserted] = await Promise.all([
         client.getLogs({
           address: poolAddr as `0x${string}`,
           event: depositEvent,
@@ -198,7 +243,25 @@ export async function verifyDepositOnChain(params: {
           fromBlock,
           toBlock,
         }),
+        client.getLogs({
+          address: poolAddr as `0x${string}`,
+          event: commitmentInsertedEvent,
+          args: { commitment },
+          fromBlock,
+          toBlock,
+        }),
       ]);
+      if (inserted.length > 0) {
+        resolvedPool = poolAddr as `0x${string}`;
+        const id = inserted[0]?.args?.denominationId;
+        if (id !== undefined && id !== null) {
+          const parsed = Number(id);
+          if (Number.isInteger(parsed) && parsed >= 0 && parsed <= 63) {
+            denominationId = parsed;
+          }
+        }
+        break;
+      }
       if (current.length > 0 || legacy.length > 0) {
         resolvedPool = poolAddr as `0x${string}`;
         break;
@@ -208,7 +271,14 @@ export async function verifyDepositOnChain(params: {
 
   if (!resolvedPool) {
     throw new Error(
-      `Deposit tx succeeded but no Deposit event for commitment ${commitment.slice(0, 12)}…`,
+      `Deposit tx succeeded but no Deposit/CommitmentInserted event for commitment ${commitment.slice(0, 12)}…`,
+    );
+  }
+
+  // Reject deposits from non-allowlisted emitters (prevents fake self-deployed pools).
+  if (!knownPools.has(resolvedPool.toLowerCase())) {
+    throw new Error(
+      `Deposit pool ${resolvedPool} is not a configured Blizkperse pool on ${config.name}`,
     );
   }
 
@@ -217,6 +287,7 @@ export async function verifyDepositOnChain(params: {
     depositTx,
     blockNumber: String(receipt.blockNumber),
     poolAddress: resolvedPool,
+    ...(denominationId !== undefined ? { denominationId } : {}),
   };
 }
 
@@ -277,16 +348,25 @@ export async function verifyClaimOnChain(params: {
     });
 
     if (!hasWithdraw && !nullifierUsed) {
-      // Decode via getLogs near the block
+      // Decode via getLogs near the block (Standard Withdraw or Private WithdrawDenom).
       const fromBlock = receipt.blockNumber > 5n ? receipt.blockNumber - 5n : 0n;
-      const logs = await client.getLogs({
-        address: pool,
-        event: withdrawEvent,
-        args: { nullifier },
-        fromBlock,
-        toBlock: receipt.blockNumber,
-      });
-      if (logs.length === 0) {
+      const [standard, denom] = await Promise.all([
+        client.getLogs({
+          address: pool,
+          event: withdrawEvent,
+          args: { nullifier },
+          fromBlock,
+          toBlock: receipt.blockNumber,
+        }),
+        client.getLogs({
+          address: pool,
+          event: withdrawDenomEvent,
+          args: { nullifier },
+          fromBlock,
+          toBlock: receipt.blockNumber,
+        }),
+      ]);
+      if (standard.length === 0 && denom.length === 0) {
         throw new Error(
           `Claim tx succeeded but nullifier ${nullifier.slice(0, 12)}… was not spent`,
         );

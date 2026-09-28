@@ -13,4 +13,20 @@ remappings = [
   "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"
 ]
 
+# Arc (and other EIP-170 chains): UltraHonk deposit/withdraw verifiers are ~25.1KB at
+# optimizer_runs=200. runs=1 shrinks runtime bytecode under 24576 so CREATE succeeds.
+[profile.eip170]
+src = "contract"
+out = "out"
+libs = ["lib"]
+fs_permissions = [{ access = "read-write", path = "./"},{ access = "read-write", path = "/tmp/"}]
+ffi = true
+via_ir = false
+optimizer = true
+optimizer_runs = 1
+remappings = [
+  "forge-std/=lib/foundry-noir-helper/lib/forge-std/src/",
+  "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"
+]
+
 # See more config options https://github.com/foundry-rs/foundry/tree/master/crates/config

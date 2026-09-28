@@ -15,6 +15,13 @@ import {
   buildWalletAuthMessage,
 } from "@/lib/auth-shared";
 import {
+  invalidateAndRefetchStore,
+} from "@/lib/store";
+import {
+  getWalletAuthHeaders,
+  setSessionWalletAuth,
+} from "@/lib/api-auth";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -53,7 +60,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { openModal } = useModal();
   const embeddedWallet = embedded?.wallets?.[0];
   const fallbackAddress = embeddedWallet?.address ?? "";
-  const { address: walletAddress } = useParaWalletClient();
+  const { walletClient, address: walletAddress } = useParaWalletClient();
   const { signMessageAsync } = useSignMessage();
   const address = walletAddress ?? fallbackAddress;
   const walletId = embeddedWallet?.id;
@@ -68,8 +75,17 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isConnected || !address) {
       setProfileState("loading");
+      setSessionWalletAuth(null);
       return;
     }
+
+    const auth = {
+      walletClient,
+      address,
+      walletId: walletId ?? null,
+      signMessageAsync,
+    };
+    setSessionWalletAuth(auth);
 
     const normalized = address.toLowerCase();
     const cached = cachedProfileFor(address);
@@ -84,8 +100,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
+        const authHeaders = await getWalletAuthHeaders(auth);
         const res = await fetch(
-          `/api/subscribers?address=${encodeURIComponent(address)}`
+          `/api/subscribers?address=${encodeURIComponent(address)}`,
+          { headers: authHeaders },
         );
         if (cancelled) return;
         let next: ResolvedProfileState = "needs-username";
@@ -95,6 +113,9 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         }
         profileCache = { address: normalized, state: next };
         setProfileState(next);
+        if (next === "ready") {
+          void invalidateAndRefetchStore();
+        }
       } catch {
         if (!cancelled) {
           // Keep cached ready if revalidation failed mid-session.
@@ -106,7 +127,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isConnected, address]);
+  }, [isConnected, address, walletClient, walletId, signMessageAsync]);
 
   const handleSaveUsername = async () => {
     const trimmed = username.trim();
@@ -164,6 +185,13 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       }
       profileCache = { address: address.toLowerCase(), state: "ready" };
       setProfileState("ready");
+      setSessionWalletAuth({
+        walletClient,
+        address,
+        walletId,
+        signMessageAsync,
+      });
+      void invalidateAndRefetchStore();
       toast.success(`Welcome, ${trimmed}!`);
     } catch (error) {
       const message =

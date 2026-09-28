@@ -35,6 +35,10 @@ echo "Using nargo: $(nargo --version | head -n 1)"
 echo "Using bb: $(bb --version 2>/dev/null || echo 'not found')"
 
 cp src/main.nr "$BACKUP"
+# Preserve Standard withdraw artifact (web WithdrawProver loads with_foundry.json).
+if [ -f ./target/with_foundry.json ]; then
+  cp ./target/with_foundry.json ./target/with_foundry.pre_denom.json
+fi
 cp src/withdraw_denom.nr src/main.nr
 nargo compile
 
@@ -57,8 +61,16 @@ echo "$FINGERPRINT" > .withdraw-denom-verifier-build-id
 mkdir -p ../contract
 echo "$FINGERPRINT" > ../contract/.withdraw-denom-verifier-build-id
 cp target/Verifier.sol ../contract/WithdrawDenomVerifier.sol
+cp ./target/with_foundry.json ./target/withdraw_denom_circuit.json
 rm -f target/Verifier.sol
+# Restore Standard with_foundry.json so /api/generate-proof (Standard) keeps working.
+if [ -f ./target/with_foundry.pre_denom.json ]; then
+  mv ./target/with_foundry.pre_denom.json ./target/with_foundry.json
+  echo "Restored target/with_foundry.json (Standard withdraw)."
+fi
 echo "Denom withdraw verifier build ID: $FINGERPRINT"
+echo "Private prover artifact: target/withdraw_denom_circuit.json"
+
 
 if [ "$VERIFIER_MODE" = "bb" ]; then
   if [ -f WithdrawDenomProver.toml ]; then

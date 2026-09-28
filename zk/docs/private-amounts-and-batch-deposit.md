@@ -237,12 +237,13 @@ Not solved: unique vault reuse; timing; offramp heuristics; fully hidden ERC-20 
 
 ### Phase 1 — Lib + contracts + circuits
 
+- [x] `web/lib/denominations.ts` — tables, packer, preview helpers  
 - [x] On-chain denomination allowlist (`setDenominations`) + `withdrawDenom` + router forward  
 - [x] `depositBatch` / `depositBatchFromRouter` + router `depositBatch` / `depositBatchNative`  
 - [x] Withdraw denom circuit (`withdraw_denom.nr`) + `WithdrawDenomProver.toml` + compile script + `WithdrawDenomVerifier.sol`  
 - [x] Foundry tests: bad id, nullifier replay, id 10 = 10, allowlist, batch Σ/fee/mismatch/duplicate  
 - [ ] Keep `deposit.nr` as-is for v1 (N proofs inside batch); do not bump Poseidon deps  
-- [ ] `web/lib/denominations.ts` — tables, packer, preview helpers  
+- [ ] Create Payout mode toggle + pack preview + `depositBatch` in `store.ts`  
 
 ### Phase 2 — App
 

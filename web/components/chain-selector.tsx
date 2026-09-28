@@ -15,6 +15,7 @@ const CHAIN_DOT: Record<string, string> = {
   monad: "bg-purple-500",
   celo: "bg-yellow-400",
   robinhood: "bg-emerald-500",
+  arc: "bg-sky-500",
 };
 
 export function ChainSelector() {

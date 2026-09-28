@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateDepositProofViaWorker } from "../../lib/proveWorkerClient";
+import { requireWalletAuth } from "@/lib/server-auth";
 
 export const maxDuration = 120;
 
@@ -24,6 +25,9 @@ function releaseLock(): void {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireWalletAuth(req);
+  if ("error" in auth) return auth.error;
+
   await acquireLock();
   try {
     const input = await req.json();
@@ -44,12 +48,17 @@ export async function POST(req: NextRequest) {
 
     const { proofHex, publicInputs } = await generateDepositProofViaWorker(normalized);
     const proofByteLen = (proofHex.length - 2) / 2;
-    console.info(`[generate-deposit-proof] proofBytes=${proofByteLen} publicInputs=${publicInputs.length}`);
+    console.info(
+      `[generate-deposit-proof] proofBytes=${proofByteLen} publicInputs=${publicInputs.length}`,
+    );
     return NextResponse.json({ proof: proofHex, publicInputs, proofByteLen });
   } catch (error) {
-    console.error("Deposit proof generation error:", error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: `Deposit proof generation failed: ${message}` }, { status: 500 });
+    console.error("Deposit proof generation error:", message);
+    return NextResponse.json(
+      { error: `Deposit proof generation failed: ${message}` },
+      { status: 500 },
+    );
   } finally {
     releaseLock();
   }

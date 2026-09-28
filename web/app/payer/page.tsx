@@ -27,7 +27,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Plus, Users, CircleDollarSign, Clock, Building2, Loader2, Pencil, Trash2, Link2, Copy, Check } from "lucide-react";
+import { Plus, Users, CircleDollarSign, Clock, Building2, Loader2, Pencil, Trash2, Link2, Copy, Check, Download } from "lucide-react";
 import {
   useStore,
   getSubscriberById,
@@ -35,6 +35,7 @@ import {
   updateOrganizer,
   deleteOrganizer,
   createInvite,
+  downloadPayoutAuditPack,
   refetchStoreIfStale,
   invalidateAndRefetchStore,
   flushPendingNoteSecrets,
@@ -273,6 +274,50 @@ export default function PayerDashboard() {
     }
   };
 
+  const handleTogglePrivate = async () => {
+    if (!selectedOrg) return;
+    const next = !selectedOrg.privateEnabled;
+    setSaving(true);
+    try {
+      await updateOrganizer(
+        selectedOrg.id,
+        { privateEnabled: next },
+        { ...apiAuth, walletClient, address },
+      );
+      toast.success(
+        next
+          ? "Private buckets enabled for this organization."
+          : "Private buckets disabled.",
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update Private access.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleExportAudit = async (payoutId: string) => {
+    try {
+      const { filename, payload } = await downloadPayoutAuditPack(payoutId, {
+        ...apiAuth,
+        walletClient,
+        address,
+      });
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Audit pack downloaded.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to export audit pack.");
+    }
+  };
+
   const handleDelete = async () => {
     if (!selectedOrg) return;
     setDeleting(true);
@@ -483,8 +528,21 @@ export default function PayerDashboard() {
       ) : (
         <>
           {/* Org actions: Rename + Delete */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xl font-semibold">{selectedOrg.name}</h2>
+            <Badge variant={selectedOrg.privateEnabled ? "default" : "secondary"}>
+              {selectedOrg.privateEnabled ? "Private on" : "Private off"}
+            </Badge>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={saving}
+              onClick={handleTogglePrivate}
+              title="Allow Private buckets and Auto Mix for this group"
+            >
+              {selectedOrg.privateEnabled ? "Disable Private" : "Enable Private"}
+            </Button>
             <Dialog
               open={editOpen}
               onOpenChange={(open) => {
@@ -763,9 +821,34 @@ export default function PayerDashboard() {
                       {people > 0 ? ` · ${people} ${people === 1 ? "person" : "people"}` : ""}
                     </p>
                   </div>
-                  <Badge variant={payoutStatusVariant(status)}>
-                    {payoutStatusLabel(status)}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant={
+                        payout.privacyMode === "private" || payout.privacyMode === "auto"
+                          ? "default"
+                          : "outline"
+                      }
+                    >
+                      {payout.privacyMode === "private"
+                        ? "Private"
+                        : payout.privacyMode === "auto"
+                          ? "Auto Mix"
+                          : "Standard"}
+                    </Badge>
+                    <Badge variant={payoutStatusVariant(status)}>
+                      {payoutStatusLabel(status)}
+                    </Badge>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      title="Download audit pack"
+                      onClick={() => handleExportAudit(payout.id)}
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </li>
               );
             })}

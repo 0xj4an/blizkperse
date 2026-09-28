@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CHAINS, type SupportedChainId } from "@/lib/constants";
 import { requireWalletAuth } from "@/lib/server-auth";
+import { resolveAllowlistedPool } from "@/lib/pool-allowlist";
 import { syncPoolRoot } from "../../lib/rootRegistrar";
 
 export const maxDuration = 60;
@@ -16,6 +17,7 @@ function authorizedBySecret(req: NextRequest): boolean {
 /**
  * Rebuild + register Merkle tip for a pool.
  * Auth: ROOT_REGISTRAR_API_SECRET (cron) OR wallet auth (post-deposit / claim fallback).
+ * Pool must be allowlisted for the chain (no arbitrary addresses).
  */
 export async function POST(req: NextRequest) {
   const bySecret = authorizedBySecret(req);
@@ -41,22 +43,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unsupported or undeployed chain" }, { status: 400 });
   }
 
-  const poolAddress = (body.pool_address as `0x${string}` | undefined)
-    ?? (body.token_symbol ? config.pools[body.token_symbol]?.pool : undefined)
-    ?? config.contracts.pool;
-
-  if (!poolAddress || poolAddress === "0x0000000000000000000000000000000000000000") {
-    return NextResponse.json({ error: "pool_address required" }, { status: 400 });
+  const poolAddress = resolveAllowlistedPool(
+    config,
+    body.pool_address,
+    body.token_symbol,
+  );
+  if (!poolAddress) {
+    return NextResponse.json(
+      { error: "pool_address must be a configured pool for this chain" },
+      { status: 400 },
+    );
   }
 
   try {
     const result = await syncPoolRoot({
       chainId,
-      poolAddress: poolAddress as `0x${string}`,
+      poolAddress,
     });
     return NextResponse.json(result);
   } catch (err) {
-    console.error("sync-pool-root error:", err);
+    console.error("sync-pool-root error:", err instanceof Error ? err.message : err);
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

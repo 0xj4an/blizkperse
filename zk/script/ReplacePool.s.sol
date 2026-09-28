@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-// Deploy one ShieldedPool and register it on an existing PoolRouter (owner = PRIVATE_KEY).
+// Replace an existing ShieldedPool on a PoolRouter with a new bytecode build
+// (Private buckets: setDenominations + depositBatch). Old pool notes stay on the
+// old contract and are NOT migrated.
 //
 //   source .env
-//   forge script script/AddPool.s.sol:AddPool --rpc-url "$CELO_RPC" --broadcast
+//   export POOL_ROUTER_ADDRESS=0x...
+//   export TOKEN_ADDRESS=0x...          # ERC-20 already registered on router
+//   export DENOM_KIND=stables6         # stables6 | stables18 | native18 | copm18
+//   # reuse verifiers from the previous deploy:
+//   export DEPOSIT_VERIFIER_ADDRESS=0x...
+//   export HONK_VERIFIER_ADDRESS=0x...
+//   export WITHDRAW_VERIFIER_ADDRESS=0x...
+//   export ROOT_REGISTRAR_ADDRESS=0x... # optional
+//   # optional: WITHDRAW_DENOM_VERIFIER_ADDRESS after bb.js deploy
+//   forge script script/ReplacePool.s.sol:ReplacePool --rpc-url "$RPC" --broadcast
 //
-// Env:
-//   PRIVATE_KEY                 (router + new pool owner)
-//   POOL_ROUTER_ADDRESS         (existing router)
-//   TOKEN_ADDRESS               (ERC-20 to list, e.g. Celo USDC)
-//   DEPOSIT_VERIFIER_ADDRESS
-//   HONK_VERIFIER_ADDRESS       (transfer verifier)
-//   WITHDRAW_VERIFIER_ADDRESS
-//   ROOT_REGISTRAR_ADDRESS      (optional; zero skips setRootRegistrar)
-//   DENOM_KIND                  (optional; stables6|stables18|native18|copm18)
-//
-// If the token is already listed on the router, use ReplacePool.s.sol instead.
+// Then update NEXT_PUBLIC_*_POOL_*_ADDRESS in web/.env to the logged pool address.
 
 import "forge-std/Script.sol";
 import "forge-std/console2.sol";
@@ -24,7 +25,7 @@ import "forge-std/console2.sol";
 import "../contract/ShieldedPool.sol";
 import "../contract/PoolRouter.sol";
 
-contract AddPool is Script {
+contract ReplacePool is Script {
     function run() external returns (address poolAddr) {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address router = vm.envAddress("POOL_ROUTER_ADDRESS");
@@ -33,13 +34,18 @@ contract AddPool is Script {
         address transferVerifier = vm.envAddress("HONK_VERIFIER_ADDRESS");
         address withdrawVerifier = vm.envAddress("WITHDRAW_VERIFIER_ADDRESS");
         address rootRegistrar = vm.envOr("ROOT_REGISTRAR_ADDRESS", address(0));
+        address withdrawDenomVerifier = vm.envOr("WITHDRAW_DENOM_VERIFIER_ADDRESS", address(0));
+        string memory kind = vm.envString("DENOM_KIND");
 
         require(router != address(0), "POOL_ROUTER_ADDRESS=0");
         require(token != address(0), "TOKEN_ADDRESS=0");
         require(depositVerifier != address(0), "DEPOSIT_VERIFIER_ADDRESS=0");
         require(transferVerifier != address(0), "HONK_VERIFIER_ADDRESS=0");
         require(withdrawVerifier != address(0), "WITHDRAW_VERIFIER_ADDRESS=0");
-        require(PoolRouter(payable(router)).poolOf(token) == address(0), "token already listed");
+        require(bytes(kind).length > 0, "DENOM_KIND required");
+
+        address prev = PoolRouter(payable(router)).poolOf(token);
+        require(prev != address(0), "token not listed - use AddPool");
 
         vm.startBroadcast(pk);
 
@@ -54,14 +60,18 @@ contract AddPool is Script {
         if (rootRegistrar != address(0)) {
             pool.setRootRegistrar(rootRegistrar);
         }
+        if (withdrawDenomVerifier != address(0)) {
+            pool.setWithdrawDenomVerifier(withdrawDenomVerifier);
+        }
+        pool.setDenominations(_amountsForKind(kind));
         PoolRouter(payable(router)).setPool(token, address(pool));
 
-        // Optional Private buckets (omit DENOM_KIND to skip).
-        string memory kind = vm.envOr("DENOM_KIND", string(""));
-        if (bytes(kind).length > 0) {
-            pool.setDenominations(_amountsForKind(kind));
-            console2.log("denominations kind", kind);
-            console2.log("denominationCount", pool.denominationCount());
+        // Optional: gate Private batch deposits to ALLOWLIST_DEPOSITOR (payer EOA).
+        address allowDepositor = vm.envOr("ALLOWLIST_DEPOSITOR", address(0));
+        if (allowDepositor != address(0)) {
+            pool.setPrivateDepositAllowed(allowDepositor, true);
+            pool.setPrivateDepositAllowlistEnabled(true);
+            console2.log("privateAllowlistDepositor", allowDepositor);
         }
 
         vm.stopBroadcast();
@@ -69,9 +79,11 @@ contract AddPool is Script {
         poolAddr = address(pool);
         console2.log("chainId", block.chainid);
         console2.log("token", token);
+        console2.log("previousPool", prev);
         console2.log("pool", poolAddr);
         console2.log("router", router);
-        console2.log("rootRegistrar", rootRegistrar);
+        console2.log("denomKind", kind);
+        console2.log("denominationCount", pool.denominationCount());
     }
 
     function _amountsForKind(string memory kind) internal pure returns (uint256[] memory d) {

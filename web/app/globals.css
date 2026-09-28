@@ -229,6 +229,43 @@ html[data-chain="robinhood"] .dark {
   --sidebar-ring: oklch(0.72 0.19 145);
 }
 
+/* ── Arc Theme (sky / steel cyan on near-black) ───────── */
+
+html[data-chain="arc"],
+html[data-chain="arc"] .dark {
+  --background: oklch(0.09 0.015 230);
+  --foreground: oklch(0.96 0.005 230);
+  --card: oklch(0.13 0.02 230);
+  --card-foreground: oklch(0.96 0.005 230);
+  --popover: oklch(0.13 0.02 230);
+  --popover-foreground: oklch(0.96 0.005 230);
+  --primary: oklch(0.72 0.14 230);
+  --primary-foreground: oklch(0.12 0.02 230);
+  --secondary: oklch(0.18 0.025 230);
+  --secondary-foreground: oklch(0.92 0.01 230);
+  --muted: oklch(0.18 0.02 230);
+  --muted-foreground: oklch(0.6 0.02 230);
+  --accent: oklch(0.78 0.12 210);
+  --accent-foreground: oklch(0.12 0.02 230);
+  --destructive: oklch(0.65 0.22 25);
+  --border: oklch(0.22 0.025 230);
+  --input: oklch(0.22 0.025 230);
+  --ring: oklch(0.72 0.14 230);
+  --chart-1: oklch(0.72 0.14 230);
+  --chart-2: oklch(0.7 0.12 180);
+  --chart-3: oklch(0.75 0.1 90);
+  --chart-4: oklch(0.65 0.16 30);
+  --chart-5: oklch(0.68 0.1 280);
+  --sidebar: oklch(0.11 0.02 230);
+  --sidebar-foreground: oklch(0.96 0.005 230);
+  --sidebar-primary: oklch(0.72 0.14 230);
+  --sidebar-primary-foreground: oklch(0.12 0.02 230);
+  --sidebar-accent: oklch(0.18 0.025 230);
+  --sidebar-accent-foreground: oklch(0.92 0.01 230);
+  --sidebar-border: oklch(0.22 0.025 230);
+  --sidebar-ring: oklch(0.72 0.14 230);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

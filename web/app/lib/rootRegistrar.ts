@@ -28,6 +28,9 @@ const depositEvent = parseAbiItem(
 const depositEventLegacy = parseAbiItem(
   "event Deposit(address indexed sender, bytes32 indexed commitment)",
 );
+const commitmentInsertedEvent = parseAbiItem(
+  "event CommitmentInserted(bytes32 indexed commitment, uint256 indexed denominationId)",
+);
 
 const POOL_ABI = parseAbi([
   "function registerRoot(bytes32 root) external",
@@ -89,8 +92,8 @@ async function fetchLogsWithRetry(
 ): Promise<DepositLog[]> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      // Wrong event ABI returns [] without throwing — query both formats and merge.
-      const [current, legacy] = await Promise.all([
+      // Wrong event ABI returns [] without throwing — query Deposit + Private inserts.
+      const [current, legacy, inserted] = await Promise.all([
         client.getLogs({
           address: pool,
           event: depositEvent,
@@ -100,6 +103,12 @@ async function fetchLogsWithRetry(
         client.getLogs({
           address: pool,
           event: depositEventLegacy,
+          fromBlock: from,
+          toBlock: to,
+        }),
+        client.getLogs({
+          address: pool,
+          event: commitmentInsertedEvent,
           fromBlock: from,
           toBlock: to,
         }),
@@ -118,6 +127,12 @@ async function fetchLogsWithRetry(
           blockNumber: String(log.blockNumber),
           logIndex: Number(log.logIndex ?? 0),
         })),
+        ...inserted.map((log) => ({
+          sender: "",
+          commitment: (log.args.commitment ?? "") as string,
+          blockNumber: String(log.blockNumber),
+          logIndex: Number(log.logIndex ?? 0),
+        })),
       ];
 
       const seen = new Set<string>();
@@ -128,6 +143,13 @@ async function fetchLogsWithRetry(
         seen.add(c);
         deduped.push(row);
       }
+      // Preserve block/log order for Merkle leaf sequence (dedupe kept first seen —
+      // re-sort after merge so Private inserts interleave correctly with Deposit).
+      deduped.sort((a, b) => {
+        const bn = BigInt(a.blockNumber) - BigInt(b.blockNumber);
+        if (bn !== 0n) return bn < 0n ? -1 : 1;
+        return a.logIndex - b.logIndex;
+      });
       return deduped;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
@@ -215,8 +237,9 @@ export async function cacheVerifiedDeposit(params: {
 }
 
 /**
- * Seed cache from notes that already have a confirmed deposit_tx (receipt → Deposit log).
- * Covers gaps when a full historical getLogs scan times out (Monad).
+ * Seed cache from notes that already have a confirmed deposit_tx.
+ * Inserts the note commitment directly after receipt success (works for both
+ * Standard Deposit and Private CommitmentInserted — no event-topic guessing).
  */
 async function seedCacheFromNotes(
   config: ChainConfig,
@@ -250,25 +273,18 @@ async function seedCacheFromNotes(
   const logs: DepositLog[] = [];
   for (const row of missing) {
     const txHash = String(row.deposit_tx ?? "").trim() as Hex;
+    const commitment = String(row.commitment ?? "").trim();
     if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) continue;
+    if (!/^0x[0-9a-fA-F]{64}$/.test(commitment)) continue;
     try {
       const receipt = await client.getTransactionReceipt({ hash: txHash });
       if (receipt.status !== "success") continue;
-      for (const log of receipt.logs) {
-        if (log.address.toLowerCase() !== poolKey) continue;
-        // indexed commitment = topic[2] for both Deposit ABIs
-        const commitment = log.topics?.[2];
-        if (!commitment) continue;
-        const depositor = log.topics?.[1]
-          ? (`0x${log.topics[1].slice(26)}` as string)
-          : "";
-        logs.push({
-          sender: depositor,
-          commitment,
-          blockNumber: String(receipt.blockNumber),
-          logIndex: Number(log.logIndex ?? 0),
-        });
-      }
+      logs.push({
+        sender: "",
+        commitment,
+        blockNumber: String(receipt.blockNumber),
+        logIndex: 0,
+      });
     } catch (err) {
       console.error(
         `seedCacheFromNotes: failed tx ${txHash.slice(0, 12)}…`,

@@ -40,6 +40,7 @@ export function ensureSchema() {
         created_at timestamptz DEFAULT now()
       )
     `;
+    await sql`ALTER TABLE organizers ADD COLUMN IF NOT EXISTS private_enabled boolean NOT NULL DEFAULT false`;
     await sql`
       CREATE TABLE IF NOT EXISTS subscribers (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -121,6 +122,13 @@ export function ensureSchema() {
         created_at timestamptz DEFAULT now()
       )
     `;
+    await sql`ALTER TABLE payouts ADD COLUMN IF NOT EXISTS privacy_mode text NOT NULL DEFAULT 'standard'`;
+    await sql`ALTER TABLE payouts DROP CONSTRAINT IF EXISTS payouts_privacy_mode_check`;
+    await sql`
+      ALTER TABLE payouts
+      ADD CONSTRAINT payouts_privacy_mode_check
+      CHECK (privacy_mode IN ('standard', 'private', 'auto'))
+    `;
     await sql`
       CREATE TABLE IF NOT EXISTS payments (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -166,6 +174,7 @@ export function ensureSchema() {
     await sql`ALTER TABLE notes ADD COLUMN IF NOT EXISTS token_symbol text`;
     await sql`ALTER TABLE notes ADD COLUMN IF NOT EXISTS pool_address text`;
     await sql`ALTER TABLE notes ADD COLUMN IF NOT EXISTS deposit_tx text`;
+    await sql`ALTER TABLE notes ADD COLUMN IF NOT EXISTS denomination_id integer`;
     await sql`ALTER TABLE notes ALTER COLUMN chain_id DROP DEFAULT`;
     await sql`ALTER TABLE notes DROP CONSTRAINT IF EXISTS notes_chain_id_check`;
     // Env-scoped CHECK (prod mainnet vs dev testnet). A DB reused across envs can

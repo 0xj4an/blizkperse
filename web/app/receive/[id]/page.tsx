@@ -159,6 +159,7 @@ export default function ClaimPage() {
     }
 
     setTxState("pending");
+    let claimMode: "standard" | "private" = "standard";
     try {
       // Step 1: Fetch note data for this payment
       setClaimStep("loading-notes");
@@ -170,6 +171,8 @@ export default function ClaimPage() {
         chain_id?: number;
         token_symbol?: string;
         pool_address?: string;
+        denomination_id?: number | null;
+        privacy_mode?: "standard" | "private";
       } | null = null;
 
       // Chain we'll use for this claim (needed before fallback so we pick a note for this chain)
@@ -279,12 +282,39 @@ export default function ClaimPage() {
       }
       const { siblings, indices, root } = await tree.getProof(leafIndex);
 
-      // Step 3: Generate ZK proof (withdraw circuit)
+      // Step 3: Generate ZK proof (Standard withdraw or Private withdrawDenom)
       // recipient = where to send funds; can be any address (e.g. connected wallet).
       // pk_b = note owner (from note data); must match for nullifier/commitment.
       setClaimStep("generating-proof");
       const recipientField = fieldToHex(BigInt(destinationAddress));
       const merkleProofLength = String(siblings.length);
+      const tokenSymbol = noteData.token_symbol ?? noteChain.defaultToken.symbol;
+      const denominationId =
+        noteData.denomination_id === null ||
+        noteData.denomination_id === undefined
+          ? null
+          : Number(noteData.denomination_id);
+      const notePrivacy =
+        noteData.privacy_mode === "private" ||
+        (denominationId !== null &&
+          Number.isInteger(denominationId) &&
+          denominationId >= 0)
+          ? "private"
+          : "standard";
+      // Only notes that stored denomination_id (Private depositBatch) use withdrawDenom.
+      // Do not infer from amount — Standard can deposit the same raw sizes.
+      // Auto Mix payouts mix both; denomination_id is source of truth per note.
+      const isPrivate =
+        denominationId !== null &&
+        Number.isInteger(denominationId) &&
+        denominationId >= 0;
+
+      if (notePrivacy === "private" && !isPrivate) {
+        throw new Error(
+          "This Private payment is missing denomination_id on the stored note. Ask the payer to flush pending note secrets (localStorage) after depositBatch, then retry claim.",
+        );
+      }
+
       const proofInput: ProofInput = {
         value: fieldToHex(valueBig),
         nullifier: fieldToHex(nullifier),
@@ -295,10 +325,12 @@ export default function ClaimPage() {
         random: fieldToHex(randomBig),
         merkle_proof_indices: indices,
         merkle_proof_siblings: siblings.map((sibling) => fieldToHex(sibling)),
+        ...(isPrivate
+          ? { mode: "private" as const, denomination_id: denominationId! }
+          : { mode: "standard" as const }),
       };
       const proofResult = await generateProof(proofInput);
-
-      const tokenSymbol = noteData.token_symbol ?? noteChain.defaultToken.symbol;
+      claimMode = proofResult.mode;
 
       // Step 4: Wait for backend root registrar (permissioned). Trigger sync if needed.
       setClaimStep("registering-root");
@@ -420,7 +452,11 @@ export default function ClaimPage() {
           : raw.includes("User rejected")
             ? "Transaction cancelled"
             : raw.includes("SumcheckFailed") || raw.includes("0x9fc3a218")
-              ? "Proof verification failed (SumcheckFailed). The deployed WithdrawVerifier may not match the circuit used by this app. Recompile and redeploy the verifier from the same zk/circuits build used by /api/generate-proof."
+              ? `Proof verification failed (SumcheckFailed). The deployed ${
+                  claimMode === "private"
+                    ? "WithdrawDenomVerifier"
+                    : "WithdrawVerifier"
+                } may not match the circuit used by this app. Recompile and redeploy the verifier from the same zk/circuits build used by /api/generate-proof.`
               : raw;
       toast.error(msg);
     }
@@ -498,7 +534,7 @@ export default function ClaimPage() {
                 </div>
               )}
               <p className="text-center text-xs text-muted-foreground">
-                Getting paid does not need a network fee. Moving the funds later does.
+                You can paste a fresh vault address. By default funds go to this wallet. Getting paid does not need a network fee, and claim gas can be sponsored. Moving the funds later does.
               </p>
             </div>
           )}
