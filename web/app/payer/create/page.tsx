@@ -262,11 +262,6 @@ export default function CreatePayoutPage() {
       s.address.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const totalAmount = Array.from(selected).reduce(
-    (sum, id) => sum + (amounts[id] || 0),
-    0
-  );
-
   const feePreview = (() => {
     const decimals = selectedToken.decimals;
     const applyFee = hasRouter(chain);
@@ -496,7 +491,7 @@ export default function CreatePayoutPage() {
     }
 
     let uiParts = scaled.map((r) => fromTokenRawAmountUi(r, decimals));
-    let rawBack = uiParts.map((h) => toTokenRawAmount(h, decimals));
+    const rawBack = uiParts.map((h) => toTokenRawAmount(h, decimals));
     const refit = scaleRawNotesToFitGross(rawBack, walletBalance, feeBps);
     if (refit) {
       uiParts = refit.map((r) => fromTokenRawAmountUi(r, decimals));

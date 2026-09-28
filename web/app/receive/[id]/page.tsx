@@ -88,6 +88,8 @@ export default function ClaimPage() {
     (alchemyReady || (!isAlchemyConfigured && !!walletClient));
 
   useEffect(() => {
+    // The connected address arrives after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (address && !destinationAddress) setDestinationAddress(address);
   }, [address, destinationAddress]);
 

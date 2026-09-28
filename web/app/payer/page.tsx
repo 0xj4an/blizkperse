@@ -205,6 +205,8 @@ export default function PayerDashboard() {
   const [showNoteRecovery, setShowNoteRecovery] = useState(false);
 
   useEffect(() => {
+    // Pending-note recovery is localStorage, read once the store has settled.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setShowNoteRecovery(hasAnyPendingNoteSecrets());
   }, [store.loaded, store.payments, store.payouts]);
 
