@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -9,16 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Building2, ClipboardCheck, History, ArrowRight, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import {
   useStore,
   getOrganizerById,
@@ -30,7 +21,6 @@ import {
   reconcileClaimedPayments,
   hasClaimablePayments,
   type Payment,
-  type Payout,
 } from "@/lib/store";
 import { useChain } from "@/lib/chain-context";
 import { CHAINS, type SupportedChainId } from "@/lib/constants";
@@ -87,43 +77,8 @@ function parseInviteInput(raw: string): string {
   return firstToken;
 }
 
-function paymentStatusLabel(status: Payment["status"]): string {
-  switch (status) {
-    case "pending":
-      return "Awaiting deposit";
-    case "claimable":
-      return "Ready to claim";
-    case "claimed":
-      return "Claimed";
-    case "expired":
-      return "Expired";
-    case "failed":
-      return "Failed";
-    default:
-      return status;
-  }
-}
-
-function distributedByToken(payouts: Payout[]): { token: string; amount: number }[] {
-  const map = new Map<string, number>();
-  for (const p of payouts) {
-    if (p.status === "failed" || p.status === "pending") continue;
-    const token = p.token?.trim() || "USDC";
-    map.set(token, (map.get(token) ?? 0) + p.totalAmount);
-  }
-  return [...map.entries()]
-    .map(([token, amount]) => ({ token, amount }))
-    .sort((a, b) => a.token.localeCompare(b.token));
-}
-
 function formatTokenAmount(amount: number, symbol: string): string {
   return `${amount.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${symbol}`;
-}
-
-function formatDistributedLabel(payouts: Payout[]): string {
-  const totals = distributedByToken(payouts);
-  if (totals.length === 0) return "—";
-  return totals.map(({ amount, token }) => formatTokenAmount(amount, token)).join(" · ");
 }
 
 function ReceiveDashboardInner() {
@@ -154,45 +109,31 @@ function ReceiveDashboardInner() {
       .catch(() => {});
   }, [address, storeSubId, walletClient, apiAuth]);
 
-  const { chainId: selectedChainId } = useChain();
+  const { chainId: selectedChainId, setChainId } = useChain();
   const mySubscriptions = store.subscriptions.filter(
     (s) => s.subscriberId === subId
   );
   const myPaymentsAll = store.payments.filter(
     (p) => p.subscriberId === subId
   );
-  // Only show payments that were actually deposited on-chain (note + confirmation).
-  // Orphan "claimable" rows without deposit_tx / Deposit event stay hidden.
-  const myPayments = myPaymentsAll.filter((p) => {
-    if (p.chainId !== selectedChainId) return false;
+  const isRealPayment = (p: Payment) => {
     if (p.status === "claimed") return Boolean(p.noteId);
-    if (p.status === "claimable") {
-      return Boolean(p.noteId) && p.depositConfirmed === true;
-    }
+    if (p.status === "claimable") return Boolean(p.noteId) && p.depositConfirmed === true;
     return false;
-  });
-  // Derive which organizers are active on the selected chain (have any payment on it).
-  // Orgs with zero payments are shown on all chains (new orgs).
-  const orgIdsOnChain = new Set<string>();
-  const orgIdsWithPayments = new Set<string>();
-  for (const p of store.payments) {
-    orgIdsWithPayments.add(p.organizerId);
-    if (p.chainId === selectedChainId) orgIdsOnChain.add(p.organizerId);
-  }
-  const visibleOrganizers = store.organizers.filter(
-    (o) => orgIdsOnChain.has(o.id) || !orgIdsWithPayments.has(o.id)
-  );
-  const visibleOrgIds = new Set(visibleOrganizers.map((o) => o.id));
+  };
+  const mine = myPaymentsAll.filter(isRealPayment);
+  const onThisChain = mine.filter((p) => p.chainId === selectedChainId);
+  const onOtherChains = mine.filter((p) => p.chainId != null && p.chainId !== selectedChainId);
+  const claimableHere = onThisChain.filter((p) => p.status === "claimable");
+  const claimedHere = onThisChain.filter((p) => p.status === "claimed");
+  const claimableElsewhere = onOtherChains.filter((p) => p.status === "claimable");
+  const claimedElsewhere = onOtherChains.filter((p) => p.status === "claimed");
 
   const subscribedOrgIds = new Set(mySubscriptions.map((s) => s.organizerId));
-  const mySubscriptionsFiltered = mySubscriptions.filter(
-    (s) => visibleOrgIds.has(s.organizerId)
-  );
 
   const [inviteInput, setInviteInput] = useState(queryInvite);
   const [activeInviteCode, setActiveInviteCode] = useState(queryInvite);
   const [joining, setJoining] = useState(false);
-  const [inviteLoading, setInviteLoading] = useState(Boolean(queryInvite));
   const [inviteInfo, setInviteInfo] = useState<{
     code: string;
     organizerId: string;
@@ -273,12 +214,10 @@ function ReceiveDashboardInner() {
     if (!activeInviteCode) {
       setInviteInfo(null);
       setInviteError(null);
-      setInviteLoading(false);
       return;
     }
 
     let cancelled = false;
-    setInviteLoading(true);
     setInviteError(null);
     fetchInvite(activeInviteCode)
       .then((info) => {
@@ -302,27 +241,12 @@ function ReceiveDashboardInner() {
           setInviteInfo(null);
           setInviteError("Failed to load invite.");
         }
-      })
-      .finally(() => {
-        if (!cancelled) setInviteLoading(false);
       });
 
     return () => {
       cancelled = true;
     };
   }, [activeInviteCode]);
-
-  const handleRedeemInvite = () => {
-    const code = parseInviteInput(inviteInput);
-    if (!code) {
-      setInviteError("Paste the invite link or just the code.");
-      setInviteInfo(null);
-      setActiveInviteCode("");
-      return;
-    }
-    setInviteError(null);
-    setActiveInviteCode(code);
-  };
 
   const handleJoinWithInvite = async () => {
     if (!subId || !inviteInfo?.valid) return;
@@ -363,314 +287,241 @@ function ReceiveDashboardInner() {
     }
   };
 
-  const inviteOrgJoined =
+  const alreadyJoined =
     inviteInfo != null && subscribedOrgIds.has(inviteInfo.organizerId);
+  const autoJoinFor = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!queryInvite || !subId || !inviteInfo?.valid || joining || alreadyJoined) return;
+    if (autoJoinFor.current === inviteInfo.code) return;
+    autoJoinFor.current = inviteInfo.code;
+    void handleJoinWithInvite();
+    // Joins once per code. The handler is recreated each render and must not retrigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryInvite, subId, inviteInfo, joining, alreadyJoined]);
+
+  const tokenFor = (payment: Payment) =>
+    store.payouts.find((p) => p.id === payment.payoutId)?.token?.trim() || "USDC";
+
+  const chainName = (chainId: number | undefined) =>
+    chainId != null ? CHAINS[chainId as SupportedChainId]?.name : undefined;
+
+  const handleJoinFromPaste = async () => {
+    const code = parseInviteInput(inviteInput);
+    if (!code) {
+      setInviteError("Paste the invite link or just the code.");
+      setInviteInfo(null);
+      return;
+    }
+    if (!subId) {
+      setInviteError("Sign in to join.");
+      return;
+    }
+    setJoining(true);
+    setInviteError(null);
+    try {
+      const info = await fetchInvite(code);
+      if (!info) {
+        setInviteInfo(null);
+        setInviteError("Invite not found.");
+        return;
+      }
+      setInviteInfo(info);
+      setActiveInviteCode(code);
+      if (!info.valid) {
+        setInviteError(info.used ? "This invite link is fully used." : "This invite link has expired.");
+        return;
+      }
+      if (subscribedOrgIds.has(info.organizerId)) {
+        toast.message(`You already joined ${info.organizerName}.`);
+        return;
+      }
+      await joinWithInvite(
+        info.code,
+        subId,
+        { ...apiAuth, walletClient, address },
+        { id: info.organizerId, name: info.organizerName },
+      );
+      toast.success(`Joined ${info.organizerName}.`);
+      setInviteInput("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not join.");
+    } finally {
+      setJoining(false);
+    }
+  };
 
   return (
-    <Tabs defaultValue="browse" className="space-y-6">
-      <TabsList className="grid w-full grid-cols-3 max-w-md">
-        <TabsTrigger value="browse" className="gap-2">
-          <Building2 className="h-4 w-4" />
-          Organizers
-        </TabsTrigger>
-        <TabsTrigger value="registrations" className="gap-2">
-          <ClipboardCheck className="h-4 w-4" />
-          Subscriptions
-        </TabsTrigger>
-        <TabsTrigger value="history" className="gap-2">
-          <History className="h-4 w-4" />
-          History
-        </TabsTrigger>
-      </TabsList>
+    <div className="space-y-8">
+      {joining && inviteInfo ? (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Joining {inviteInfo.organizerName}...
+        </p>
+      ) : null}
 
-      {/* Browse Organizers */}
-      <TabsContent value="browse" className="space-y-4">
-        <Card className="border-foreground/20">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Redeem invite</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                value={inviteInput}
-                onChange={(e) => setInviteInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleRedeemInvite();
-                  }
-                }}
-                placeholder="Paste the invite link or just the code — we'll handle either"
-                className="font-mono text-sm"
-                aria-label="Paste the invite link or just the code"
-              />
-              <Button
-                size="default"
-                variant="secondary"
-                className="shrink-0"
-                onClick={handleRedeemInvite}
-                disabled={inviteLoading}
-              >
-                Redeem invite
-              </Button>
-            </div>
-
-            {activeInviteCode ? (
-              inviteLoading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading invite…
-                </div>
-              ) : inviteInfo ? (
-                <>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Organization</span>
-                    <span className="font-medium">{inviteInfo.organizerName}</span>
-                  </div>
-                  {inviteInfo.maxUses > 1 && inviteInfo.valid && (
-                    <p className="text-xs text-muted-foreground">
-                      {inviteInfo.remaining} of {inviteInfo.maxUses} spots left
-                    </p>
-                  )}
-                  {inviteOrgJoined ? (
-                    <Badge variant="default" className="text-xs">
-                      Already joined
-                    </Badge>
-                  ) : inviteInfo.valid ? (
-                    <Button
-                      size="sm"
-                      className="w-full gap-2"
-                      onClick={handleJoinWithInvite}
-                      disabled={joining || !subId}
-                    >
-                      {joining ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        "Join organization"
-                      )}
-                    </Button>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {inviteError ?? "This invite is no longer valid."}
-                    </p>
-                  )}
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {inviteError ?? "You need a valid invite link or code to join."}
-                </p>
-              )
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                {inviteError ??
-                  "Paste the invite link or just the code from the organizer — we'll handle either."}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {visibleOrganizers.map((org) => {
-            const isJoined = subscribedOrgIds.has(org.id);
+      {claimableHere.length > 0 && (
+        <section className="space-y-3">
+          {claimableHere.map((payment) => {
+            const org = getOrganizerById(payment.organizerId);
             return (
-              <Card key={org.id} className="group transition-colors hover:border-foreground/20">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <CardTitle className="text-base">{org.name}</CardTitle>
-                    {isJoined && (
-                      <Badge variant="default" className="text-xs">
-                        Joined
-                      </Badge>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex justify-between gap-3 text-sm">
-                    <span className="text-muted-foreground shrink-0">Distributed</span>
-                    <span className="font-medium text-right">
-                      {formatDistributedLabel(
-                        store.payouts.filter((p) => p.organizerId === org.id)
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Subscribers</span>
-                    <span className="font-medium">{org.subscriberCount}</span>
-                  </div>
-                  {!isJoined && (
-                    <p className="text-xs text-muted-foreground text-center pt-1">
-                      Invite required to join
+              <Card key={payment.id} className="border-primary/30">
+                <CardContent className="space-y-4 p-5">
+                  <div>
+                    <p className="text-sm text-muted-foreground">{org?.name ?? "Payment"}</p>
+                    <p className="mt-1 text-3xl font-semibold tracking-tight">
+                      {formatTokenAmount(payment.amount, tokenFor(payment))}
                     </p>
+                  </div>
+                  <Link href={`/receive/${payment.id}`} className="block">
+                    <Button className="w-full" size="lg">Get paid</Button>
+                  </Link>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </section>
+      )}
+
+      {claimableElsewhere.length > 0 && (
+        <section className="space-y-3">
+          {claimableElsewhere.map((payment) => {
+            const org = getOrganizerById(payment.organizerId);
+            const name = chainName(payment.chainId);
+            return (
+              <Card key={payment.id}>
+                <CardContent className="space-y-4 p-5">
+                  <div>
+                    <p className="text-sm text-muted-foreground">{org?.name ?? "Payment"}</p>
+                    <p className="mt-1 text-3xl font-semibold tracking-tight">
+                      {formatTokenAmount(payment.amount, tokenFor(payment))}
+                    </p>
+                    {name ? (
+                      <p className="mt-1 text-sm text-muted-foreground">This is on {name}.</p>
+                    ) : null}
+                  </div>
+                  {payment.chainId != null && (
+                    <Button
+                      className="w-full"
+                      variant="secondary"
+                      onClick={() => setChainId(payment.chainId as SupportedChainId)}
+                    >
+                      Switch to {name}
+                    </Button>
                   )}
                 </CardContent>
               </Card>
             );
           })}
-          {visibleOrganizers.length === 0 && (
-            <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
-              No organizers on {CHAINS[selectedChainId]?.name ?? "this network"}.
-            </p>
-          )}
-        </div>
-      </TabsContent>
+        </section>
+      )}
 
-      {/* Subscriptions */}
-      <TabsContent value="registrations">
-        <Card className="overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Organizer</TableHead>
-                <TableHead>Joined</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {mySubscriptionsFiltered.map((sub) => {
-                const org = getOrganizerById(sub.organizerId);
-                return (
-                  <TableRow key={sub.id}>
-                    <TableCell className="font-medium">
-                      {org?.name ?? sub.organizerId}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {new Date(sub.joinedAt).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={sub.status === "active" ? "default" : "secondary"}
-                      >
-                        {sub.status}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              {mySubscriptionsFiltered.length === 0 && (
-                <TableRow>
-                  <TableCell
-                    colSpan={3}
-                    className="py-8 text-center text-sm text-muted-foreground"
-                  >
-                    No subscriptions on {CHAINS[selectedChainId]?.name ?? "this network"}. Redeem an
-                    invite to join an organization.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </Card>
-      </TabsContent>
+      {claimableHere.length === 0 && claimableElsewhere.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          Nothing waiting on {CHAINS[selectedChainId]?.name ?? "this network"}.
+        </p>
+      )}
 
-      {/* Payment History - only payments whose note is on the selected chain */}
-      <TabsContent value="history">
-        <Card className="overflow-hidden">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">
-              History
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Claimable payments on {CHAINS[selectedChainId]?.name ?? "this network"}.
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Organizer</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Payout ID</TableHead>
-                <TableHead>Note ID</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {myPayments.map((payment) => {
-                const org = getOrganizerById(payment.organizerId);
-                const payout = store.payouts.find((p) => p.id === payment.payoutId);
-                const tokenSymbol = payout?.token?.trim() || "USDC";
-                const explorerUrl =
-                  CHAINS[payment.chainId as SupportedChainId]?.explorerUrl ??
-                  CHAINS[selectedChainId].explorerUrl;
-                return (
-                  <TableRow key={payment.id}>
-                    <TableCell className="font-medium">
-                      {org?.name ?? payment.organizerId}
-                    </TableCell>
-                    <TableCell>
-                      {formatTokenAmount(payment.amount, tokenSymbol)}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground" title={payment.payoutId}>
-                      {payment.payoutId.slice(0, 8)}...
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground" title={payment.noteId ?? ""}>
-                      {payment.noteId ? `${payment.noteId.slice(0, 8)}...` : "-"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          payment.status === "claimed"
-                            ? "default"
-                            : payment.status === "claimable"
-                              ? "secondary"
-                              : "outline"
-                        }
-                      >
-                        {paymentStatusLabel(payment.status)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right space-y-1">
-                      {payment.status === "claimable" && (
-                        <Link href={`/receive/${payment.id}`}>
-                          <Button size="sm" variant="outline" className="gap-1">
-                            Claim
-                            <ArrowRight className="h-3 w-3" />
-                          </Button>
-                        </Link>
-                      )}
-                      {payment.status === "claimed" && (
-                        <div className="flex flex-col items-end gap-0.5 text-xs text-muted-foreground">
-                          {payment.claimedAt && (
-                            <span>{new Date(payment.claimedAt).toLocaleDateString()}</span>
-                          )}
-                          {payment.txHash && (
-                            <a
-                              href={`${explorerUrl}/tx/${payment.txHash}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="font-mono text-primary hover:underline"
-                              title={payment.txHash}
-                            >
-                              {payment.txHash.slice(0, 10)}...{payment.txHash.slice(-8)}
-                            </a>
-                          )}
-                        </div>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              {myPayments.length === 0 && (
-                <TableRow>
-                  <TableCell
-                    colSpan={6}
-                    className="py-8 text-center text-sm text-muted-foreground"
-                  >
-                    {myPaymentsAll.length === 0
-                      ? "No payments yet."
-                      : `No payments on ${CHAINS[selectedChainId]?.name ?? "this network"}. Try switching the network above.`}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-          </CardContent>
-        </Card>
-      </TabsContent>
-    </Tabs>
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium">Your groups</h2>
+        {mySubscriptions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">You have not joined a group yet.</p>
+        ) : (
+          <ul className="divide-y divide-border rounded-xl border border-border">
+            {mySubscriptions.map((sub) => {
+              const org = getOrganizerById(sub.organizerId);
+              return (
+                <li key={sub.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <span className="font-medium">{org?.name ?? "Group"}</span>
+                  <Badge variant={sub.status === "active" ? "default" : "secondary"}>
+                    {sub.status}
+                  </Badge>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Join with a link</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              value={inviteInput}
+              onChange={(e) => setInviteInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleJoinFromPaste();
+                }
+              }}
+              placeholder="Paste the link or the code"
+              className="text-sm"
+              aria-label="Invite link or code"
+            />
+            <Button
+              className="shrink-0"
+              onClick={() => void handleJoinFromPaste()}
+              disabled={joining || !inviteInput.trim()}
+            >
+              {joining ? <Loader2 className="h-4 w-4 animate-spin" /> : "Join"}
+            </Button>
+          </div>
+          {alreadyJoined ? (
+            <p className="text-sm text-muted-foreground">You already joined {inviteInfo?.organizerName}.</p>
+          ) : null}
+          {inviteError ? <p className="text-sm text-muted-foreground">{inviteError}</p> : null}
+        </CardContent>
+      </Card>
+
+      {(claimedHere.length > 0 || claimedElsewhere.length > 0) && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-medium">Already paid</h2>
+          <ul className="divide-y divide-border rounded-xl border border-border">
+            {[...claimedHere, ...claimedElsewhere].map((payment) => {
+              const org = getOrganizerById(payment.organizerId);
+              const name = chainName(payment.chainId);
+              const explorer =
+                payment.chainId != null
+                  ? CHAINS[payment.chainId as SupportedChainId]?.explorerUrl
+                  : undefined;
+              return (
+                <li key={payment.id} className="space-y-1 px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{org?.name ?? "Payment"}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {payment.claimedAt ? new Date(payment.claimedAt).toLocaleDateString() : "Paid"}
+                        {name ? ` on ${name}` : ""}
+                      </p>
+                    </div>
+                    <p className="text-sm font-medium">
+                      {formatTokenAmount(payment.amount, tokenFor(payment))}
+                    </p>
+                  </div>
+                  {payment.txHash && explorer ? (
+                    <a
+                      href={`${explorer}/tx/${payment.txHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block break-all font-mono text-[11px] leading-snug text-primary hover:underline"
+                    >
+                      {payment.txHash}
+                    </a>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+    </div>
   );
 }
+
 
 export default function ReceiveDashboard() {
   return (

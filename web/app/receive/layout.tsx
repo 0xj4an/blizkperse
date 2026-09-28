@@ -11,8 +11,8 @@ export default function ReceiveLayout({
   return (
     <AuthGuard>
       <PageShell
-        title="Recipient Dashboard"
-        description="Manage subscriptions and claim payments. Redeem an invite to join an organization."
+        title="Get paid"
+        description="Payments for you. A link is enough to join a group."
       >
         {children}
       </PageShell>

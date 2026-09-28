@@ -18,8 +18,8 @@ export default function PayerLayout({
     <AuthGuard>
       <PayerPendingNoteRecovery />
       <PageShell
-        title="Organizer Dashboard"
-        description="Manage your subscribers and distribute payouts"
+        title="Send"
+        description="Pay the people in your group."
       >
         {children}
       </PageShell>

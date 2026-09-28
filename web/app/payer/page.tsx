@@ -10,14 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -70,10 +62,10 @@ function payoutDisplayStatus(
 
 function payoutStatusLabel(status: Payout["status"]): string {
   switch (status) {
-    case "pending":
-      return "Awaiting deposit";
-    case "deposited":
-      return "Ready to claim";
+      case "pending":
+        return "Not sent yet";
+      case "deposited":
+        return "Waiting to be claimed";
     case "distributed":
       return "Distributed";
     case "claimed":
@@ -171,6 +163,19 @@ export default function PayerDashboard() {
     (p) => payoutDisplayStatus(p, store.payments) === "deposited",
   ).length;
 
+  const me = address
+    ? store.subscribers.find((s) => s.address.toLowerCase() === address.toLowerCase())
+    : undefined;
+  const waitingForMe = me
+    ? store.payments.filter(
+        (p) =>
+          p.subscriberId === me.id &&
+          p.status === "claimable" &&
+          Boolean(p.noteId) &&
+          p.depositConfirmed === true,
+      )
+    : [];
+
   // Check if selected org can be deleted (no payments or all claimed/failed)
   const orgPayments = selectedOrg
     ? store.payments.filter((p) => p.organizerId === selectedOrg.id)
@@ -219,7 +224,7 @@ export default function PayerDashboard() {
         toast.message(
           hasFlushablePendingNoteSecrets()
             ? "Could not save pending notes yet — check the console or try again."
-            : "Falta deposit_tx en el backup. En consola: await __blizRecoverPendingNotes('0x…')",
+            : "The deposit is on-chain, but the note was not saved. Do not send again. Reload and recover.",
         );
         setShowNoteRecovery(hasAnyPendingNoteSecrets());
       }
@@ -380,11 +385,25 @@ export default function PayerDashboard() {
     <div className="space-y-8">
       <WalletBalances address={address || undefined} />
 
+      {waitingForMe.length > 0 && (
+        <Link
+          href="/receive"
+          className="block rounded-xl border border-primary/40 bg-primary/10 px-4 py-3"
+        >
+          <p className="font-medium">
+            {waitingForMe.length === 1
+              ? "You have a payment waiting."
+              : `You have ${waitingForMe.length} payments waiting.`}
+          </p>
+          <p className="text-sm text-muted-foreground">Get paid</p>
+        </Link>
+      )}
+
       {showNoteRecovery ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
           <p className="text-muted-foreground">
-            Local backup has note secrets from a deposit that may not be saved yet.
-            Recover to mark the payout claimable.
+            Local backup has a payment that may not be saved yet.
+            Recover it so people can get paid.
           </p>
           <Button
             size="sm"
@@ -422,16 +441,16 @@ export default function PayerDashboard() {
           <DialogTrigger asChild>
             <Button variant="outline" size="sm" className="gap-2">
               <Plus className="h-4 w-4" />
-              New Organization
+              New group
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create Organization</DialogTitle>
+              <DialogTitle>Name your group</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-2">
               <Input
-                placeholder="Organization name"
+                placeholder="Group name"
                 value={newOrgName}
                 onChange={(e) => setNewOrgName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleCreateOrg()}
@@ -458,7 +477,7 @@ export default function PayerDashboard() {
       {!selectedOrg ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            No organizations on {CHAINS[selectedChainId]?.name ?? "this network"}. Create one to start distributing payouts.
+            No group on {CHAINS[selectedChainId]?.name ?? "this network"} yet. Name one to start sending.
           </CardContent>
         </Card>
       ) : (
@@ -569,13 +588,12 @@ export default function PayerDashboard() {
                 </DialogHeader>
                 <div className="space-y-4 pt-2">
                   <p className="text-sm text-muted-foreground">
-                    Generate an invite link. Set how many different people can join with the same
-                    code (default 1 = single-use).
+                    Generate a link. Choose how many people can join with it.
                   </p>
                   {!inviteLink && (
                     <div className="space-y-2">
                       <label htmlFor="invite-max-uses" className="text-sm font-medium">
-                        Valid for N joins
+                        How many people
                       </label>
                       <Input
                         id="invite-max-uses"
@@ -599,7 +617,7 @@ export default function PayerDashboard() {
                     ) : (
                       <>
                         <Link2 className="h-4 w-4" />
-                        Generate invite link
+                        Create link
                       </>
                     )}
                   </Button>
@@ -670,7 +688,7 @@ export default function PayerDashboard() {
               <CardContent className="flex items-center gap-4 p-6">
                 <Users className="h-6 w-6 text-muted-foreground" />
                 <div>
-                  <p className="text-sm text-muted-foreground">Subscribers</p>
+                  <p className="text-sm text-muted-foreground">People</p>
                   <p className="text-2xl font-bold">{orgSubs.length}</p>
                 </div>
               </CardContent>
@@ -679,7 +697,7 @@ export default function PayerDashboard() {
               <CardContent className="flex items-center gap-4 p-6">
                 <Clock className="h-6 w-6 text-muted-foreground" />
                 <div>
-                  <p className="text-sm text-muted-foreground">Ready to claim</p>
+                  <p className="text-sm text-muted-foreground">Waiting to be claimed</p>
                   <p className="text-2xl font-bold">{readyToClaimPayouts}</p>
                 </div>
               </CardContent>
@@ -688,110 +706,75 @@ export default function PayerDashboard() {
 
           {/* CTA */}
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Subscribers</h2>
+            <h2 className="text-lg font-semibold">People</h2>
             <Link href={`/payer/create?org=${selectedOrg.id}`}>
               <Button className="gap-2">
                 <Plus className="h-4 w-4" />
-                Create Payout
+                Send
               </Button>
             </Link>
           </div>
 
-          {/* Subscribers Table */}
-          <Card className="overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Address</TableHead>
-                  <TableHead>Joined</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {orgSubs.map((sub) => {
-                  const s = getSubscriberById(sub.subscriberId);
-                  if (!s) return null;
-                  return (
-                    <TableRow key={sub.id}>
-                      <TableCell className="font-medium">{s.name}</TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        {s.address.slice(0, 6)}...{s.address.slice(-4)}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {new Date(sub.joinedAt).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={sub.status === "active" ? "default" : "secondary"}>
-                          {sub.status}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-                {orgSubs.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
-                      No subscribers yet. Generate an invite link so people can join.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </Card>
+          <ul className="divide-y divide-border rounded-xl border border-border">
+            {orgSubs.map((sub) => {
+              const s = getSubscriberById(sub.subscriberId);
+              if (!s) return null;
+              return (
+                <li key={sub.id} className="flex items-start justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="font-medium">{s.name}</p>
+                    <p className="break-all font-mono text-[11px] leading-snug text-muted-foreground">
+                      {s.address}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Joined {new Date(sub.joinedAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <Badge variant={sub.status === "active" ? "default" : "secondary"}>
+                    {sub.status}
+                  </Badge>
+                </li>
+              );
+            })}
+            {orgSubs.length === 0 && (
+              <li className="px-4 py-8 text-center text-sm text-muted-foreground">
+                No one here yet. Share a link so people can join.
+              </li>
+            )}
+          </ul>
 
-          {/* Recent Payouts */}
-          <h2 className="text-xl font-semibold">Recent Payouts</h2>
-          <Card className="overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Recipients</TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentPayouts.map((payout) => (
-                  <TableRow key={payout.id}>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {new Date(payout.createdAt).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell>
-                      {
-                        store.payments.filter(
-                          (p) =>
-                            p.payoutId === payout.id &&
-                            (p.status === "claimable" || p.status === "claimed")
-                        ).length
-                      }
-                    </TableCell>
-                    <TableCell className="font-medium">
+          <h2 className="text-lg font-semibold">Payments</h2>
+          <ul className="divide-y divide-border rounded-xl border border-border">
+            {recentPayouts.map((payout) => {
+              const status = payoutDisplayStatus(payout, store.payments);
+              const people = store.payments.filter(
+                (p) =>
+                  p.payoutId === payout.id &&
+                  (p.status === "claimable" || p.status === "claimed"),
+              ).length;
+              return (
+                <li key={payout.id} className="flex items-start justify-between gap-3 px-4 py-3">
+                  <div>
+                    <p className="font-medium">
                       {formatTokenAmount(payout.totalAmount, payout.token || "USDC")}
-                    </TableCell>
-                    <TableCell>
-                      {(() => {
-                        const status = payoutDisplayStatus(payout, store.payments);
-                        return (
-                          <Badge variant={payoutStatusVariant(status)}>
-                            {payoutStatusLabel(status)}
-                          </Badge>
-                        );
-                      })()}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {recentPayouts.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
-                      No payouts yet.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </Card>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(payout.createdAt).toLocaleDateString()}
+                      {people > 0 ? ` · ${people} ${people === 1 ? "person" : "people"}` : ""}
+                    </p>
+                  </div>
+                  <Badge variant={payoutStatusVariant(status)}>
+                    {payoutStatusLabel(status)}
+                  </Badge>
+                </li>
+              );
+            })}
+            {recentPayouts.length === 0 && (
+              <li className="px-4 py-8 text-center text-sm text-muted-foreground">
+                No payments yet.
+              </li>
+            )}
+          </ul>
         </>
       )}
     </div>

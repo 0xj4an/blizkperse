@@ -1,81 +1,40 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useChain } from "@/lib/chain-context";
-import { CHAINS, CHAIN_IDS, type SupportedChainId } from "@/lib/constants";
+import Link from "next/link";
+import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
-
-const CHAIN_DOT: Record<string, string> = {
-  monad: "bg-purple-500",
-  celo: "bg-yellow-400",
-  robinhood: "bg-emerald-500",
-};
-
-// prettier-ignore
-const ASCII_ART = `
-██████╗ ██╗     ██╗███████╗██╗  ██╗
-██╔══██╗██║     ██║╚══███╔╝██║ ██╔╝
-██████╔╝██║     ██║  ███╔╝ █████╔╝
-██╔══██╗██║     ██║ ███╔╝  ██╔═██╗
-██████╔╝███████╗██║███████╗██║  ██╗
-╚═════╝ ╚══════╝╚═╝╚══════╝╚═╝  ╚═╝
-██████╗ ███████╗██████╗ ███████╗███████╗
-██╔══██╗██╔════╝██╔══██╗██╔════╝██╔════╝
-██████╔╝█████╗  ██████╔╝███████╗█████╗
-██╔═══╝ ██╔══╝  ██╔══██╗╚════██║██╔══╝
-██║     ███████╗██║  ██║███████║███████╗
-╚═╝     ╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝`;
+import { HandCoins, Send } from "lucide-react";
 
 export default function Home() {
-  const router = useRouter();
-  const { setChainId } = useChain();
-
-  const handleSelect = (id: SupportedChainId) => {
-    setChainId(id);
-    router.push("/dashboard");
-  };
-
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <main className="flex flex-1 items-center justify-center">
-        <div className="mx-4 w-full max-w-lg space-y-8 text-center">
-          <div className="space-y-4">
-            <pre
-              className="hidden select-none overflow-hidden text-center font-mono text-[0.45rem] leading-[1.1] text-foreground/70 sm:block sm:text-[0.55rem] md:text-xs"
-              aria-hidden="true"
-            >
-              {ASCII_ART}
-            </pre>
-            <h1 className="text-3xl font-extrabold tracking-tight text-foreground sm:hidden">
-              BLIZKPERSE
-            </h1>
-            <p className="text-muted-foreground">
-              Select a network to get started
+      <Header />
+      <main className="container mx-auto flex w-full max-w-lg flex-1 flex-col justify-center px-4 py-10">
+        <h1 className="text-2xl font-semibold tracking-tight">What do you want to do?</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Pick a network in the header. The color follows that network.
+        </p>
+        <div className="mt-8 grid gap-3">
+          <Link
+            href="/receive"
+            className="rounded-2xl border border-primary/40 bg-primary/10 p-5 transition-colors hover:bg-primary/15"
+          >
+            <HandCoins className="h-5 w-5 text-primary" />
+            <p className="mt-3 text-lg font-semibold">Get paid</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Open a link, or see what is already yours.
             </p>
-          </div>
-
-          <div className="space-y-3">
-            {CHAIN_IDS.map((id) => {
-              const chain = CHAINS[id];
-              return (
-                <button
-                  key={id}
-                  onClick={() => handleSelect(id)}
-                  className="glass group flex w-full items-center gap-4 rounded-xl border border-border/50 p-4 text-left transition-all hover:border-foreground/30 hover:shadow-lg"
-                >
-                  <span
-                    className={`h-3 w-3 rounded-full ${CHAIN_DOT[chain.slug]}`}
-                  />
-                  <span className="flex-1 text-sm font-medium text-foreground">
-                    {chain.name}
-                  </span>
-                  <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                    Select &rarr;
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          </Link>
+          <Link
+            href="/payer"
+            className="rounded-2xl border border-border bg-card p-5 transition-colors hover:border-foreground/20"
+          >
+            <Send className="h-5 w-5 text-primary" />
+            <p className="mt-3 text-lg font-semibold">Send</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Pay the people in your group.
+            </p>
+          </Link>
         </div>
       </main>
       <Footer />

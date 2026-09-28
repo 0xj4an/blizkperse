@@ -4,20 +4,11 @@ import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { motion } from "framer-motion";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { TxStatus, type TxState } from "@/components/tx-status";
-import { ClaimDestinationTip } from "@/components/claim-destination-tip";
-import {
-  ArrowLeft,
-  CircleDollarSign,
-  Wallet,
-  CheckCircle2,
-} from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import {
   useStore,
   getOrganizerById,
@@ -88,6 +79,7 @@ export default function ClaimPage() {
   });
   const { chainId: selectedChainId } = useChain();
   const [destinationAddress, setDestinationAddress] = useState("");
+  const [otherWallet, setOtherWallet] = useState(false);
   // When Alchemy is configured, wait for the smart account — do not let EOA claim
   // race ahead while AA is still loading (that path needs native gas, no sponsorship).
   const canSubmitClaim =
@@ -439,140 +431,109 @@ export default function ClaimPage() {
       <Link href="/receive">
         <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground">
           <ArrowLeft className="h-4 w-4" />
-          Back to Dashboard
+          Back
         </Button>
       </Link>
 
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-      >
-        <Card className={claimed ? "overflow-hidden" : "overflow-visible"}>
-          <CardHeader className="text-center pb-4">
-            <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full border border-foreground/10">
-              {claimed ? (
-                <CheckCircle2 className="h-8 w-8 text-green-500/80" />
-              ) : (
-                <CircleDollarSign className="h-8 w-8 text-muted-foreground" />
-              )}
-            </div>
-            <CardTitle className="text-xl">
-              {claimed ? "Payment Received" : "Payment Available"}
-            </CardTitle>
-          </CardHeader>
+      <Card>
+        <CardContent className="space-y-6 p-6">
+          <div className="text-center">
+            <p className="text-sm text-muted-foreground">{org?.name ?? "Payment"}</p>
+            <p className="mt-2 text-4xl font-semibold tracking-tight">
+              {payment.amount.toLocaleString()} {paymentTokenSymbol}
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {claimed ? "Paid" : "Ready"}
+            </p>
+          </div>
 
-          <CardContent className="space-y-6">
-            <div className="text-center">
-              <p className="text-4xl font-bold">
-                {payment.amount.toLocaleString()} {paymentTokenSymbol}
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">note amount</p>
-            </div>
-
-            <Separator />
-
+          {!claimed && txState === "idle" && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">From</span>
-                <span className="font-medium">{org?.name ?? "Unknown"}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm gap-2">
-                <span className="text-muted-foreground shrink-0">Payment ID</span>
-                <span className="font-mono text-xs truncate" title={payment.id}>{payment.id.slice(0, 8)}...{payment.id.slice(-6)}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm gap-2">
-                <span className="text-muted-foreground shrink-0">Payout ID</span>
-                <span className="font-mono text-xs truncate" title={payment.payoutId}>{payment.payoutId.slice(0, 8)}...{payment.payoutId.slice(-6)}</span>
-              </div>
-              {payment.noteId && (
-                <div className="flex items-center justify-between text-sm gap-2">
-                  <span className="text-muted-foreground shrink-0">Note ID</span>
-                  <span className="font-mono text-xs truncate" title={payment.noteId}>{payment.noteId.slice(0, 8)}...{payment.noteId.slice(-6)}</span>
-                </div>
-              )}
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Status</span>
-                <Badge variant={claimed ? "default" : "secondary"}>
-                  {claimed ? "Claimed" : "Claimable"}
-                </Badge>
-              </div>
-              {claimed && (txHash || payment.txHash) && (
-                <div className="flex items-center justify-between text-sm gap-2">
-                  <span className="text-muted-foreground shrink-0">Tx Hash</span>
-                  <a
-                    href={`${claimExplorerUrl || CHAINS[selectedChainId].explorerUrl}/tx/${txHash || payment.txHash || ""}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-mono text-xs text-primary hover:underline truncate"
-                    title={txHash || payment.txHash || ""}
-                  >
-                    {(txHash || payment.txHash || "").slice(0, 10)}...{(txHash || payment.txHash || "").slice(-8)}
-                  </a>
-                </div>
-              )}
-            </div>
-
-            {!claimed && txState === "idle" && (
-              <div className="space-y-3">
-                <ClaimDestinationTip enabled>
-                  <div className="space-y-2">
-                    <label className="text-sm text-muted-foreground">
-                      Destination wallet (receives {paymentAmountLabel})
-                    </label>
-                    <Input
-                      placeholder="0x..."
-                      value={destinationAddress}
-                      onChange={(e) => setDestinationAddress(e.target.value)}
-                      className="font-mono text-sm"
-                    />
-                    {address && destinationAddress !== address && (
-                      <button
-                        type="button"
-                        onClick={() => setDestinationAddress(address)}
-                        className="text-xs text-muted-foreground hover:text-foreground hover:underline"
-                      >
-                        Use connected wallet ({address.slice(0, 6)}...
-                        {address.slice(-4)})
-                      </button>
-                    )}
-                  </div>
-                </ClaimDestinationTip>
-                <Button
-                  size="lg"
-                  className="w-full gap-2"
-                  onClick={handleClaim}
-                  disabled={!canSubmitClaim}
-                >
-                  <Wallet className="h-5 w-5" />
-                  {alchemyLoading
-                    ? "Preparing sponsored wallet…"
-                    : canSubmitClaim
-                      ? "Claim Payment"
-                      : isAlchemyConfigured && isReady && !alchemyReady
-                        ? "Sponsored wallet unavailable"
-                        : "Connect wallet to claim"}
-                </Button>
-              </div>
-            )}
-
-            {(txState === "pending" || txState === "success" || txState === "error") && (
-              <TxStatus
-                state={txState}
-                successMessage="Payment transferred to your wallet!"
-                successDetail={claimRecipient ? `Received by: ${claimRecipient.slice(0, 6)}...${claimRecipient.slice(-4)}` : undefined}
-                progressMessage={STEP_MESSAGES[claimStep] || "Processing..."}
-              />
-            )}
-
-            {txState === "error" && (
-              <Button variant="outline" className="w-full" onClick={handleClaim}>
-                Try Again
+              <Button
+                size="lg"
+                className="w-full"
+                onClick={handleClaim}
+                disabled={!canSubmitClaim}
+              >
+                {alchemyLoading
+                  ? "Preparing..."
+                  : canSubmitClaim
+                    ? "Get paid"
+                    : isAlchemyConfigured && isReady && !alchemyReady
+                      ? "Sponsored wallet unavailable"
+                      : "Log in to get paid"}
               </Button>
-            )}
-          </CardContent>
-        </Card>
-      </motion.div>
+              {!otherWallet ? (
+                <button
+                  type="button"
+                  onClick={() => setOtherWallet(true)}
+                  className="w-full text-center text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Send to a different wallet
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <label className="text-sm text-muted-foreground" htmlFor="destination">
+                    Wallet that receives {paymentAmountLabel}
+                  </label>
+                  <Input
+                    id="destination"
+                    value={destinationAddress}
+                    onChange={(e) => setDestinationAddress(e.target.value)}
+                    className="break-all font-mono text-xs"
+                    spellCheck={false}
+                  />
+                  {address ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDestinationAddress(address);
+                        setOtherWallet(false);
+                      }}
+                      className="text-sm text-muted-foreground hover:text-foreground"
+                    >
+                      Use this wallet instead
+                    </button>
+                  ) : null}
+                </div>
+              )}
+              <p className="text-center text-xs text-muted-foreground">
+                Getting paid does not need a network fee. Moving the funds later does.
+              </p>
+            </div>
+          )}
+
+          {(txState === "pending" || txState === "success" || txState === "error") && (
+            <TxStatus
+              state={txState}
+              successMessage="Paid to your wallet."
+              successDetail={
+                claimRecipient
+                  ? `Received by ${claimRecipient}`
+                  : undefined
+              }
+              progressMessage={STEP_MESSAGES[claimStep] || "Processing..."}
+            />
+          )}
+
+          {txState === "error" && (
+            <Button variant="outline" className="w-full" onClick={handleClaim}>
+              Try again
+            </Button>
+          )}
+
+          {claimed && (txHash || payment.txHash) && (
+            <a
+              href={`${claimExplorerUrl || CHAINS[selectedChainId].explorerUrl}/tx/${txHash || payment.txHash || ""}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block break-all text-center font-mono text-[11px] leading-snug text-primary hover:underline"
+            >
+              {txHash || payment.txHash}
+            </a>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

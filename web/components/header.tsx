@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useAccount, useModal, useLogout, useExportPrivateKey } from "@getpara/react-sdk";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,24 +12,26 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ChainSelector } from "@/components/chain-selector";
-import { LogIn, ChevronDown, LayoutDashboard, HandCoins, LogOut, Copy, Check, KeyRound } from "lucide-react";
+import { LogIn, ChevronDown, LogOut, Copy, Check, KeyRound, Send, HandCoins } from "lucide-react";
 import { useState } from "react";
 import { useChain } from "@/lib/chain-context";
+import { cn } from "@/lib/utils";
 
-function truncateAddress(address: string) {
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
-}
+const NAV = [
+  { href: "/payer", label: "Send", icon: Send },
+  { href: "/receive", label: "Get paid", icon: HandCoins },
+] as const;
 
 export function Header() {
+  const pathname = usePathname();
   const { isConnected, embedded } = useAccount();
   const { openModal } = useModal();
   const { logout } = useLogout();
-  const { exportPrivateKey, isPending: isExporting } = useExportPrivateKey();
+  const exportKey = useExportPrivateKey();
   useChain();
   const [copied, setCopied] = useState(false);
 
   const address = embedded?.wallets?.[0]?.address;
-  // Session-only Para identity (not persisted by Blizkperse).
   const sessionEmail =
     typeof embedded?.email === "string" && embedded.email.trim()
       ? embedded.email.trim()
@@ -43,46 +46,46 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-foreground/10 bg-background/80 backdrop-blur-sm">
-      <div className="container mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
-        {/* Logo + Nav */}
-        <div className="flex items-center gap-6">
-          <Link href="/" className="flex items-center text-primary transition-colors duration-500">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 56" fill="none" className="h-8 w-auto" aria-label="Blizkperse">
-              <g transform="translate(2, 2)">
-                <path
-                  d="M26 4L6 14v14c0 12.5 8.5 24.2 20 27 11.5-2.8 20-14.5 20-27V14L26 4z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinejoin="round"
-                  fill="none"
-                  opacity="0.7"
-                />
-                <circle cx="26" cy="24" r="5" stroke="currentColor" strokeWidth="1.8" fill="none" opacity="0.9" />
-                <line x1="26" y1="29" x2="26" y2="35" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" opacity="0.9" />
-              </g>
-              <text x="62" y="38" fontFamily="'Geist', 'Inter', ui-monospace, monospace" fontSize="28" fontWeight="700" fill="currentColor" letterSpacing="-0.01em" opacity="0.9">blizkperse</text>
+      <div className="container mx-auto flex h-14 max-w-2xl items-center justify-between gap-2 px-4">
+        <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+          <Link href="/" className="flex shrink-0 items-center gap-2 text-primary" aria-label="Blizkperse home">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 56" fill="none" className="h-8 w-8" aria-hidden="true">
+              <path
+                d="M26 4L6 14v14c0 12.5 8.5 24.2 20 27 11.5-2.8 20-14.5 20-27V14L26 4z"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinejoin="round"
+                fill="none"
+                opacity="0.7"
+              />
+              <circle cx="26" cy="24" r="5" stroke="currentColor" strokeWidth="1.8" fill="none" opacity="0.9" />
+              <line x1="26" y1="29" x2="26" y2="35" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" opacity="0.9" />
             </svg>
+            <span className="hidden text-sm font-semibold tracking-tight sm:inline">blizkperse</span>
           </Link>
 
           {isConnected && (
-            <nav className="hidden items-center gap-1 md:flex">
-              <Link href="/payer">
-                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
-                  <HandCoins className="mr-1.5 h-4 w-4" />
-                  Distribute
-                </Button>
-              </Link>
-              <Link href="/receive">
-                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
-                  <LayoutDashboard className="mr-1.5 h-4 w-4" />
-                  Receive
-                </Button>
-              </Link>
+            <nav className="flex items-center">
+              {NAV.map((item) => {
+                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const Icon = item.icon;
+                return (
+                  <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined}>
+                    <Button
+                      variant={active ? "secondary" : "ghost"}
+                      size="sm"
+                      className={cn("gap-1.5 px-2 sm:px-3", active && "text-foreground")}
+                    >
+                      <Icon className="h-4 w-4" />
+                      <span className="hidden sm:inline">{item.label}</span>
+                    </Button>
+                  </Link>
+                );
+              })}
             </nav>
           )}
         </div>
 
-        {/* Chain Selector + Wallet */}
         <div className="flex items-center gap-2">
           <ChainSelector />
 
@@ -94,65 +97,54 @@ export function Header() {
                   e.stopPropagation();
                   copyAddress();
                 }}
-                className="flex max-w-[12rem] flex-col items-start gap-0 rounded-md border border-transparent bg-secondary px-2.5 py-1 text-left transition-colors hover:bg-secondary/80 sm:max-w-[18rem]"
-                title={copied ? "Copied!" : `Copy ${address}`}
+                className="flex max-w-[9rem] flex-col items-start rounded-md bg-secondary px-2.5 py-1 text-left sm:max-w-[14rem]"
+                title={copied ? "Copied" : "Copy wallet address"}
               >
-                <span className="flex items-center gap-1.5 font-mono text-xs leading-tight">
-                  <span className="truncate">{copied ? "Copied!" : truncateAddress(address)}</span>
+                <span className="flex w-full items-center gap-1.5 text-xs leading-tight">
+                  <span className="truncate">{copied ? "Copied" : sessionEmail ?? "Wallet"}</span>
                   {copied ? (
-                    <Check className="h-3 w-3 shrink-0 text-green-500" />
+                    <Check className="h-3 w-3 shrink-0 text-primary" />
                   ) : (
                     <Copy className="h-3 w-3 shrink-0 text-muted-foreground" />
                   )}
                 </span>
-                {sessionEmail ? (
-                  <span className="w-full truncate text-[10px] leading-tight text-muted-foreground">
-                    {sessionEmail}
-                  </span>
-                ) : null}
               </button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" className="h-8 w-8">
+                  <Button variant="outline" size="icon" className="h-8 w-8" aria-label="Account menu">
                     <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-64">
-                  {sessionEmail ? (
-                    <>
-                      <div className="px-2 py-1.5">
-                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                          Signed in as
-                        </p>
-                        <p className="truncate text-sm" title={sessionEmail}>
-                          {sessionEmail}
-                        </p>
-                        <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                          {truncateAddress(address)}
-                        </p>
-                      </div>
-                      <DropdownMenuSeparator />
-                    </>
-                  ) : null}
-                  <Link href="/payer" className="md:hidden">
-                    <DropdownMenuItem>
-                      <LayoutDashboard className="mr-2 h-4 w-4" />
-                      Organizer Dashboard
-                    </DropdownMenuItem>
-                  </Link>
-                  <Link href="/receive" className="md:hidden">
-                    <DropdownMenuItem>
-                      <HandCoins className="mr-2 h-4 w-4" />
-                      Recipient Dashboard
-                    </DropdownMenuItem>
-                  </Link>
-                  <DropdownMenuSeparator className="md:hidden" />
+                <DropdownMenuContent align="end" className="w-72">
+                  <div className="px-2 py-1.5">
+                    {sessionEmail ? (
+                      <p className="truncate text-sm">{sessionEmail}</p>
+                    ) : (
+                      <p className="text-sm">Signed in</p>
+                    )}
+                    <p className="mt-1 break-all font-mono text-[11px] leading-snug text-muted-foreground">
+                      {address}
+                    </p>
+                  </div>
+                  <DropdownMenuSeparator />
+                  {NAV.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <Link key={item.href} href={item.href} className="sm:hidden">
+                        <DropdownMenuItem>
+                          <Icon className="mr-2 h-4 w-4" />
+                          {item.label}
+                        </DropdownMenuItem>
+                      </Link>
+                    );
+                  })}
+                  <DropdownMenuSeparator className="sm:hidden" />
                   <DropdownMenuItem
-                    onClick={() => exportPrivateKey({ walletId: embedded?.wallets?.[0]?.id })}
-                    disabled={isExporting}
+                    onClick={() => exportKey.mutate({ walletId: embedded?.wallets?.[0]?.id })}
+                    disabled={exportKey.isPending}
                   >
                     <KeyRound className="mr-2 h-4 w-4" />
-                    {isExporting ? "Exporting..." : "Export Private Key"}
+                    {exportKey.isPending ? "Exporting..." : "Export private key"}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -160,7 +152,7 @@ export function Header() {
                     className="text-destructive focus:text-destructive"
                   >
                     <LogOut className="mr-2 h-4 w-4" />
-                    Log Out
+                    Log out
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -168,7 +160,7 @@ export function Header() {
           ) : (
             <Button size="sm" onClick={() => openModal()} className="gap-2">
               <LogIn className="h-4 w-4" />
-              Log In
+              Log in
             </Button>
           )}
         </div>
